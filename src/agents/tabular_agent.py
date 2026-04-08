@@ -14,7 +14,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
-from llm_harness.clients.openrouter import ChatOpenRouter
+from llm_harness.clients.openai import ChatOpenAI
 from llm_harness.tools.sql.query import save_view
 from llm_harness.tools.sql.sql_agent import answer_sql_question
 from llm_harness.tools.tabular.tools import make_tabular_tools
@@ -333,7 +333,7 @@ class TabularTaskAgent:
     ):
         self.prompt = prompt
         self.model = os.getenv(DEFAULT_MODEL_ENV) or DEFAULT_MODEL
-        self.llm = ChatOpenRouter(
+        self.llm = ChatOpenAI(
             model=self.model,
             temperature=0,
             reasoning_effort=DEFAULT_REASONING_EFFORT,
