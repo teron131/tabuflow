@@ -1,0 +1,58 @@
+"""Public facade for the deterministic SQL compiler."""
+
+from __future__ import annotations
+
+from .compiler import build_compile_input, compile_sql
+from .types import (
+    AGGREGATE_FUNCTION_NAMES,
+    SAFE_IDENTIFIER_PATTERN,
+    SUPPORTED_FUNCTION_NAMES,
+    SQLBinaryOperator,
+    SQLCommonTableExpression,
+    SQLCompileInput,
+    SQLCompileIssue,
+    SQLCompileIssueCode,
+    SQLCompileResult,
+    SQLCompileStatus,
+    SQLExpression,
+    SQLExpressionKind,
+    SQLJoin,
+    SQLJoinType,
+    SQLOrderByItem,
+    SQLOrderDirection,
+    SQLQuery,
+    SQLSelectItem,
+    SQLSetOperation,
+    SQLSetOperator,
+    SQLSource,
+    SQLSourceKind,
+    SQLUnaryOperator,
+)
+
+__all__ = [
+    "AGGREGATE_FUNCTION_NAMES",
+    "SAFE_IDENTIFIER_PATTERN",
+    "SUPPORTED_FUNCTION_NAMES",
+    "SQLBinaryOperator",
+    "SQLCommonTableExpression",
+    "SQLCompileInput",
+    "SQLCompileIssue",
+    "SQLCompileIssueCode",
+    "SQLCompileResult",
+    "SQLCompileStatus",
+    "SQLExpression",
+    "SQLExpressionKind",
+    "SQLJoin",
+    "SQLJoinType",
+    "SQLOrderByItem",
+    "SQLOrderDirection",
+    "SQLQuery",
+    "SQLSelectItem",
+    "SQLSetOperation",
+    "SQLSetOperator",
+    "SQLSource",
+    "SQLSourceKind",
+    "SQLUnaryOperator",
+    "build_compile_input",
+    "compile_sql",
+]
