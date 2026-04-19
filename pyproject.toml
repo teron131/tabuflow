@@ -4,19 +4,19 @@ version = "0.1.0"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
-    "fastapi>=0.116.1",
-    "langchain>=1.2.10",
-    "langchain-openai>=1.1.11",
+    "fastapi>=0.136.0",
+    "langchain>=1.2.15",
+    "langchain-openai>=1.1.14",
     "llm-harness",
     "openpyxl>=3.1.5",
-    "pydantic>=2.12.5",
-    "pydantic-settings>=2.11.0",
-    "pymupdf>=1.27.1",
-    "rich>=14.3.3",
-    "ruff>=0.15.5",
+    "pydantic>=2.13.2",
+    "pydantic-settings>=2.13.1",
+    "pymupdf>=1.27.2.2",
+    "rich>=15.0.0",
+    "ruff>=0.15.11",
     "scipy>=1.17.1",
-    "sqlglot>=30.3.0",
-    "uvicorn>=0.35.0",
+    "sqlglot>=30.4.3",
+    "uvicorn>=0.44.0",
 ]
 
 [build-system]
