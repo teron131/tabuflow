@@ -11,6 +11,7 @@ from llm_harness.clients.openai import ChatOpenAI
 from llm_harness.tools import list_skills
 
 from .graph import create_tabular_graph
+from .payloads import compact_extracted_targets, compact_sql_agent_output, compact_sql_result
 from .prompts import format_source_file_list
 from .state import TabularTaskOutput, build_graph_input
 
@@ -115,6 +116,12 @@ def render_step_update(
             )
             for field_name, default_value in step_fields.items()
         }
+        if step_name == "extract":
+            payload["extracted_targets"] = compact_extracted_targets(list(payload.get("extracted_targets", [])))
+        if step_name == "sql":
+            payload["sql_result"] = compact_sql_result(payload.get("sql_result"))
+            if "sql_agent_output" in update:
+                payload["sql_agent_output"] = compact_sql_agent_output(update.get("sql_agent_output"))
         return json.dumps(
             payload,
             ensure_ascii=True,

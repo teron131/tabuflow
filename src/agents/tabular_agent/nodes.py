@@ -11,8 +11,9 @@ from langchain.messages import HumanMessage, SystemMessage
 
 from llm_harness.tools import search_skills
 from llm_harness.tools.sql.query import save_view
-from llm_harness.tools.sql.sql_agent import answer_sql_question
+from llm_harness.tools.sql.sql_agent import SQLAgent
 
+from .payloads import build_answer_payload, compact_sql_agent_output
 from .prompts import FINAL_ANSWER_SYSTEM_PROMPT, build_task_prompt
 from .state import TabularTaskState, append_trace
 
@@ -160,6 +161,7 @@ def make_sql_node(
     prompt: str,
 ):
     """Create the SQL-agent node."""
+    sql_agent = SQLAgent(llm=llm)
 
     def sql_node(state: TabularTaskState) -> StateUpdate:
         if not state.database_path:
@@ -180,9 +182,8 @@ def make_sql_node(
             state.source_files,
             search_context=state.search_context,
         )
-        sql_output = answer_sql_question(
+        sql_output = sql_agent.invoke(
             task_prompt,
-            llm=llm,
             database_path=state.database_path,
         )
         trace_message = f"sql agent finished with status={sql_output.status}"
@@ -195,7 +196,7 @@ def make_sql_node(
             state,
             trace_message,
             status=sql_output.status,
-            sql_agent_output=sql_output.model_dump(mode="json"),
+            sql_agent_output=compact_sql_agent_output(sql_output.model_dump(mode="json")),
             selected_targets=sql_output.selected_targets,
             candidate_sql=sql_output.candidate_sql,
             sql_result=sql_output.result,
@@ -250,33 +251,22 @@ def make_answer_node(llm: Any, *, prompt: str):
             state.source_files,
             search_context=state.search_context,
         )
+        execution_payload = build_answer_payload(
+            task=state.task,
+            status=state.status,
+            source_files=state.source_files,
+            database_path=state.database_path,
+            extracted_targets=state.extracted_targets,
+            selected_targets=state.selected_targets,
+            candidate_sql=state.candidate_sql,
+            sql_result=state.sql_result,
+            saved_view_name=state.saved_view_name,
+            last_error=state.last_error,
+        )
         response = llm.invoke(
             [
                 SystemMessage(content=FINAL_ANSWER_SYSTEM_PROMPT),
-                HumanMessage(
-                    content=(
-                        f"{task_prompt}\n\n"
-                        "Execution result:\n"
-                        f"{
-                            json.dumps(
-                                {
-                                    'task': state.task,
-                                    'status': state.status,
-                                    'source_files': state.source_files,
-                                    'database_path': state.database_path,
-                                    'extracted_targets': state.extracted_targets,
-                                    'selected_targets': state.selected_targets,
-                                    'candidate_sql': state.candidate_sql,
-                                    'sql_result': state.sql_result,
-                                    'saved_view_name': state.saved_view_name,
-                                    'last_error': state.last_error,
-                                },
-                                ensure_ascii=True,
-                                sort_keys=True,
-                            )
-                        }"
-                    )
-                ),
+                HumanMessage(content=(f"{task_prompt}\n\nExecution result:\n{json.dumps(execution_payload, ensure_ascii=True, sort_keys=True)}")),
             ]
         )
         return traced_update(

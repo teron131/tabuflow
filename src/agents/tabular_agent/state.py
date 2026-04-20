@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+MAX_TRACE_MESSAGES = 12
+
 
 class TabularTaskInput(BaseModel):
     """Public input for the deterministic tabular analysis graph."""
@@ -41,7 +43,8 @@ class TabularTaskState(TabularTaskInput, TabularTaskOutput):
 
 def append_trace(state: TabularTaskState, message: str) -> list[str]:
     """Append one trace message."""
-    return [*state.trace, message]
+    next_trace = [*state.trace, message]
+    return next_trace[-MAX_TRACE_MESSAGES:]
 
 
 def build_graph_input(task: str, source_files: list[str]) -> TabularTaskInput:
