@@ -9,6 +9,7 @@ from typing import Any
 
 from langchain.messages import HumanMessage, SystemMessage
 
+from llm_harness.tools import search_skills
 from llm_harness.tools.sql.query import save_view
 from llm_harness.tools.sql.sql_agent import answer_sql_question
 
@@ -17,6 +18,7 @@ from .state import TabularTaskState, append_trace
 
 DEFAULT_VIEW_NAME = "analysis_result"
 VIEW_NAME_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with"}
+SKILLS_PATH = "skills"
 StateUpdate = dict[str, Any]
 
 
@@ -74,6 +76,40 @@ def error_update(
     )
 
 
+def make_skills_node():
+    """Create the skills-search node for task-time graph context."""
+
+    def skills_node(state: TabularTaskState) -> StateUpdate:
+        skills_result = search_skills.invoke(
+            {
+                "path": SKILLS_PATH,
+                "query": state.task,
+            }
+        )
+        skills = skills_result.get("skills", [])
+        skill_lines = [f"- {skill['name']}: {skill['description']} ({skill['path']}, score={skill['score']})" for skill in skills]
+        section_lines = (
+            [
+                f"Relevant workspace skills discovered by `search_skills` under `{SKILLS_PATH}` for this task:",
+                *skill_lines,
+            ]
+            if skill_lines
+            else [f"Relevant workspace skills discovered by `search_skills` under `{SKILLS_PATH}` for this task: none above threshold."]
+        )
+        if diagnostics := skills_result.get("diagnostics", []):
+            section_lines.extend(["Skill discovery diagnostics:", *(f"- {message}" for message in diagnostics)])
+
+        matched_skill_names = [str(skill["name"]) for skill in skills]
+        return traced_update(
+            state,
+            f"matched {len(matched_skill_names)} workspace skills",
+            matched_skill_names=matched_skill_names,
+            search_context="\n".join(section_lines),
+        )
+
+    return skills_node
+
+
 def make_extract_node(tabular_tools: list[Any]):
     """Create the extraction node from the tabular tool surface."""
     extract_tabular = next((tool for tool in tabular_tools if getattr(tool, "name", None) == "extract_tabular"), None)
@@ -118,7 +154,11 @@ def make_extract_node(tabular_tools: list[Any]):
     return extract_node
 
 
-def make_sql_node(*, llm: Any):
+def make_sql_node(
+    *,
+    llm: Any,
+    prompt: str,
+):
     """Create the SQL-agent node."""
 
     def sql_node(state: TabularTaskState) -> StateUpdate:
@@ -134,8 +174,14 @@ def make_sql_node(*, llm: Any):
             connection.execute(f'DROP VIEW IF EXISTS "{view_name}"')
             connection.commit()
 
-        sql_output = answer_sql_question(
+        task_prompt = build_task_prompt(
+            prompt,
             state.task,
+            state.source_files,
+            search_context=state.search_context,
+        )
+        sql_output = answer_sql_question(
+            task_prompt,
             llm=llm,
             database_path=state.database_path,
         )
@@ -198,12 +244,18 @@ def make_answer_node(llm: Any, *, prompt: str):
     """Create the final answer composition node."""
 
     def answer_node(state: TabularTaskState) -> StateUpdate:
+        task_prompt = build_task_prompt(
+            prompt,
+            state.task,
+            state.source_files,
+            search_context=state.search_context,
+        )
         response = llm.invoke(
             [
                 SystemMessage(content=FINAL_ANSWER_SYSTEM_PROMPT),
                 HumanMessage(
                     content=(
-                        f"{build_task_prompt(prompt, state.task, state.source_files)}\n\n"
+                        f"{task_prompt}\n\n"
                         "Execution result:\n"
                         f"{
                             json.dumps(

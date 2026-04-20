@@ -34,6 +34,8 @@ class TabularTaskState(TabularTaskInput, TabularTaskOutput):
     """Internal graph state."""
 
     extraction_results: list[dict[str, Any]] = Field(default_factory=list)
+    matched_skill_names: list[str] = Field(default_factory=list)
+    search_context: str = ""
     sql_agent_output: dict[str, Any] | None = None
 
 

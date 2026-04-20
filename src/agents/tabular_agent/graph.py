@@ -10,7 +10,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from llm_harness.tools.tabular.tools import make_tabular_tools
 
-from .nodes import make_answer_node, make_extract_node, make_sql_node, save_node
+from .nodes import make_answer_node, make_extract_node, make_skills_node, make_sql_node, save_node
 from .state import TabularTaskInput, TabularTaskOutput, TabularTaskState
 
 
@@ -37,12 +37,26 @@ def create_tabular_graph(
         input_schema=TabularTaskInput,
         output_schema=TabularTaskOutput,
     )
+    builder.add_node("skills", make_skills_node())
     builder.add_node("extract", make_extract_node(tabular_tools))
-    builder.add_node("sql", make_sql_node(llm=llm))
+    builder.add_node(
+        "sql",
+        make_sql_node(
+            llm=llm,
+            prompt=prompt,
+        ),
+    )
     builder.add_node("save", save_node)
-    builder.add_node("answer", make_answer_node(llm, prompt=prompt))
+    builder.add_node(
+        "answer",
+        make_answer_node(
+            llm,
+            prompt=prompt,
+        ),
+    )
 
-    builder.add_edge(START, "extract")
+    builder.add_edge(START, "skills")
+    builder.add_edge("skills", "extract")
     builder.add_conditional_edges(
         "extract",
         route_after_extract,

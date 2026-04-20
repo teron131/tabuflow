@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from llm_harness.clients.openai import ChatOpenAI
+from llm_harness.tools import list_skills
 
 from .graph import create_tabular_graph
 from .prompts import format_source_file_list
@@ -16,7 +17,11 @@ from .state import TabularTaskOutput, build_graph_input
 DEFAULT_MODEL_ENV = "FAST_LLM"
 DEFAULT_MODEL = "openai/gpt-5.4-nano"
 DEFAULT_REASONING_EFFORT: Literal["minimal", "low", "medium", "high", "xhigh"] = "high"
+SKILLS_PATH = "skills"
 STEP_FIELDS: dict[str, dict[str, Any]] = {
+    "skills": {
+        "matched_skill_names": [],
+    },
     "extract": {
         "status": None,
         "database_path": None,
@@ -37,6 +42,26 @@ STEP_FIELDS: dict[str, dict[str, Any]] = {
 }
 
 
+def _build_system_prompt(prompt: str) -> str:
+    """Build the base system prompt from the workspace skills list."""
+    skills_result = list_skills.invoke({"path": SKILLS_PATH})
+    skills = skills_result.get("skills", [])
+    skill_lines = [f"- {skill['name']}: {skill['description']} ({skill['path']})" for skill in skills]
+    section_lines = (
+        [
+            f"Workspace skills discovered by `list_skills` under `{SKILLS_PATH}`:",
+            *skill_lines,
+        ]
+        if skill_lines
+        else [f"Workspace skills discovered by `list_skills` under `{SKILLS_PATH}`: none."]
+    )
+    if diagnostics := skills_result.get("diagnostics", []):
+        section_lines.extend(["Skill discovery diagnostics:", *(f"- {message}" for message in diagnostics)])
+
+    parts = [part.strip() for part in (prompt, "\n".join(section_lines)) if part.strip()]
+    return "\n\n".join(parts)
+
+
 class TabularTaskAgent:
     """Deterministic tabular analysis agent with a pinned save-view step."""
 
@@ -47,21 +72,40 @@ class TabularTaskAgent:
         root_dir: str | Path | None = None,
     ):
         self.prompt = prompt
+        self.root_dir = root_dir
+        self.system_prompt = _build_system_prompt(self.prompt)
         self.model = os.getenv(DEFAULT_MODEL_ENV) or DEFAULT_MODEL
         self.llm = ChatOpenAI(
             model=self.model,
             temperature=0,
             reasoning_effort=DEFAULT_REASONING_EFFORT,
         )
-        self.graph = create_tabular_graph(llm=self.llm, prompt=prompt, root_dir=root_dir)
+        self.graph = self.build_graph()
 
-    def invoke(self, task: str, *, source_files: list[str]) -> TabularTaskOutput:
+    def build_graph(self):
+        """Build the deterministic graph with task-time skills handled in-graph."""
+        return create_tabular_graph(
+            llm=self.llm,
+            prompt=self.system_prompt,
+            root_dir=self.root_dir,
+        )
+
+    def invoke(
+        self,
+        task: str,
+        *,
+        source_files: list[str],
+    ) -> TabularTaskOutput:
         """Run the graph once and validate the final output."""
-        result = self.graph.invoke(build_graph_input(task, source_files))
+        input = build_graph_input(task, source_files)
+        result = self.graph.invoke(input)
         return TabularTaskOutput.model_validate(result)
 
 
-def render_step_update(step_name: str, update: dict[str, Any]) -> str:
+def render_step_update(
+    step_name: str,
+    update: dict[str, Any],
+) -> str:
     """Render one streamed graph update compactly."""
     if step_fields := STEP_FIELDS.get(step_name):
         payload = {
@@ -71,7 +115,11 @@ def render_step_update(step_name: str, update: dict[str, Any]) -> str:
             )
             for field_name, default_value in step_fields.items()
         }
-        return json.dumps(payload, ensure_ascii=True, sort_keys=True)
+        return json.dumps(
+            payload,
+            ensure_ascii=True,
+            sort_keys=True,
+        )
     if step_name == "answer":
         return str(update.get("final_answer", "")).strip()
     return json.dumps(
