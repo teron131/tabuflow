@@ -10,7 +10,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from llm_harness.tools.tabular.tools import make_tabular_tools
 
-from .nodes import make_answer_node, make_extract_node, make_skills_node, make_sql_node, save_node
+from .nodes import MAX_VALIDATION_ATTEMPTS, make_answer_node, make_extract_node, make_skills_node, make_sql_node, make_validate_node, save_node
 from .state import TabularTaskInput, TabularTaskOutput, TabularTaskState
 
 
@@ -21,7 +21,16 @@ def route_after_extract(state: TabularTaskState) -> str:
 
 def route_after_sql(state: TabularTaskState) -> str:
     """Route after SQL analysis."""
-    return "save" if state.status == "complete" and bool(state.candidate_sql) else "answer"
+    return "validate" if state.status == "complete" and bool(state.candidate_sql) else "answer"
+
+
+def route_after_validate(state: TabularTaskState) -> str:
+    """Route after result validation."""
+    if state.status == "validated":
+        return "save"
+    if state.status == "needs_revision" and state.validation_attempts < MAX_VALIDATION_ATTEMPTS:
+        return "sql"
+    return "answer"
 
 
 def create_tabular_graph(
@@ -46,6 +55,7 @@ def create_tabular_graph(
             prompt=prompt,
         ),
     )
+    builder.add_node("validate", make_validate_node(llm))
     builder.add_node("save", save_node)
     builder.add_node(
         "answer",
@@ -69,7 +79,16 @@ def create_tabular_graph(
         "sql",
         route_after_sql,
         {
+            "validate": "validate",
+            "answer": "answer",
+        },
+    )
+    builder.add_conditional_edges(
+        "validate",
+        route_after_validate,
+        {
             "save": "save",
+            "sql": "sql",
             "answer": "answer",
         },
     )

@@ -1,0 +1,24 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph LR;
+	skills(skills)
+	extract(extract)
+	sql(sql)
+	validate(validate)
+	save(save)
+	answer(answer)
+	extract --> answer;
+	extract --> sql;
+	save --> answer;
+	skills --> extract;
+	sql --> answer;
+	sql --> validate;
+	validate --> answer;
+	validate --> save;
+	validate --> sql;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

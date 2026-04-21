@@ -39,6 +39,8 @@ class TabularTaskState(TabularTaskInput, TabularTaskOutput):
     matched_skill_names: list[str] = Field(default_factory=list)
     search_context: str = ""
     sql_agent_output: dict[str, Any] | None = None
+    validation_feedback: str = ""
+    validation_attempts: int = 0
 
 
 def append_trace(state: TabularTaskState, message: str) -> list[str]:

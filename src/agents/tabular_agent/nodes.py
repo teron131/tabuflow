@@ -8,9 +8,10 @@ import sqlite3
 from typing import Any
 
 from langchain.messages import HumanMessage, SystemMessage
+from pydantic import BaseModel, Field
 
 from llm_harness.tools import search_skills
-from llm_harness.tools.sql.query import save_view
+from llm_harness.tools.sql.query import describe_target, save_view
 from llm_harness.tools.sql.sql_agent import SQLAgent
 
 from .payloads import build_answer_payload, compact_sql_agent_output
@@ -21,6 +22,29 @@ DEFAULT_VIEW_NAME = "analysis_result"
 VIEW_NAME_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with"}
 SKILLS_PATH = "skills"
 StateUpdate = dict[str, Any]
+MAX_VALIDATION_TARGETS = 2
+MAX_VALIDATION_SAMPLE_ROWS = 2
+MAX_VALIDATION_TEXT_HINTS = 2
+MAX_VALIDATION_ATTEMPTS = 2
+
+VALIDATE_RESULT_SYSTEM_PROMPT = """Review the SQL attempt for task fulfillment.
+
+Rules:
+- Focus on whether the SQL result appears to answer the user's task with the available tables and fields.
+- Use the task, selected target schemas, candidate SQL, and result preview.
+- If the result looks incomplete, wrong-grain, or suspicious, set valid=false.
+- If required fields appear missing from the chosen targets, set valid=false.
+- Keep feedback short and actionable for the next SQL attempt.
+- Do not ask for human clarification unless the task is fundamentally ambiguous.
+"""
+
+
+class ValidationDecision(BaseModel):
+    """Structured validation output for the tabular SQL loop."""
+
+    valid: bool = Field(description="Whether the SQL attempt appears to fulfill the task.")
+    feedback: str = Field(default="", description="Short corrective feedback for the next SQL attempt when valid is false.")
+    rationale: str = Field(default="", description="Brief explanation of the validation decision.")
 
 
 def suggest_view_name(task: str) -> str:
@@ -46,6 +70,41 @@ def collect_targets(extraction_results: list[dict[str, Any]]) -> list[dict[str, 
                 }
             )
     return targets
+
+
+def _validation_target_context(state: TabularTaskState) -> list[dict[str, Any]]:
+    """Return compact schema context for the validator."""
+    if not state.database_path:
+        return []
+
+    contexts = []
+    for target_name in state.selected_targets[:MAX_VALIDATION_TARGETS]:
+        description = describe_target(
+            target_name,
+            database_path=state.database_path,
+            sample_rows=MAX_VALIDATION_SAMPLE_ROWS,
+            text_value_hints=MAX_VALIDATION_TEXT_HINTS,
+        )
+        if description.get("status") != "ok":
+            continue
+
+        contexts.append(
+            {
+                "name": description.get("name"),
+                "kind": description.get("kind"),
+                "summary": description.get("summary"),
+                "columns": [
+                    {
+                        "name": column.get("name"),
+                        "type": column.get("type"),
+                    }
+                    for column in description.get("columns", [])
+                ],
+                "sample_rows": description.get("sample_rows", []),
+                "text_value_hints": description.get("text_value_hints", {}),
+            }
+        )
+    return contexts
 
 
 def traced_update(
@@ -182,6 +241,14 @@ def make_sql_node(
             state.source_files,
             search_context=state.search_context,
         )
+        if state.validation_feedback.strip():
+            task_prompt = "\n\n".join(
+                [
+                    task_prompt,
+                    "Validation feedback for the next SQL attempt:",
+                    state.validation_feedback.strip(),
+                ]
+            )
         sql_output = sql_agent.invoke(
             task_prompt,
             database_path=state.database_path,
@@ -204,6 +271,56 @@ def make_sql_node(
         )
 
     return sql_node
+
+
+def make_validate_node(llm: Any):
+    """Create the post-SQL validation node."""
+    validator = llm.with_structured_output(ValidationDecision)
+
+    def validate_node(state: TabularTaskState) -> StateUpdate:
+        if state.status != "complete" or not state.candidate_sql or state.sql_result is None:
+            return traced_update(
+                state,
+                "validation skipped because no completed SQL result was available",
+                status=state.status,
+            )
+
+        target_context = _validation_target_context(state)
+        validation_payload = {
+            "task": state.task,
+            "selected_targets": state.selected_targets,
+            "candidate_sql": state.candidate_sql,
+            "sql_result": state.sql_result,
+            "target_context": target_context,
+            "previous_feedback": state.validation_feedback,
+            "validation_attempts": state.validation_attempts,
+        }
+        decision: ValidationDecision = validator.invoke(
+            [
+                SystemMessage(content=VALIDATE_RESULT_SYSTEM_PROMPT),
+                HumanMessage(content=json.dumps(validation_payload, ensure_ascii=True, sort_keys=True)),
+            ]
+        )
+        if decision.valid:
+            return traced_update(
+                state,
+                "validation accepted the SQL result",
+                status="validated",
+                validation_feedback="",
+                last_error=None,
+            )
+
+        feedback = decision.feedback.strip() or "The SQL result does not appear to fully satisfy the task. Revisit the chosen fields, aggregation grain, and requested outputs."
+        return traced_update(
+            state,
+            "validation requested another SQL attempt",
+            status="needs_revision",
+            validation_attempts=state.validation_attempts + 1,
+            validation_feedback=feedback,
+            last_error=feedback,
+        )
+
+    return validate_node
 
 
 def save_node(state: TabularTaskState) -> StateUpdate:
