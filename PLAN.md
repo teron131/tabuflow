@@ -1,192 +1,291 @@
-# Orchestrator Rework Plan
+# Orchestrator Rework Plan, Revised
 
 ## Summary
 
-This document describes the end-state architecture for the orchestrator and worker runtime.
+This rework keeps the top-level orchestrator as the only user-facing AI surface and turns the tabular worker into a tool-style execution runtime with a strict internal lifecycle:
 
-The target system is a single-turn request lifecycle centered on the worker pipeline, not on the top-level chatbot shell.
+`prep -> sql -> validate -> save(view) -> package`
 
-The intended runtime shape is:
+The main architectural shift is ownership of skills behavior. Today, skills context exists in both the orchestrator and the tabular worker. The target design removes worker-owned skill discovery and makes the orchestrator the single place where skills are searched, loaded, normalized, and passed down.
 
-1. chat request enters the top-level orchestrator
-2. the orchestrator injects skills-routing behavior through middleware/model context
-3. the worker runtime enters `prep agent`
-4. `prep agent` inspects, profiles, and extracts source files into the SQLite sandbox
-5. `sql agent` performs NL-to-SQL planning and execution against the sandbox
-6. `validate` decides whether the result actually fulfills the user task
-7. `save(view)` persists the validated result as a reusable SQLite view
-8. the worker packages the result for the orchestrator
-9. the orchestrator reports the result back to the user
+The second major shift is response ownership. Today, the worker produces both a structured artifact and a `result_message`, and the orchestrator tool wrapper forwards that worker-authored text. In the target design, the worker returns structured execution data only, and the orchestrator writes the final assistant response from that artifact.
 
-This plan intentionally treats two kinds of saving as separate concerns:
+The third major shift is completion semantics. A validated SQL result is not considered complete until `save(view)` succeeds. Save failure after validation is a failed run, not a soft warning.
 
-- runtime save: always persist the validated result as a SQLite view
-- user export: optionally write files for the user in a future UI-driven flow
+## Current State And Why It Needs To Change
 
-## Design Principles
+The current codebase already contains most of the target building blocks, but they are split across layers in a way that blurs ownership:
 
-- The worker lifecycle is the architectural backbone.
-- The top-level orchestrator remains a thin user-facing shell.
-- `skills_router` remains middleware/model behavior, not a required explicit graph node.
-- `prep agent`, `sql agent`, `validate`, and `save(view)` are the primary runtime stages.
-- Reusable SQL refs are first-class architecture, separate from one-run candidate SQL.
-- The core design is single-turn first; multi-turn feedback loops are not part of this target architecture.
+- `src/agents/orchestrator/middleware.py` already injects available-skill and matched-skill context into orchestrator model calls.
+- `src/agents/orchestrator/tools.py` already exposes `run_tabular_workflow`, but it currently passes only `task` and `source_files` into the worker and forwards `output.result_message`.
+- `src/agents/tabular_agent/graph.py` still starts with a worker-owned `skills` node before `prep`.
+- `src/agents/tabular_agent/state.py` still treats `matched_skill_names` and `search_context` as worker-owned runtime state.
+- `src/agents/tabular_agent/payloads.py` still produces both structured artifact output and worker-facing summary text.
 
-## End-State Architecture
+That creates three problems:
 
-### 1. Top-level orchestrator shell
+1. Skills routing is duplicated across orchestrator and worker, which makes routing behavior harder to reason about and test.
+2. The worker is not yet behaving like a clean tool runtime because it still emits presentation-layer text for the user.
+3. The save step is important architecturally, but the current plan does not yet spell out enough detail around naming, failure handling, and output contracts to make implementation unambiguous.
 
-The top-level orchestrator remains the user-facing runtime.
+## Target Runtime Shape
 
-Its responsibilities are:
-- receive the user request
-- maintain the assistant-style interaction surface
-- inject skills-routing behavior into the run
-- choose and invoke the correct worker runtime
-- surface progress updates at major lifecycle transitions
-- relay the packaged worker result back to the user
+### End-to-end flow
 
-The orchestrator should not own:
-- file inspection logic
-- sandbox preparation logic
-- SQL planning or execution logic
-- validation decision logic
-- persistence details beyond reporting outcomes
+1. A user request enters the orchestrator.
+2. The orchestrator middleware determines relevant workspace skills for the latest request.
+3. The orchestrator tool layer optionally loads matched skills and synthesizes a normalized worker instruction payload.
+4. The orchestrator invokes the tabular worker with:
+   - task
+   - source files
+   - matched skill names
+   - synthesized worker instructions
+   - skill refs / loaded references
+   - validation retry budget
+5. The worker executes:
+   - `prep`
+   - `sql`
+   - `validate`
+   - `save(view)`
+   - `package`
+6. The worker returns a structured artifact plus execution trace metadata.
+7. The orchestrator turns that artifact into the final assistant response.
 
-The orchestrator is a shell around the worker lifecycle, not the owner of its internal reasoning.
+### Non-goals
 
-### 2. Skills routing behavior
+- Multi-turn worker steering is out of scope.
+- Export to CSV/JSON/XLSX is out of scope for this rework.
+- Dedup of saved results is out of scope for v1.
+- The SQL agent itself is not being replaced with a different planning architecture in this change.
 
-`skills_router` remains a middleware/model-level behavior attached to the orchestrator rather than a mandatory explicit top-level graph stage.
+## Architecture Changes By Area
 
-Its role is to:
-- inspect the user request
-- identify relevant workspace skills
-- load detailed skill instructions only when needed
-- provide routing context to the worker runtime
+### 1. Orchestrator
 
-Its contract should be explicit even if its implementation stays in middleware/model behavior.
+The orchestrator remains the outer shell. It owns:
 
-#### Skills routing contract
+- user-facing message flow
+- skills discovery and optional loading
+- worker selection and invocation
+- translation of worker artifact into final assistant response
+- user-visible lifecycle updates
 
-Input:
-- user request
-- available workspace skills
-- optional conversation context needed for the current request
+The orchestrator must not own:
 
-Output:
-- matched skill names
-- optional loaded skill payloads or refs
-- routing hints for the worker runtime
-- assistant-visible trace metadata when useful
+- file inspection or extraction
+- SQLite sandbox construction
+- SQL planning or SQL execution
+- post-SQL validation logic
+- SQLite view persistence internals
 
-This keeps skills behavior deterministic enough to reason about without forcing it into a literal graph node.
+#### Orchestrator responsibilities in code
 
-### 3. Worker runtime
+Primary files:
 
-The worker runtime is the main execution backbone for tabular analysis tasks.
+- `src/agents/orchestrator/middleware.py`
+- `src/agents/orchestrator/tools.py`
+- `src/agents/orchestrator/graph.py`
+- `src/agents/orchestrator/orchestrator.py`
+- `src/agents/orchestrator/state.py`
 
-Its lifecycle is:
-- `prep agent`
-- `sql agent`
+Planned changes:
+
+- Keep middleware responsible for injecting deterministic skills context into the model.
+- Expand the orchestrator tool layer so it can construct worker-ready skill payloads rather than just exposing raw worker entrypoints.
+- Keep the orchestrator graph shape simple; do not introduce a first-class graph node just to mirror skills routing that already exists in middleware/tools.
+- Extend orchestrator state only if needed for artifact handoff, active worker reporting, or progress visibility.
+
+### 2. Skills Routing
+
+Skills routing becomes an orchestrator-only concern.
+
+The worker must not perform `search_skills` at runtime anymore. It should treat skill context as already resolved upstream.
+
+#### Skills routing responsibilities
+
+- Search the workspace skills catalog for the current request.
+- Decide which matched skills should be loaded more deeply.
+- Synthesize a deterministic instruction block for the worker.
+- Pass through references that can help the worker or SQL planner, especially skill-scoped `references/` assets.
+
+#### Target skills contract
+
+Inputs:
+
+- latest user request
+- workspace `skills/` directory
+- optional orchestrator prompt additions
+
+Outputs:
+
+- `matched_skill_names: list[str]`
+- `worker_instructions: str`
+- `skill_refs: list[dict]`
+
+`skill_refs` should carry the minimum structured metadata needed downstream, for example:
+
+- `skill_name`
+- `path`
+- `relative_path`
+- `content`
+- `kind` such as `reference`, `instructions_excerpt`, or `script_reference`
+
+#### Instruction synthesis policy
+
+The orchestrator should pass both:
+
+- a synthesized, normalized instruction block
+- refs to the underlying matched skill assets
+
+This keeps the worker prompt deterministic while still preserving traceability back to the underlying skill sources.
+
+### 3. Tabular Worker Runtime
+
+The worker becomes a true execution engine for tabular analysis. Its lifecycle is fixed and explicit:
+
+- `prep`
+- `sql`
 - `validate`
-- `save(view)`
+- `save`
 - `package`
 
-The worker runtime owns the task-specific execution lifecycle from source files to validated reusable result.
+There is no worker `skills` stage in the target design.
 
-### 4. `prep agent`
+#### Worker responsibilities
 
-`prep agent` is a first-class runtime stage with the stable role:
+- accept orchestrator-provided task and skill context
+- build or reuse one SQLite sandbox for the run
+- produce extracted target metadata for downstream SQL work
+- perform SQL planning and execution
+- validate fulfillment of the user task
+- persist successful validated SQL as a SQLite view
+- package a structured artifact for the orchestrator
 
-`inspect + profile + extract/load`
+#### Worker non-responsibilities
 
-It owns:
-- file inspection
-- source profiling
-- table/block segmentation as needed
-- extraction/loading into the shared SQLite sandbox
-- construction of extracted-target metadata for downstream SQL work
-- sandbox bootstrapping for the rest of the run
+- searching workspace skills
+- composing the final assistant answer
+- exporting files for the user
+- managing long-term dedup or result history in v1
 
-It should not be treated as a thin helper or hidden loader.
+### 4. SQL Agent
 
-#### Prep contract
+The SQL agent remains focused on `NL -> SQL -> execute`.
 
-Input:
-- task
-- source files
-- optional skill/routing context
+It should continue to own:
 
-Output:
+- target suggestion
+- inspected-target context use
+- SQL planning
+- SQL execution
+- SQL error repair guidance
+
+It should not become:
+
+- the owner of save semantics
+- the owner of high-level skill routing
+- the narrator of final user-facing results
+
+## Detailed Runtime Contracts
+
+### Orchestrator -> worker input contract
+
+`TabularTaskInput` should include at least:
+
+- `task: str`
+- `source_files: list[str]`
+- `matched_skill_names: list[str]`
+- `worker_instructions: str`
+- `skill_refs: list[dict[str, Any]]`
+- `max_validation_retries: int`
+- `run_id: str`
+
+Notes:
+
+- `run_id` exists so `save(view)` can use `task-slug + run-id` naming without inventing names deep inside the save node.
+- `max_validation_retries` is configurable, but defaults to `2`.
+- `matched_skill_names` remains useful for trace output even when detailed instructions are synthesized separately.
+
+### Worker internal state contract
+
+`TabularTaskState` should explicitly carry:
+
+- user/task input:
+  - `task`
+  - `source_files`
+  - `matched_skill_names`
+  - `worker_instructions`
+  - `skill_refs`
+  - `run_id`
+  - `max_validation_retries`
+- prep outputs:
+  - `database_path`
+  - `extraction_results`
+  - `extracted_targets`
+- SQL outputs:
+  - `selected_targets`
+  - `candidate_sql`
+  - `sql_result`
+  - `sql_agent_output`
+- validation outputs:
+  - `validation_feedback`
+  - `validation_attempts`
+- save outputs:
+  - `saved_view_name`
+  - `saved_view`
+- terminal/shared fields:
+  - `status`
+  - `outcome`
+  - `completion_reason`
+  - `last_error`
+  - `trace`
+  - `result_artifact`
+
+Fields that should be removed from worker ownership:
+
+- `search_context`
+- worker-authored `result_message`
+
+### Worker -> orchestrator output contract
+
+`TabularTaskOutput` should become structured-artifact-first and should not require any final-user text field.
+
+Required fields:
+
+- `status`
+- `outcome`
+- `completion_reason`
 - `database_path`
-- extracted target list
-- inspection metadata
-- profiling metadata
-- source-to-target mapping trace
-- prep status
-- prep failure reason when applicable
+- `extracted_targets`
+- `selected_targets`
+- `candidate_sql`
+- `sql_result`
+- `saved_view_name`
+- `saved_view`
+- `validation_feedback`
+- `last_error`
+- `trace`
+- `result_artifact`
 
-Prep must either produce a usable shared sandbox for downstream work or fail clearly before SQL work begins.
+The output should be sufficient for the orchestrator to:
 
-### 5. `sql agent`
+- explain success
+- explain blocked or failed outcomes
+- name the saved view
+- summarize targets used and result size
+- surface validation or save failure reasons
 
-`sql agent` remains the focused NL-to-SQL worker.
+### Validation contract
 
-It owns:
-- target suggestion and target selection
-- use of inspected schema/target context
-- NL-to-SQL planning
-- SQL execution against the sandbox
-- SQL repair guidance after execution failures
-- structured packaging of SQL-stage outputs
+`validate` remains LLM-backed, but the contract must be explicit and typed.
 
-It should remain a real `NL -> SQL + execute` worker.
-It should not be reduced to a dumb executor.
-It should also not become the owner of the full lifecycle.
+Expected validator output:
 
-#### SQL contract
-
-Input:
-- task
-- `database_path`
-- extracted targets and schema context
-- optional curated SQL refs
-- prior validation feedback when retrying
-
-Output:
-- selected targets
-- candidate SQL
-- SQL execution status
-- SQL result payload
-- repair hints when relevant
-- SQL-stage trace metadata
-
-### 6. `validate`
-
-`validate` is the task-fulfillment gate after SQL execution.
-
-Its job is not merely to confirm that SQL ran.
-Its job is to decide whether the user task was actually fulfilled.
-
-It should answer:
-- did the SQL result answer the user request?
-- is another SQL attempt likely to help?
-- should the run pass, retry, or block?
-
-#### Validation contract
-
-Input:
-- task
-- selected targets
-- candidate SQL
-- SQL result
-- target context
-- prior validation feedback if any
-
-Output:
-- `pass`, `retry`, or `block`
-- structured validation payload with:
+- decision class:
+  - `pass`
+  - `retry`
+  - `block`
+- structured payload:
   - `valid`
   - `retryable`
   - `failure_type`
@@ -194,237 +293,258 @@ Output:
   - `instructions`
   - `rationale`
 
-Validation feedback should be structured input to the next SQL attempt, not just freeform text appended to prompts.
+Validation should use:
 
-### 7. Retry loop
-
-The worker runtime should preserve an explicit retry loop between validation and SQL work.
-
-The retry path is:
-- `sql agent -> validate -> sql agent`
-
-This loop continues only while:
-- validation marks the issue as retryable
-- the retry policy allows another attempt
-
-The retry loop exists to improve task fulfillment, not merely to recover from syntax errors.
-
-### 8. `save(view)`
-
-`save(view)` is a mandatory runtime stage after successful validation.
-
-Its role is to persist the validated SQL as a reusable SQLite view.
-
-This stage is always part of a successful core run.
-It should not be hidden inside worker completion.
-
-#### Runtime save contract
-
-Input:
-- validated candidate SQL
-- target database path
-- view naming/persistence context
-
-Output:
-- saved view name
-- saved view metadata
-- save status
-- persistence failure reason when applicable
-
-A successful validated run is not fully complete until the reusable SQLite view has been saved.
-
-### 9. Separate user export save
-
-File export is a separate save concept and is not part of the mandatory core runtime lifecycle.
-
-Its role is to:
-- write user-requested files derived from the validated/saved result
-- support future UI-triggered download or export actions
-
-Examples include:
-- CSV export
-- XLSX export
-- report file generation
-- other user-facing file artifacts
-
-This export surface should remain downstream of validation and runtime view persistence.
-It is future UI-controlled behavior, not a required worker-stage prerequisite.
-
-## SQL Refs As A First-Class Component
-
-The architecture includes a separate `sql queries` / SQL refs subsystem.
-
-This subsystem is first-class and distinct from the transient SQL produced during one run.
-
-### Role of SQL refs
-
-SQL refs exist to:
-- store reusable query assets
-- preserve curated SQL patterns or named queries
-- allow filesystem editing and review
-- improve repeatability across tasks
-- serve as optional planning aids for the SQL worker
-
-SQL refs are not the same thing as:
-- the current run's candidate SQL
-- the saved runtime result view
-- validation output
-
-### SQL refs contract
-
-Input sources may include:
-- curated query files
-- refs stored in a workspace area such as skills/refs
-- metadata describing intended use or compatible targets
-
-Output to the runtime may include:
-- query templates
-- named reference queries
-- examples for similar tasks
-- hints about stable target/view conventions
-
-### Relationship between SQL refs and runtime execution
-
-The SQL worker may read curated SQL refs as planning guidance.
-However:
-- runtime SQL is still generated or selected for the current task
-- runtime SQL must still be validated
-- runtime success still requires `save(view)`
-- curated refs do not bypass validation or runtime execution contracts
-
-SQL refs improve reuse and consistency without replacing the runtime lifecycle.
-
-## Result Packaging
-
-After `save(view)` completes, the worker should package a stable result for the orchestrator.
-
-The packaged result should include:
-- `status`
-- `outcome`
-- `completion_reason`
-- `database_path`
-- extracted targets
-- selected targets
-- candidate SQL
-- SQL result payload
-- saved view name and metadata
-- validation feedback when relevant
-- a human-readable result message
-- a structured result artifact
-- trace/progress metadata
-
-The orchestrator should usually relay this packaged result rather than re-synthesizing the entire answer from scratch.
-
-## Assistant Update Behavior
-
-The orchestrator should surface assistant-style progress updates for major lifecycle transitions.
-
-Typical updates should correspond to:
-- matching or loading relevant skills when needed
-- preparing the sandbox
-- running SQL analysis
-- validating the result
-- saving the reusable view
-- packaging and returning the result
-
-These updates are presentation behavior owned by the orchestrator shell, but they should be driven by real worker lifecycle events.
-
-## State And Interface Expectations
-
-### Orchestrator-facing state
-
-The top-level runtime should be able to observe or relay:
-- active worker name
-- active lifecycle phase
-- matched skill names
-- loaded skill refs or payload handles
-- worker progress events
-- final packaged result artifact
-
-### Worker-facing state
-
-The worker runtime should explicitly carry:
 - task
-- source files
-- routing/skill context when relevant
-- `database_path`
-- extracted targets
 - selected targets
 - candidate SQL
 - SQL result
-- validation decision and feedback
-- saved view metadata
-- packaged result fields
-- trace/progress information
+- compact target context
+- prior validation feedback
+- current attempt count
 
-## Boundaries With Current Code
+Validation feedback should be stored as structured state and passed back into the next SQL attempt when retrying.
 
-The end-state architecture maps cleanly onto the current codebase boundaries:
+### Retry policy contract
 
-- `src/agents/orchestrator/*`
-  - top-level shell, assistant interaction, skills-routing behavior, worker invocation
-- `src/agents/tabular_agent/*`
-  - worker lifecycle, state, nodes, packaging
-- `src/agents/sql_agent.py`
-  - SQL planning/execution contract
-- `src/tools/tabular/tools.py`
-  - prep/inspection/profile/extraction capabilities
-- `src/tools/sql/query.py`
-  - query execution and runtime view persistence
-- skills/refs-style workspace area
-  - curated reusable SQL refs and query assets
+The worker must keep an explicit loop:
 
-## Test Plan
+`sql -> validate -> sql`
 
-### Lifecycle tests
+Rules:
 
-- request with files reaches `prep agent` before any SQL execution
-- prep failure stops the run before SQL starts
-- successful prep produces one shared SQLite sandbox for downstream stages
-- SQL execution feeds validation with structured outputs
-- validation retry loops back into SQL with structured feedback
-- validation pass leads to `save(view)`
-- validation block stops the lifecycle with a blocked result
-- successful validated runs save a reusable view and package the result
+- retry only if validation marks the result retryable
+- stop retrying once `validation_attempts >= max_validation_retries`
+- default retry budget is `2`
+- a blocked decision exits to packaging without calling save
+- a retry-exhausted decision exits to packaging with failed outcome
 
-### Contract tests
+### Save contract
 
-- skills routing produces stable matched-skill and loaded-skill outputs
-- `prep agent` returns a stable prep contract or a clear prep failure
-- `sql agent` returns stable structured outputs for success, blocked, and repairable cases
-- `validate` returns deterministic `pass` / `retry` / `block` decisions from structured inputs
-- `save(view)` returns visible persistence metadata in the final result
-- SQL refs load as optional planning aids without bypassing runtime validation
+`save(view)` is mandatory after validation success.
 
-### Orchestrator behavior tests
+Inputs:
 
-- orchestrator injects skills-routing behavior once per request
-- orchestrator emits assistant-style lifecycle updates
-- orchestrator relays the packaged worker result cleanly
-- orchestrator does not absorb prep or SQL reasoning responsibilities
+- validated candidate SQL
+- `database_path`
+- deterministic view name derived from task slug + run id
 
-### Export behavior tests
+Outputs:
 
-These are separate from the mandatory core lifecycle.
+- `saved_view_name`
+- `saved_view`
+- `status`
+- `database_path`
+- failure reason if save fails
 
-- export actions only run after a validated and saved runtime result exists
-- export actions do not replace `save(view)`
-- export file generation remains user-controlled
+Rules:
 
-## Out Of Scope For This Target Architecture
+- save is not optional on the success path
+- no dedup in v1
+- save failure after validation yields `outcome=failed`
+- save should not silently downgrade into a warning
 
-- multi-turn feedback loops as a first-class runtime requirement
-- user steering during an in-flight worker run
-- treating file export as required for core completion
-- collapsing curated SQL refs into transient runtime SQL
-- moving worker-stage internals into the top-level orchestrator shell
+### View naming policy
+
+V1 naming policy is:
+
+- base readable task slug from normalized task text
+- append run id
+- final format: `task_slug__<run_id>` or another equivalent stable delimiter pattern
+
+The exact delimiter can be chosen during implementation, but the policy must satisfy:
+
+- valid SQLite identifier
+- low collision risk
+- human-readable enough for debugging
+- unique across successful runs without result dedup
+
+## SQL Refs
+
+SQL refs remain first-class, but they are not the same as runtime-generated candidate SQL or saved views.
+
+### Storage
+
+Curated SQL refs should remain skill-scoped, for example:
+
+- `skills/gcp-cost-pipeline/references/...`
+- `skills/<skill-name>/references/...`
+
+### Role
+
+SQL refs may provide:
+
+- named query patterns
+- stable domain-specific view conventions
+- examples of correct joins, metrics, or filters
+- human-curated guidance for billing-specific analysis tasks
+
+### Runtime relationship
+
+SQL refs:
+
+- may inform SQL planning
+- do not bypass validation
+- do not replace runtime candidate SQL
+- do not replace `save(view)`
+
+## File-Level Implementation Plan
+
+### `src/agents/orchestrator/middleware.py`
+
+- Keep deterministic skills overview injection.
+- Keep relevant-skill match injection.
+- Avoid moving worker logic into middleware.
+- Ensure the middleware output remains deterministic enough for testing.
+
+### `src/agents/orchestrator/tools.py`
+
+- Add a helper layer that converts skill search/load results into worker-ready payloads.
+- Update `run_tabular_workflow` to pass:
+  - matched skill names
+  - synthesized worker instructions
+  - skill refs
+  - optional retry budget
+- Stop using worker-authored `result_message` as the returned content.
+- Build orchestrator-facing summary text from the worker artifact instead.
+
+### `src/agents/tabular_agent/state.py`
+
+- Expand `TabularTaskInput` for orchestrator-provided skill context and retry budget.
+- Remove worker-owned search fields.
+- Remove `result_message` from worker output.
+- Add `run_id` or equivalent save-naming input.
+
+### `src/agents/tabular_agent/graph.py`
+
+- Remove the `skills` node entirely.
+- Start the graph at `prep`.
+- Route validation retry decisions using configurable retry budget from state instead of fixed module constant only.
+
+### `src/agents/tabular_agent/nodes.py`
+
+- Delete `make_skills_node`.
+- Update `make_sql_node` to use orchestrator-provided instructions and refs instead of worker-owned search context.
+- Keep validation structured and explicit.
+- Update `save_node` to derive unique view name from task slug + run id.
+- Ensure save failure produces failed terminal state.
+- Keep packaging focused on artifact output, not final-user prose.
+
+### `src/agents/tabular_agent/payloads.py`
+
+- Keep compact artifact helpers.
+- Remove worker-authored summary text generation from the main worker output path.
+- Expand artifact shape if needed so the orchestrator can generate clear final answers from it without rereading internal state.
+
+### `src/agents/tabular_agent/tabular_agent.py`
+
+- Stop building worker prompts from `list_skills`.
+- Accept orchestrator-provided skill payloads through `build_graph_input`.
+- Update step streaming helpers to reflect the new worker state shape.
+- Keep CLI/test harness support working with sensible defaults.
+
+### `src/agents/orchestrator/orchestrator.py`
+
+- Keep orchestrator answer ownership.
+- Ensure the final assistant response is derived from the returned artifact rather than worker-authored text.
+
+## Packaging And Final Response Behavior
+
+The worker artifact should contain enough information for the orchestrator to write clear final messages without reconstructing execution state from scratch.
+
+Recommended artifact shape:
+
+- request summary:
+  - `task`
+  - `source_files`
+- runtime result:
+  - `status`
+  - `outcome`
+  - `completion_reason`
+- prep summary:
+  - extracted target count
+  - extracted target preview
+  - `database_path`
+- SQL summary:
+  - selected targets
+  - `candidate_sql`
+  - result row count / summary
+- validation summary:
+  - compact feedback
+  - attempt count
+- save summary:
+  - `saved_view_name`
+  - save status
+  - save failure message if any
+- trace:
+  - compact lifecycle events
+
+The orchestrator should translate this artifact into final user-facing language such as:
+
+- success with saved view name
+- blocked outcome with reason
+- failed save after successful validation
+
+## Testing And Verification
+
+### Unit and contract checks
+
+- orchestrator skill helper returns deterministic `matched_skill_names`, `worker_instructions`, and `skill_refs`
+- worker input model validates new fields correctly
+- worker output model no longer requires `result_message`
+- packaging output contains enough data for final response generation
+
+### Graph behavior checks
+
+- worker graph begins at `prep`
+- worker graph no longer contains `skills`
+- prep failure exits to `package`
+- SQL success routes to `validate`
+- validation `pass` routes to `save`
+- validation `retry` routes back to `sql` until retry budget is exhausted
+- validation `block` routes to `package`
+- save always routes to `package`
+
+### Save behavior checks
+
+- validated success creates a unique view name from task slug + run id
+- save failure marks the run failed
+- save metadata is visible in the final artifact
+- no dedup behavior is attempted in v1
+
+### Orchestrator behavior checks
+
+- orchestrator passes skill payloads into the worker exactly once per request
+- orchestrator does not rely on worker-authored final text
+- orchestrator final answer changes appropriately for fulfilled, blocked, and failed outcomes
+
+### Repository verification commands
+
+Primary validation commands for this repo:
+
+- `uv run ruff check . --fix`
+- `uv run ruff format .`
+- `uv run pytest`
+- `npm run build`
+
+If some existing scratch scripts are not suitable for full automated verification, add focused tests for the reworked contracts rather than relying only on manual runs.
+
+## Rollout Notes
+
+- This should be implemented as a direct replacement of the current behavior, not a dual-path migration with feature flags.
+- Existing worker consumers in this repo should be updated in the same change so the interface stays coherent.
+- Keep backward-compatibility shims out unless a concrete caller requires them.
 
 ## Assumptions And Defaults
 
-- The primary runtime backbone is `prep agent -> sql agent -> validate -> save(view)`.
-- The orchestrator remains the outer user-facing shell.
-- `skills_router` remains middleware/model behavior with explicit contracts.
-- Reusable SQL refs are first-class architecture.
-- Runtime view persistence is always part of a successful run.
-- File export is a future user-controlled action downstream of the core lifecycle.
-- Final responses should usually relay the worker-packaged result rather than centrally rewriting it.
+- `validate` remains model-based in v1, but its output is structured and typed.
+- Skills routing remains middleware/tool behavior, not a required graph node.
+- The orchestrator is the only assistant-speaking layer.
+- The tabular worker is treated as a tool-style execution runtime.
+- Dedup is intentionally deferred.
+- Export is intentionally deferred.
+- Primary implementation boundaries remain:
+  - `src/agents/orchestrator/*`
+  - `src/agents/tabular_agent/*`
+  - `src/agents/sql_agent.py`
+  - `src/tools/sql/query.py`
