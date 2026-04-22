@@ -6,12 +6,15 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.136.0",
     "langchain>=1.2.15",
+    "langgraph>=1.1.8",
     "langchain-openai>=1.1.14",
-    "llm-harness",
+    "numpy>=2.4.4",
     "openpyxl>=3.1.5",
     "pydantic>=2.13.2",
     "pydantic-settings>=2.13.1",
     "pymupdf>=1.27.2.2",
+    "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.2",
     "rich>=15.0.0",
     "ruff>=0.15.11",
     "scipy>=1.17.1",
@@ -25,9 +28,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
-
-[tool.uv.sources]
-llm-harness = { path = "llm-harness" }
 
 [tool.ruff]
 line-length = 180
@@ -55,7 +55,7 @@ ignore = [
 unfixable = ["DTZ", "S"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["llm_harness", "data_agentics"]
+known-first-party = ["src", "data_agentics"]
 combine-as-imports = true
 force-sort-within-sections = true
 

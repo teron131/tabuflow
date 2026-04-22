@@ -10,9 +10,9 @@ from typing import Any
 from langchain.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from llm_harness.tools import search_skills
-from llm_harness.tools.sql.query import describe_target, save_view
-from llm_harness.tools.sql.sql_agent import SQLAgent
+from ..sql_agent import SQLAgent
+from ...tools import search_skills
+from ...tools.sql.query import describe_target, save_view
 
 from .payloads import build_answer_payload, compact_sql_agent_output
 from .prompts import FINAL_ANSWER_SYSTEM_PROMPT, build_task_prompt

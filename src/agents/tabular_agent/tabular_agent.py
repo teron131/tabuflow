@@ -7,9 +7,9 @@ import os
 from pathlib import Path
 from typing import Any, Literal
 
-from llm_harness.clients.openai import ChatOpenAI
-from llm_harness.tools import list_skills
-from llm_harness.utils import write_langgraph_artifacts
+from ...clients.openai import ChatOpenAI
+from ...tools import list_skills
+from ...utils import write_langgraph_artifacts
 
 from .graph import create_tabular_graph
 from .payloads import compact_extracted_targets, compact_sql_agent_output, compact_sql_result

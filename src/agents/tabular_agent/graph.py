@@ -8,8 +8,7 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from llm_harness.tools.tabular.tools import make_tabular_tools
-
+from ...tools.tabular.tools import make_tabular_tools
 from .nodes import MAX_VALIDATION_ATTEMPTS, make_answer_node, make_extract_node, make_skills_node, make_sql_node, make_validate_node, save_node
 from .state import TabularTaskInput, TabularTaskOutput, TabularTaskState
 

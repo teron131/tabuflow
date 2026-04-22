@@ -1,3 +1,0 @@
-[submodule "llm-harness"]
-	path = llm-harness
-	url = https://github.com/teron131/llm-harness.git
