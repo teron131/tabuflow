@@ -9,14 +9,14 @@ graph LR;
 	sql(sql)
 	validate(validate)
 	save(save)
-	answer(answer)
-	prep --> answer;
+	package(package)
+	prep --> package;
 	prep --> sql;
-	save --> answer;
+	save --> package;
 	skills --> prep;
-	sql --> answer;
+	sql --> package;
 	sql --> validate;
-	validate --> answer;
+	validate --> package;
 	validate --> save;
 	validate --> sql;
 	classDef default fill:#f2f0ff,line-height:1.2

@@ -29,7 +29,8 @@ class TabularTaskOutput(BaseModel):
     sql_result: dict[str, Any] | None = None
     saved_view_name: str | None = None
     saved_view: dict[str, Any] | None = None
-    final_answer: str | None = None
+    result_message: str | None = None
+    result_artifact: dict[str, Any] | None = None
     last_error: str | None = None
     trace: list[str] = Field(default_factory=list)
 

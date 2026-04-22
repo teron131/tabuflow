@@ -10,12 +10,11 @@ from typing import Any, Literal
 from langchain.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
-from ..sql_agent import SQLAgent
 from ...tools import search_skills
 from ...tools.sql.query import describe_target, save_view
-
-from .payloads import build_answer_payload, compact_sql_agent_output, compact_validation_feedback
-from .prompts import FINAL_ANSWER_SYSTEM_PROMPT, build_task_prompt
+from ..sql_agent import SQLAgent
+from .payloads import build_result_artifact, build_result_message_content, compact_sql_agent_output, compact_validation_feedback
+from .prompts import build_task_prompt
 from .state import TabularTaskState, append_trace
 
 DEFAULT_VIEW_NAME = "analysis_result"
@@ -63,7 +62,7 @@ def suggest_view_name(task: str) -> str:
 
 
 def collect_targets(extraction_results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Return compact extracted target metadata for the final answer payload."""
+    """Return compact extracted target metadata for the packaged workflow result."""
     targets: list[dict[str, Any]] = []
     for extraction in extraction_results:
         for table in extraction.get("tables", []):
@@ -405,17 +404,11 @@ def save_node(state: TabularTaskState) -> StateUpdate:
     )
 
 
-def make_answer_node(llm: Any, *, prompt: str):
-    """Create the final answer composition node."""
+def make_package_node():
+    """Create the terminal workflow packaging node for parent chain use."""
 
-    def answer_node(state: TabularTaskState) -> StateUpdate:
-        task_prompt = build_task_prompt(
-            prompt,
-            state.task,
-            state.source_files,
-            search_context=state.search_context,
-        )
-        execution_payload = build_answer_payload(
+    def package_node(state: TabularTaskState) -> StateUpdate:
+        result_artifact = build_result_artifact(
             task=state.task,
             status=state.status,
             outcome=state.outcome,
@@ -430,16 +423,11 @@ def make_answer_node(llm: Any, *, prompt: str):
             last_error=state.last_error,
             validation_feedback=state.validation_feedback,
         )
-        response = llm.invoke(
-            [
-                SystemMessage(content=FINAL_ANSWER_SYSTEM_PROMPT),
-                HumanMessage(content=(f"{task_prompt}\n\nExecution result:\n{json.dumps(execution_payload, ensure_ascii=True, sort_keys=True)}")),
-            ]
-        )
         return traced_update(
             state,
-            "generated final answer",
-            final_answer=getattr(response, "content", str(response)),
+            "packaged workflow result for a parent chain",
+            result_message=build_result_message_content(result_artifact),
+            result_artifact=result_artifact,
         )
 
-    return answer_node
+    return package_node

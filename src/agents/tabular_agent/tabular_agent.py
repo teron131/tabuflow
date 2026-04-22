@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from typing import Any, Literal
 
+from langchain.messages import ToolMessage
+
 from ...clients.openai import ChatOpenAI
 from ...tools import list_skills
 from ...utils import write_langgraph_artifacts
@@ -46,6 +48,10 @@ STEP_FIELDS: dict[str, dict[str, Any]] = {
         "saved_view_name": None,
         "last_error": None,
     },
+    "package": {
+        "result_message": None,
+        "result_artifact": None,
+    },
 }
 
 
@@ -70,7 +76,7 @@ def _build_system_prompt(prompt: str) -> str:
 
 
 class TabularTaskAgent:
-    """Deterministic tabular analysis agent with a pinned save-view step."""
+    """Deterministic tabular workflow with a pinned save-view step."""
 
     def __init__(
         self,
@@ -94,7 +100,7 @@ class TabularTaskAgent:
         )
 
     def build_graph(self):
-        """Build the deterministic graph with task-time skills handled in-graph."""
+        """Build the deterministic workflow for parent-chain orchestration."""
         return create_tabular_graph(
             llm=self.llm,
             prompt=self.system_prompt,
@@ -134,13 +140,13 @@ def render_step_update(
                 payload["sql_agent_output"] = compact_sql_agent_output(update.get("sql_agent_output"))
         if step_name == "validate":
             payload["validation_feedback"] = compact_validation_feedback(payload.get("validation_feedback"))
+        if step_name == "package":
+            return str(payload.get("result_message", "")).strip()
         return json.dumps(
             payload,
             ensure_ascii=True,
             sort_keys=True,
         )
-    if step_name == "answer":
-        return str(update.get("final_answer", "")).strip()
     return json.dumps(
         update,
         ensure_ascii=True,
@@ -156,7 +162,7 @@ def run_task(
     source_files: list[str],
     root_dir: str | Path | None = None,
 ) -> TabularTaskOutput:
-    """Run the deterministic graph and stream step updates."""
+    """Run the deterministic graph and stream workflow packaging updates."""
     agent = TabularTaskAgent(
         prompt=prompt,
         root_dir=root_dir,
@@ -185,6 +191,23 @@ def run_task(
         raise RuntimeError("Graph completed without a final state.")
 
     output = TabularTaskOutput.model_validate(final_state)
-    print("\n[final answer]")
-    print(output.final_answer or "")
+    print("\n[result]")
+    print(output.result_message or "")
     return output
+
+
+def build_tool_message(
+    output: TabularTaskOutput,
+    *,
+    tool_call_id: str,
+    name: str = "run_tabular_workflow",
+) -> ToolMessage:
+    """Convert a completed workflow result into a LangChain ToolMessage."""
+    if not output.result_message:
+        raise ValueError("Tabular workflow output is missing `result_message`.")
+    return ToolMessage(
+        content=output.result_message,
+        tool_call_id=tool_call_id,
+        name=name,
+        artifact=output.result_artifact,
+    )

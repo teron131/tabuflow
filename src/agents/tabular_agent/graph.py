@@ -9,18 +9,18 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from ...tools.tabular.tools import make_tabular_tools
-from .nodes import MAX_VALIDATION_ATTEMPTS, make_answer_node, make_prep_node, make_skills_node, make_sql_node, make_validate_node, save_node
+from .nodes import MAX_VALIDATION_ATTEMPTS, make_package_node, make_prep_node, make_skills_node, make_sql_node, make_validate_node, save_node
 from .state import TabularTaskInput, TabularTaskOutput, TabularTaskState
 
 
 def route_after_prep(state: TabularTaskState) -> str:
     """Route after preparation."""
-    return "sql" if state.status == "prepared" else "answer"
+    return "sql" if state.status == "prepared" else "package"
 
 
 def route_after_sql(state: TabularTaskState) -> str:
     """Route after SQL analysis."""
-    return "validate" if state.status == "complete" and bool(state.candidate_sql) else "answer"
+    return "validate" if state.status == "complete" and bool(state.candidate_sql) else "package"
 
 
 def route_after_validate(state: TabularTaskState) -> str:
@@ -29,7 +29,7 @@ def route_after_validate(state: TabularTaskState) -> str:
         return "save"
     if state.status == "needs_revision" and state.validation_attempts < MAX_VALIDATION_ATTEMPTS:
         return "sql"
-    return "answer"
+    return "package"
 
 
 def create_tabular_graph(
@@ -56,13 +56,7 @@ def create_tabular_graph(
     )
     builder.add_node("validate", make_validate_node(llm))
     builder.add_node("save", save_node)
-    builder.add_node(
-        "answer",
-        make_answer_node(
-            llm,
-            prompt=prompt,
-        ),
-    )
+    builder.add_node("package", make_package_node())
 
     builder.add_edge(START, "skills")
     builder.add_edge("skills", "prep")
@@ -71,7 +65,7 @@ def create_tabular_graph(
         route_after_prep,
         {
             "sql": "sql",
-            "answer": "answer",
+            "package": "package",
         },
     )
     builder.add_conditional_edges(
@@ -79,7 +73,7 @@ def create_tabular_graph(
         route_after_sql,
         {
             "validate": "validate",
-            "answer": "answer",
+            "package": "package",
         },
     )
     builder.add_conditional_edges(
@@ -88,9 +82,9 @@ def create_tabular_graph(
         {
             "save": "save",
             "sql": "sql",
-            "answer": "answer",
+            "package": "package",
         },
     )
-    builder.add_edge("save", "answer")
-    builder.add_edge("answer", END)
+    builder.add_edge("save", "package")
+    builder.add_edge("package", END)
     return builder.compile()

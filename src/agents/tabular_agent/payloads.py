@@ -8,6 +8,8 @@ MAX_EXTRACTED_TARGET_PREVIEW = 8
 MAX_TRACE_PREVIEW = 8
 MAX_REPAIR_HINT_PREVIEW = 3
 MAX_VALIDATION_INSTRUCTION_PREVIEW = 4
+MAX_TARGET_NAME_PREVIEW = 4
+MAX_SOURCE_FILE_PREVIEW = 3
 
 
 def _preview_list(items: list[Any], *, max_items: int) -> tuple[list[Any], bool]:
@@ -77,7 +79,16 @@ def compact_validation_feedback(feedback: dict[str, Any] | None) -> dict[str, An
     }
 
 
-def build_answer_payload(
+def _preview_names(items: list[str], *, max_items: int) -> str:
+    """Render a compact comma-separated preview for tool-facing text."""
+    preview, truncated = _preview_list(items, max_items=max_items)
+    if not preview:
+        return "(none)"
+    suffix = f" (+{len(items) - len(preview)} more)" if truncated else ""
+    return ", ".join(preview) + suffix
+
+
+def build_result_artifact(
     *,
     task: str,
     status: str,
@@ -93,7 +104,7 @@ def build_answer_payload(
     last_error: str | None,
     validation_feedback: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Build the compact execution payload for the final answer model."""
+    """Build the compact execution payload for a workflow or tool result."""
     return {
         "task": task,
         "status": status,
@@ -109,3 +120,60 @@ def build_answer_payload(
         "last_error": last_error,
         "validation_feedback": compact_validation_feedback(validation_feedback),
     }
+
+
+def build_result_message_content(artifact: dict[str, Any]) -> str:
+    """Render a concise, deterministic summary for a parent chain caller."""
+    outcome = str(artifact.get("outcome", "pending"))
+    status = str(artifact.get("status", "pending"))
+    task = str(artifact.get("task", "")).strip()
+    source_files = [str(item) for item in artifact.get("source_files", [])]
+    selected_targets = [str(item) for item in artifact.get("selected_targets", [])]
+    saved_view_name = artifact.get("saved_view_name")
+    sql_result = artifact.get("sql_result") or {}
+    validation_feedback = artifact.get("validation_feedback") or {}
+    completion_reason = artifact.get("completion_reason")
+    last_error = artifact.get("last_error")
+
+    if outcome == "fulfilled":
+        headline = "Tabular workflow completed successfully."
+    elif outcome == "blocked":
+        headline = "Tabular workflow stopped without a final answer."
+    elif outcome == "failed":
+        headline = "Tabular workflow failed."
+    else:
+        headline = f"Tabular workflow finished with status={status}."
+
+    lines = [headline]
+    if task:
+        lines.append(f"Task: {task}")
+    lines.append(f"Source files: {_preview_names(source_files, max_items=MAX_SOURCE_FILE_PREVIEW)}")
+
+    extracted_targets = artifact.get("extracted_targets") or {}
+    target_count = int(extracted_targets.get("count", 0))
+    if selected_targets:
+        lines.append(f"Targets used: {_preview_names(selected_targets, max_items=MAX_TARGET_NAME_PREVIEW)}")
+    elif target_count:
+        lines.append(f"Prepared targets: {target_count}")
+
+    if sql_result:
+        row_count = sql_result.get("row_count")
+        summary = sql_result.get("summary")
+        if row_count is not None:
+            lines.append(f"Result rows: {row_count}")
+        if summary:
+            lines.append(f"Result summary: {summary}")
+
+    if saved_view_name:
+        lines.append(f"Saved view: {saved_view_name}")
+
+    feedback_summary = validation_feedback.get("summary")
+    if feedback_summary and outcome != "fulfilled":
+        lines.append(f"Validation feedback: {feedback_summary}")
+
+    if last_error:
+        lines.append(f"Error: {last_error}")
+    elif completion_reason and outcome != "fulfilled":
+        lines.append(f"Completion reason: {completion_reason}")
+
+    return "\n".join(lines)
