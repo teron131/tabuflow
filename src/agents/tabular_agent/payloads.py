@@ -7,6 +7,7 @@ from typing import Any
 MAX_EXTRACTED_TARGET_PREVIEW = 8
 MAX_TRACE_PREVIEW = 8
 MAX_REPAIR_HINT_PREVIEW = 3
+MAX_VALIDATION_INSTRUCTION_PREVIEW = 4
 
 
 def _preview_list(items: list[Any], *, max_items: int) -> tuple[list[Any], bool]:
@@ -58,10 +59,30 @@ def compact_sql_agent_output(output: dict[str, Any] | None) -> dict[str, Any] | 
     }
 
 
+def compact_validation_feedback(feedback: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return a concise validation-feedback payload for prompts and logs."""
+    if feedback is None:
+        return None
+
+    instructions = [str(item) for item in feedback.get("instructions", [])]
+    preview, truncated = _preview_list(instructions, max_items=MAX_VALIDATION_INSTRUCTION_PREVIEW)
+    return {
+        "failure_type": feedback.get("failure_type"),
+        "retryable": feedback.get("retryable", True),
+        "summary": feedback.get("summary"),
+        "instructions": preview,
+        "instruction_count": len(instructions),
+        "instructions_truncated": truncated,
+        "rationale": feedback.get("rationale"),
+    }
+
+
 def build_answer_payload(
     *,
     task: str,
     status: str,
+    outcome: str,
+    completion_reason: str | None,
     source_files: list[str],
     database_path: str | None,
     extracted_targets: list[dict[str, Any]],
@@ -70,11 +91,14 @@ def build_answer_payload(
     sql_result: dict[str, Any] | None,
     saved_view_name: str | None,
     last_error: str | None,
+    validation_feedback: dict[str, Any] | None,
 ) -> dict[str, Any]:
     """Build the compact execution payload for the final answer model."""
     return {
         "task": task,
         "status": status,
+        "outcome": outcome,
+        "completion_reason": completion_reason,
         "source_files": source_files,
         "database_path": database_path,
         "extracted_targets": compact_extracted_targets(extracted_targets),
@@ -83,4 +107,5 @@ def build_answer_payload(
         "sql_result": compact_sql_result(sql_result),
         "saved_view_name": saved_view_name,
         "last_error": last_error,
+        "validation_feedback": compact_validation_feedback(validation_feedback),
     }

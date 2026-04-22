@@ -10,9 +10,8 @@ from typing import Any, Literal
 from ...clients.openai import ChatOpenAI
 from ...tools import list_skills
 from ...utils import write_langgraph_artifacts
-
 from .graph import create_tabular_graph
-from .payloads import compact_extracted_targets, compact_sql_agent_output, compact_sql_result
+from .payloads import compact_extracted_targets, compact_sql_agent_output, compact_sql_result, compact_validation_feedback
 from .prompts import format_source_file_list
 from .state import TabularTaskOutput, build_graph_input
 
@@ -24,7 +23,7 @@ STEP_FIELDS: dict[str, dict[str, Any]] = {
     "skills": {
         "matched_skill_names": [],
     },
-    "extract": {
+    "prep": {
         "status": None,
         "database_path": None,
         "extracted_targets": [],
@@ -39,7 +38,7 @@ STEP_FIELDS: dict[str, dict[str, Any]] = {
     "validate": {
         "status": None,
         "last_error": None,
-        "validation_feedback": "",
+        "validation_feedback": None,
         "validation_attempts": 0,
     },
     "save": {
@@ -127,12 +126,14 @@ def render_step_update(
             )
             for field_name, default_value in step_fields.items()
         }
-        if step_name == "extract":
+        if step_name == "prep":
             payload["extracted_targets"] = compact_extracted_targets(list(payload.get("extracted_targets", [])))
         if step_name == "sql":
             payload["sql_result"] = compact_sql_result(payload.get("sql_result"))
             if "sql_agent_output" in update:
                 payload["sql_agent_output"] = compact_sql_agent_output(update.get("sql_agent_output"))
+        if step_name == "validate":
+            payload["validation_feedback"] = compact_validation_feedback(payload.get("validation_feedback"))
         return json.dumps(
             payload,
             ensure_ascii=True,

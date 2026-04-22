@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from typing import Any
+from typing import Any, Literal
 
 from langchain.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
@@ -14,7 +14,7 @@ from ..sql_agent import SQLAgent
 from ...tools import search_skills
 from ...tools.sql.query import describe_target, save_view
 
-from .payloads import build_answer_payload, compact_sql_agent_output
+from .payloads import build_answer_payload, compact_sql_agent_output, compact_validation_feedback
 from .prompts import FINAL_ANSWER_SYSTEM_PROMPT, build_task_prompt
 from .state import TabularTaskState, append_trace
 
@@ -43,7 +43,13 @@ class ValidationDecision(BaseModel):
     """Structured validation output for the tabular SQL loop."""
 
     valid: bool = Field(description="Whether the SQL attempt appears to fulfill the task.")
-    feedback: str = Field(default="", description="Short corrective feedback for the next SQL attempt when valid is false.")
+    retryable: bool = Field(default=True, description="Whether another SQL attempt is likely to help.")
+    failure_type: Literal["wrong_target", "wrong_grain", "missing_metric", "missing_filter", "empty_result", "suspicious_result", "ambiguous_task", "other"] = Field(
+        default="other",
+        description="Best matching reason when valid is false.",
+    )
+    summary: str = Field(default="", description="Short summary of what is wrong with the result.")
+    instructions: list[str] = Field(default_factory=list, description="Concrete instructions for the next SQL attempt.")
     rationale: str = Field(default="", description="Brief explanation of the validation decision.")
 
 
@@ -136,6 +142,23 @@ def error_update(
     )
 
 
+def _serialize_validation_feedback(decision: ValidationDecision) -> dict[str, Any]:
+    """Return the structured retry payload stored in graph state."""
+    instructions = [instruction.strip() for instruction in decision.instructions if instruction.strip()]
+    summary = decision.summary.strip()
+    if not instructions and summary:
+        instructions = [summary]
+    if not summary:
+        summary = "The SQL result does not appear to fully satisfy the task."
+    return {
+        "failure_type": decision.failure_type,
+        "retryable": decision.retryable,
+        "summary": summary,
+        "instructions": instructions,
+        "rationale": decision.rationale.strip(),
+    }
+
+
 def make_skills_node():
     """Create the skills-search node for task-time graph context."""
 
@@ -170,13 +193,13 @@ def make_skills_node():
     return skills_node
 
 
-def make_extract_node(tabular_tools: list[Any]):
-    """Create the extraction node from the tabular tool surface."""
+def make_prep_node(tabular_tools: list[Any]):
+    """Create the preparation node from the tabular tool surface."""
     extract_tabular = next((tool for tool in tabular_tools if getattr(tool, "name", None) == "extract_tabular"), None)
     if extract_tabular is None:
         raise ValueError("Missing tool: extract_tabular")
 
-    def extract_node(state: TabularTaskState) -> StateUpdate:
+    def prep_node(state: TabularTaskState) -> StateUpdate:
         extraction_results: list[dict[str, Any]] = []
         database_paths: set[str] = set()
         for source_file in state.source_files:
@@ -187,7 +210,9 @@ def make_extract_node(tabular_tools: list[Any]):
                     state,
                     extraction_results=extraction_results,
                     last_error=extraction.get("message", f"Extraction failed for {source_file}"),
-                    trace_message=f"extract failed for {source_file}",
+                    outcome="failed",
+                    completion_reason="prep_failed",
+                    trace_message=f"prep failed for {source_file}",
                 )
             if database_path := extraction.get("database_path"):
                 database_paths.add(str(database_path))
@@ -197,21 +222,23 @@ def make_extract_node(tabular_tools: list[Any]):
                 state,
                 extraction_results=extraction_results,
                 last_error="Expected one shared SQLite database path after extraction.",
-                trace_message="extract produced inconsistent database paths",
+                outcome="failed",
+                completion_reason="prep_inconsistent_database_paths",
+                trace_message="prep produced inconsistent database paths",
             )
 
         database_path = next(iter(database_paths))
         targets = collect_targets(extraction_results)
         return traced_update(
             state,
-            f"extracted {len(targets)} targets into {database_path}",
-            status="extracted",
+            f"prepared {len(targets)} targets into {database_path}",
+            status="prepared",
             database_path=database_path,
             extraction_results=extraction_results,
             extracted_targets=targets,
         )
 
-    return extract_node
+    return prep_node
 
 
 def make_sql_node(
@@ -227,6 +254,8 @@ def make_sql_node(
             return error_update(
                 state,
                 last_error="No SQLite database path was available for SQL analysis.",
+                outcome="failed",
+                completion_reason="missing_database_path",
                 trace_message="sql skipped because database_path was missing",
             )
 
@@ -241,12 +270,12 @@ def make_sql_node(
             state.source_files,
             search_context=state.search_context,
         )
-        if state.validation_feedback.strip():
+        if state.validation_feedback:
             task_prompt = "\n\n".join(
                 [
                     task_prompt,
-                    "Validation feedback for the next SQL attempt:",
-                    state.validation_feedback.strip(),
+                    "Validation retry guidance for the next SQL attempt:",
+                    json.dumps(compact_validation_feedback(state.validation_feedback), ensure_ascii=True, sort_keys=True),
                 ]
             )
         sql_output = sql_agent.invoke(
@@ -263,6 +292,8 @@ def make_sql_node(
             state,
             trace_message,
             status=sql_output.status,
+            outcome="pending" if sql_output.status == "complete" else ("blocked" if sql_output.status == "blocked" else "failed"),
+            completion_reason=None if sql_output.status == "complete" else ("sql_blocked" if sql_output.status == "blocked" else "sql_execution_failed"),
             sql_agent_output=compact_sql_agent_output(sql_output.model_dump(mode="json")),
             selected_targets=sql_output.selected_targets,
             candidate_sql=sql_output.candidate_sql,
@@ -306,18 +337,26 @@ def make_validate_node(llm: Any):
                 state,
                 "validation accepted the SQL result",
                 status="validated",
-                validation_feedback="",
+                outcome="fulfilled",
+                completion_reason="validated_result",
+                validation_feedback=None,
                 last_error=None,
             )
 
-        feedback = decision.feedback.strip() or "The SQL result does not appear to fully satisfy the task. Revisit the chosen fields, aggregation grain, and requested outputs."
+        feedback = _serialize_validation_feedback(decision)
+        summary = str(feedback["summary"])
+        status = "needs_revision" if decision.retryable else "blocked"
+        next_attempts = state.validation_attempts + (1 if decision.retryable else 0)
+        exhausted_retries = decision.retryable and next_attempts >= MAX_VALIDATION_ATTEMPTS
         return traced_update(
             state,
-            "validation requested another SQL attempt",
-            status="needs_revision",
-            validation_attempts=state.validation_attempts + 1,
+            "validation requested another SQL attempt" if decision.retryable else "validation blocked the run",
+            status=status,
+            outcome="failed" if exhausted_retries else ("blocked" if not decision.retryable else "pending"),
+            completion_reason="validation_attempt_limit" if exhausted_retries else ("validation_blocked" if not decision.retryable else None),
+            validation_attempts=next_attempts,
             validation_feedback=feedback,
-            last_error=feedback,
+            last_error=summary,
         )
 
     return validate_node
@@ -326,9 +365,12 @@ def make_validate_node(llm: Any):
 def save_node(state: TabularTaskState) -> StateUpdate:
     """Save the final SQL query result as a reusable SQLite view."""
     if not state.candidate_sql or not state.database_path:
-        return error_update(
+        return traced_update(
             state,
+            status="error",
             last_error="No executable SQL was available to save as a view.",
+            outcome=state.outcome,
+            completion_reason="save_failed",
             trace_message="save skipped because candidate_sql was missing",
         )
 
@@ -340,11 +382,14 @@ def save_node(state: TabularTaskState) -> StateUpdate:
         replace=True,
     )
     if saved_view.get("status") != "ok":
-        return error_update(
+        return traced_update(
             state,
+            status="error",
             saved_view_name=view_name,
             saved_view=saved_view,
             last_error=saved_view.get("message", f"Failed to save view {view_name}"),
+            outcome=state.outcome,
+            completion_reason="save_failed",
             trace_message=f"save failed for view {view_name}",
         )
 
@@ -352,6 +397,8 @@ def save_node(state: TabularTaskState) -> StateUpdate:
         state,
         f"saved result as view {view_name}",
         status="saved",
+        outcome=state.outcome,
+        completion_reason="saved_view",
         saved_view_name=view_name,
         saved_view=saved_view,
         last_error=None,
@@ -371,6 +418,8 @@ def make_answer_node(llm: Any, *, prompt: str):
         execution_payload = build_answer_payload(
             task=state.task,
             status=state.status,
+            outcome=state.outcome,
+            completion_reason=state.completion_reason,
             source_files=state.source_files,
             database_path=state.database_path,
             extracted_targets=state.extracted_targets,
@@ -379,6 +428,7 @@ def make_answer_node(llm: Any, *, prompt: str):
             sql_result=state.sql_result,
             saved_view_name=state.saved_view_name,
             last_error=state.last_error,
+            validation_feedback=state.validation_feedback,
         )
         response = llm.invoke(
             [

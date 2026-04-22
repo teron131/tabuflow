@@ -5,15 +5,15 @@ config:
 ---
 graph LR;
 	skills(skills)
-	extract(extract)
+	prep(prep)
 	sql(sql)
 	validate(validate)
 	save(save)
 	answer(answer)
-	extract --> answer;
-	extract --> sql;
+	prep --> answer;
+	prep --> sql;
 	save --> answer;
-	skills --> extract;
+	skills --> prep;
 	sql --> answer;
 	sql --> validate;
 	validate --> answer;

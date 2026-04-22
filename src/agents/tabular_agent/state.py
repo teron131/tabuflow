@@ -20,6 +20,8 @@ class TabularTaskOutput(BaseModel):
     """Public output for the deterministic tabular analysis graph."""
 
     status: str = "pending"
+    outcome: str = "pending"
+    completion_reason: str | None = None
     database_path: str | None = None
     extracted_targets: list[dict[str, Any]] = Field(default_factory=list)
     selected_targets: list[str] = Field(default_factory=list)
@@ -39,7 +41,7 @@ class TabularTaskState(TabularTaskInput, TabularTaskOutput):
     matched_skill_names: list[str] = Field(default_factory=list)
     search_context: str = ""
     sql_agent_output: dict[str, Any] | None = None
-    validation_feedback: str = ""
+    validation_feedback: dict[str, Any] | None = None
     validation_attempts: int = 0
 
 

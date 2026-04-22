@@ -9,13 +9,13 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from ...tools.tabular.tools import make_tabular_tools
-from .nodes import MAX_VALIDATION_ATTEMPTS, make_answer_node, make_extract_node, make_skills_node, make_sql_node, make_validate_node, save_node
+from .nodes import MAX_VALIDATION_ATTEMPTS, make_answer_node, make_prep_node, make_skills_node, make_sql_node, make_validate_node, save_node
 from .state import TabularTaskInput, TabularTaskOutput, TabularTaskState
 
 
-def route_after_extract(state: TabularTaskState) -> str:
-    """Route after extraction."""
-    return "sql" if state.status == "extracted" else "answer"
+def route_after_prep(state: TabularTaskState) -> str:
+    """Route after preparation."""
+    return "sql" if state.status == "prepared" else "answer"
 
 
 def route_after_sql(state: TabularTaskState) -> str:
@@ -46,7 +46,7 @@ def create_tabular_graph(
         output_schema=TabularTaskOutput,
     )
     builder.add_node("skills", make_skills_node())
-    builder.add_node("extract", make_extract_node(tabular_tools))
+    builder.add_node("prep", make_prep_node(tabular_tools))
     builder.add_node(
         "sql",
         make_sql_node(
@@ -65,10 +65,10 @@ def create_tabular_graph(
     )
 
     builder.add_edge(START, "skills")
-    builder.add_edge("skills", "extract")
+    builder.add_edge("skills", "prep")
     builder.add_conditional_edges(
-        "extract",
-        route_after_extract,
+        "prep",
+        route_after_prep,
         {
             "sql": "sql",
             "answer": "answer",
