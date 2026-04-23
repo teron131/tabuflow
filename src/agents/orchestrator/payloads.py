@@ -1,15 +1,18 @@
-"""Compact payload shaping helpers for the tabular workflow."""
+"""Compact payload shaping helpers for orchestrator-owned workflow runs."""
 
 from __future__ import annotations
 
 from typing import Any
 
-MAX_EXTRACTED_TARGET_PREVIEW = 8
+from ..prep_agent.payloads import compact_extracted_targets
+
 MAX_TRACE_PREVIEW = 8
 MAX_REPAIR_HINT_PREVIEW = 3
 MAX_VALIDATION_INSTRUCTION_PREVIEW = 4
 MAX_TARGET_NAME_PREVIEW = 4
 MAX_SOURCE_FILE_PREVIEW = 3
+MAX_SQL_RESULT_COLUMN_PREVIEW = 8
+MAX_SQL_RESULT_ROW_PREVIEW = 2
 
 
 def _preview_list(items: list[Any], *, max_items: int) -> tuple[list[Any], bool]:
@@ -18,46 +21,47 @@ def _preview_list(items: list[Any], *, max_items: int) -> tuple[list[Any], bool]
     return items[:safe_max_items], len(items) > safe_max_items
 
 
-def compact_extracted_targets(targets: list[dict[str, Any]]) -> dict[str, Any]:
-    """Return a bounded preview of extracted targets for prompts and logs."""
-    preview, truncated = _preview_list(targets, max_items=MAX_EXTRACTED_TARGET_PREVIEW)
-    return {
-        "count": len(targets),
-        "truncated": truncated,
-        "items": preview,
-    }
-
-
 def compact_sql_result(result: dict[str, Any] | None) -> dict[str, Any] | None:
     """Return the compact SQL result payload stored by the SQL agent."""
     if result is None:
         return None
-    return result
+    if result.get("status") != "ok":
+        return {
+            "status": result.get("status"),
+            "error_type": result.get("error_type"),
+            "message": result.get("message"),
+            "database_path": result.get("database_path"),
+            "summary": result.get("summary"),
+        }
 
+    columns = [str(column) for column in result.get("columns", [])]
+    column_preview, columns_truncated = _preview_list(columns, max_items=MAX_SQL_RESULT_COLUMN_PREVIEW)
+    rows = list(result.get("rows", []))
+    row_preview, rows_truncated = _preview_list(rows, max_items=MAX_SQL_RESULT_ROW_PREVIEW)
 
-def compact_sql_agent_output(output: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Return a concise SQL-agent payload for workflow state."""
-    if output is None:
-        return None
+    compact_rows: list[dict[str, Any]] = []
+    for row in row_preview:
+        if not isinstance(row, dict):
+            compact_rows.append({"value": row})
+            continue
+        row_items = list(row.items())
+        compact_items, row_columns_truncated = _preview_list(row_items, max_items=MAX_SQL_RESULT_COLUMN_PREVIEW)
+        compact_row = dict(compact_items)
+        if row_columns_truncated:
+            compact_row["__remaining_columns__"] = len(row_items) - len(compact_items)
+        compact_rows.append(compact_row)
 
-    trace = [str(item) for item in output.get("trace", [])]
-    trace_preview, trace_truncated = _preview_list(trace, max_items=MAX_TRACE_PREVIEW)
-    repair_hints = list(output.get("repair_hints", []))
-    repair_hint_preview, repair_hints_truncated = _preview_list(repair_hints, max_items=MAX_REPAIR_HINT_PREVIEW)
     return {
-        "status": output.get("status"),
-        "selected_targets": output.get("selected_targets", []),
-        "candidate_sql": output.get("candidate_sql"),
-        "attempts": output.get("attempts", 0),
-        "rationale": output.get("rationale"),
-        "last_error": output.get("last_error"),
-        "repair_hints": repair_hint_preview,
-        "repair_hint_count": len(repair_hints),
-        "repair_hints_truncated": repair_hints_truncated,
-        "result": compact_sql_result(output.get("result")),
-        "trace": trace_preview,
-        "trace_count": len(trace),
-        "trace_truncated": trace_truncated,
+        "status": "ok",
+        "database_path": result.get("database_path"),
+        "summary": result.get("summary"),
+        "row_count": result.get("row_count", len(rows)),
+        "truncated": bool(result.get("truncated")),
+        "column_count": len(columns),
+        "columns": column_preview,
+        "columns_truncated": columns_truncated,
+        "rows": compact_rows,
+        "rows_truncated": rows_truncated or bool(result.get("truncated")),
     }
 
 
@@ -101,8 +105,11 @@ def build_result_artifact(
     candidate_sql: str | None,
     sql_result: dict[str, Any] | None,
     saved_view_name: str | None,
+    saved_view: dict[str, Any] | None,
     last_error: str | None,
     validation_feedback: dict[str, Any] | None,
+    validation_attempts: int,
+    trace: list[str],
 ) -> dict[str, Any]:
     """Build the compact execution payload for a workflow or tool result."""
     return {
@@ -117,13 +124,16 @@ def build_result_artifact(
         "candidate_sql": candidate_sql,
         "sql_result": compact_sql_result(sql_result),
         "saved_view_name": saved_view_name,
+        "saved_view": saved_view,
         "last_error": last_error,
         "validation_feedback": compact_validation_feedback(validation_feedback),
+        "validation_attempts": validation_attempts,
+        "trace": trace,
     }
 
 
-def build_result_message_content(artifact: dict[str, Any]) -> str:
-    """Render a concise, deterministic summary for a parent chain caller."""
+def build_result_message(artifact: dict[str, Any]) -> str:
+    """Render a concise, deterministic summary for a workflow caller."""
     outcome = str(artifact.get("outcome", "pending"))
     status = str(artifact.get("status", "pending"))
     task = str(artifact.get("task", "")).strip()
@@ -134,15 +144,16 @@ def build_result_message_content(artifact: dict[str, Any]) -> str:
     validation_feedback = artifact.get("validation_feedback") or {}
     completion_reason = artifact.get("completion_reason")
     last_error = artifact.get("last_error")
+    validation_attempts = artifact.get("validation_attempts")
 
     if outcome == "fulfilled":
-        headline = "Tabular workflow completed successfully."
+        headline = "Workflow completed successfully."
     elif outcome == "blocked":
-        headline = "Tabular workflow stopped without a final answer."
+        headline = "Workflow stopped without a final answer."
     elif outcome == "failed":
-        headline = "Tabular workflow failed."
+        headline = "Workflow failed."
     else:
-        headline = f"Tabular workflow finished with status={status}."
+        headline = f"Workflow finished with status={status}."
 
     lines = [headline]
     if task:
@@ -170,6 +181,8 @@ def build_result_message_content(artifact: dict[str, Any]) -> str:
     feedback_summary = validation_feedback.get("summary")
     if feedback_summary and outcome != "fulfilled":
         lines.append(f"Validation feedback: {feedback_summary}")
+    if validation_attempts:
+        lines.append(f"Validation attempts: {validation_attempts}")
 
     if last_error:
         lines.append(f"Error: {last_error}")
