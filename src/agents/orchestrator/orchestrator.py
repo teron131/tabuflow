@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
+from langchain.agents import create_agent
 from langchain.messages import AIMessage, AnyMessage, HumanMessage
+from langgraph.graph.state import CompiledStateGraph
 
 from ...clients.openai import ChatOpenAI
 from ...utils import write_langgraph_artifacts
-from .graph import create_orchestrator_graph
+from .middleware import SkillsContextMiddleware
+from .prompts import build_system_prompt
+from .state import OrchestratorState
+from .tools import make_orchestrator_tools
 
 DEFAULT_MODEL_ENV = "MAIN_LLM"
 FALLBACK_MODEL_ENV = "FAST_LLM"
 DEFAULT_MODEL = "openai/gpt-5.4-nano"
-DEFAULT_REASONING_EFFORT: Literal["minimal", "low", "medium", "high"] = "high"
 
 
 def _resolve_model_name() -> str:
@@ -38,7 +42,7 @@ class Orchestrator:
         self.llm = ChatOpenAI(
             model=self.model,
             temperature=0,
-            reasoning_effort=DEFAULT_REASONING_EFFORT,
+            reasoning_effort="high",
         )
         self.graph = self.build_graph()
         self.graph_artifacts = write_langgraph_artifacts(
@@ -46,12 +50,20 @@ class Orchestrator:
             filename_stem="orchestrator-graph",
         )
 
-    def build_graph(self):
+    def build_graph(self) -> CompiledStateGraph:
         """Build the compiled orchestrator graph."""
-        return create_orchestrator_graph(
-            llm=self.llm,
+        tools = make_orchestrator_tools(
             prompt=self.prompt,
             root_dir=self.root_dir,
+            llm=self.llm,
+        )
+        return create_agent(
+            model=self.llm,
+            tools=tools,
+            system_prompt=build_system_prompt(self.prompt),
+            middleware=[SkillsContextMiddleware()],
+            state_schema=OrchestratorState,
+            name="orchestrator",
         )
 
     def invoke(self, message: str | list[AnyMessage | dict[str, Any]]) -> dict[str, Any]:

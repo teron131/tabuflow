@@ -206,6 +206,7 @@ def make_orchestrator_tools(
     def run_tabular_workflow(
         task: str,
         source_files: list[str],
+        max_prep_trials: int = 2,
         max_validation_retries: int = 2,
     ) -> tuple[str, dict[str, Any]]:
         """Run the tabular worker workflow on local files and return its final result.
@@ -213,6 +214,7 @@ def make_orchestrator_tools(
         Args:
             task: Natural-language task to execute against the supplied files.
             source_files: One or more local spreadsheet or table-like file paths.
+            max_prep_trials: Maximum number of prep-agent retries before stopping.
             max_validation_retries: Maximum number of validator-requested SQL retries.
         """
         tabular_agent = get_tabular_agent()
@@ -224,6 +226,7 @@ def make_orchestrator_tools(
             worker_instructions=skill_payload["worker_instructions"],
             skill_refs=skill_payload["skill_refs"],
             run_id=uuid4().hex[:8],
+            max_prep_trials=max_prep_trials,
             max_validation_retries=max_validation_retries,
         )
         artifact = output.result_artifact or output.model_dump(mode="json")
