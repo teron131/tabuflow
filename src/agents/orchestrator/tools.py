@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
@@ -9,12 +10,12 @@ from typing import Any
 from uuid import uuid4
 
 from langchain.tools import BaseTool, tool
-from pydantic import BaseModel, Field
 
 from ...tools import list_skills, load_skills, search_skills
 from ...tools.sql.query import save_view
 from ..prep_agent import PrepAgent
-from ..sql_agent import SQLAgent
+from ..sql_agent import SQLAgent, SQLAgentOutput
+from ..validation_agent import ValidationAgent
 from .payloads import build_result_artifact, build_result_message
 
 SKILLS_PATH = "skills"
@@ -23,24 +24,77 @@ VIEW_NAME_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "in", "of", "on",
 MAX_SKILL_REF_PREVIEW = 8
 
 
-class ValidationDecision(BaseModel):
-    """Simple orchestrator-owned validation result for SQL output."""
+@dataclass
+class WorkerSkillPayload:
+    """Worker-facing skill instructions and loaded references for one run."""
 
-    valid: bool = Field(description="Whether the SQL result appears to satisfy the task.")
-    retryable: bool = Field(default=True, description="Whether another SQL attempt is likely to help.")
-    summary: str = Field(default="", description="Short explanation of the validation judgment.")
-    instructions: list[str] = Field(default_factory=list, description="Concrete guidance for the next SQL attempt when retryable.")
+    worker_instructions: str = ""
+    skill_refs: list[dict[str, Any]] = field(default_factory=list)
 
 
-VALIDATION_SYSTEM_PROMPT = """Review whether a SQL result appears to satisfy the user's task.
+@dataclass
+class WorkflowRun:
+    """Shared workflow state used across prep, SQL, and save stages."""
 
-Rules:
-- Focus on task fulfillment, not stylistic SQL preferences.
-- Use the task, prepared targets, selected targets, SQL text, and SQL result payload.
-- If the result looks incomplete, wrong-grain, empty, or suspicious, set valid=false.
-- If another SQL attempt could plausibly fix it, set retryable=true and provide short concrete instructions.
-- Keep the feedback concise and directly actionable.
-"""
+    task: str
+    source_files: list[str]
+    skill_payload: WorkerSkillPayload
+    run_id: str = field(default_factory=lambda: uuid4().hex[:8])
+    trace: list[str] = field(default_factory=list)
+    database_path: str | None = None
+    extracted_targets: list[dict[str, Any]] = field(default_factory=list)
+
+    def append_trace(self, *messages: str) -> None:
+        """Append one or more trace messages while keeping the trace compact."""
+        for message in messages:
+            self.trace = _append_trace(self.trace, message)
+
+    def result(
+        self,
+        *,
+        status: str,
+        outcome: str,
+        completion_reason: str | None,
+        selected_targets: list[str],
+        candidate_sql: str | None,
+        sql_result: dict[str, Any] | None,
+        saved_view_name: str | None,
+        saved_view: dict[str, Any] | None,
+        last_error: str | None,
+        validation_feedback: dict[str, Any] | None,
+        validation_attempts: int,
+        trace: list[str] | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Build the caller-facing workflow result from the current run state."""
+        artifact = build_result_artifact(
+            task=self.task,
+            status=status,
+            outcome=outcome,
+            completion_reason=completion_reason,
+            source_files=self.source_files,
+            database_path=self.database_path,
+            extracted_targets=self.extracted_targets,
+            selected_targets=selected_targets,
+            candidate_sql=candidate_sql,
+            sql_result=sql_result,
+            saved_view_name=saved_view_name,
+            saved_view=saved_view,
+            last_error=last_error,
+            validation_feedback=validation_feedback,
+            validation_attempts=validation_attempts,
+            trace=self.trace if trace is None else trace,
+        )
+        return build_result_message(artifact), artifact
+
+
+@dataclass
+class SqlLoopResult:
+    """State accumulated across orchestrator-owned SQL attempts."""
+
+    output: SQLAgentOutput | None = None
+    validation_feedback: dict[str, Any] | None = None
+    validation_attempts: int = 0
+    validated: bool = False
 
 
 def list_skills_context(*, path: str = SKILLS_PATH) -> dict[str, Any]:
@@ -131,7 +185,7 @@ def _build_worker_skill_payload(
     task: str,
     *,
     path: str = SKILLS_PATH,
-) -> dict[str, Any]:
+) -> WorkerSkillPayload:
     """Search and load matched skills into one worker-ready payload."""
     search_result = search_skills_context(task, path=path)
     matched_skills = list(search_result.get("skills", []))
@@ -168,15 +222,10 @@ def _build_worker_skill_payload(
         worker_sections.append("Skill loading diagnostics:")
         worker_sections.extend(f"- {message}" for message in diagnostics)
 
-    return {
-        "worker_instructions": "\n\n".join(section for section in worker_sections if section.strip()),
-        "skill_refs": skill_refs,
-    }
-
-
-def _format_source_file_list(source_files: list[str]) -> str:
-    """Render the source file list once for prompt construction."""
-    return "\n".join(f"- {source_file}" for source_file in source_files) or "- (none)"
+    return WorkerSkillPayload(
+        worker_instructions="\n\n".join(section for section in worker_sections if section.strip()),
+        skill_refs=skill_refs,
+    )
 
 
 def _summarize_skill_refs(skill_refs: list[dict[str, Any]]) -> str:
@@ -213,7 +262,8 @@ def _build_sql_task_prompt(
 ) -> str:
     """Build the SQL worker prompt for one orchestrator-owned run."""
     parts = [prompt.strip()] if prompt.strip() else []
-    parts.append(f"Source files:\n{_format_source_file_list(source_files)}\nTask: {task}")
+    source_file_list = "\n".join(f"- {source_file}" for source_file in source_files) or "- (none)"
+    parts.append(f"Source files:\n{source_file_list}\nTask: {task}")
     if worker_instructions.strip():
         parts.append(worker_instructions.strip())
     if skill_ref_summary := _summarize_skill_refs(skill_refs):
@@ -245,31 +295,172 @@ def _append_trace(trace: list[str], message: str) -> list[str]:
     return [*trace, message][-12:]
 
 
-def _validate_result(
+def _run_sql_validation_loop(
+    run: WorkflowRun,
     *,
-    llm: Any,
-    task: str,
-    source_files: list[str],
-    extracted_targets: list[dict[str, Any]],
-    selected_targets: list[str],
-    candidate_sql: str | None,
-    sql_result: dict[str, Any] | None,
-    previous_feedback: dict[str, Any] | None,
+    prompt: str,
+    sql_agent: SQLAgent,
+    validation_agent: ValidationAgent,
+    max_validation_retries: int,
+) -> SqlLoopResult:
+    """Run SQL attempts until validation accepts the result or the retry budget is spent."""
+    loop = SqlLoopResult()
+
+    for attempt_idx in range(max(1, max_validation_retries) + 1):
+        sql_prompt = _build_sql_task_prompt(
+            prompt,
+            run.task,
+            run.source_files,
+            worker_instructions=run.skill_payload.worker_instructions,
+            skill_refs=run.skill_payload.skill_refs,
+            validation_feedback=loop.validation_feedback,
+        )
+        sql_output = sql_agent.invoke(
+            sql_prompt,
+            database_path=run.database_path,
+        )
+        loop.output = sql_output
+        run.append_trace(*sql_output.trace)
+
+        if sql_output.status != "complete":
+            return loop
+
+        decision = validation_agent.invoke(
+            task=run.task,
+            source_files=run.source_files,
+            extracted_targets=run.extracted_targets,
+            selected_targets=sql_output.selected_targets,
+            candidate_sql=sql_output.candidate_sql,
+            sql_result=sql_output.result,
+            previous_feedback=loop.validation_feedback,
+            validation_attempts=loop.validation_attempts,
+        )
+        if decision.valid:
+            loop.validated = True
+            run.append_trace("orchestrator validation accepted the SQL result")
+            return loop
+
+        summary = decision.summary.strip() or "The SQL result does not appear to fully satisfy the task."
+        instructions = [instruction.strip() for instruction in decision.instructions if instruction.strip()]
+        loop.validation_feedback = {
+            "retryable": decision.retryable,
+            "summary": summary,
+            "instructions": instructions or [summary],
+        }
+        run.append_trace(f"orchestrator validation requested another SQL attempt: {loop.validation_feedback['summary']}")
+        loop.validation_attempts += 1
+        if not decision.retryable or attempt_idx >= max_validation_retries:
+            return loop
+
+    return loop
+
+
+def _save_validated_result(
+    run: WorkflowRun,
+    *,
+    sql_output: SQLAgentOutput,
     validation_attempts: int,
-) -> ValidationDecision:
-    """Run one lightweight orchestrator-owned validation prompt."""
-    validator = llm.with_structured_output(ValidationDecision)
-    payload = {
-        "task": task,
-        "source_files": source_files,
-        "extracted_targets": extracted_targets,
-        "selected_targets": selected_targets,
-        "candidate_sql": candidate_sql,
-        "sql_result": sql_result,
-        "previous_feedback": previous_feedback,
-        "validation_attempts": validation_attempts,
-    }
-    return validator.invoke(VALIDATION_SYSTEM_PROMPT + "\n\n" + json.dumps(payload, ensure_ascii=True, sort_keys=True))
+) -> tuple[str, dict[str, Any]]:
+    """Persist one validated SQL result as a SQLite view and return the final workflow result."""
+    view_name = _build_saved_view_name(run.task, run.run_id)
+    saved_view = save_view(
+        sql_output.candidate_sql,
+        view_name,
+        database_path=run.database_path,
+        replace=False,
+    )
+    if saved_view.get("status") != "ok":
+        return run.result(
+            status="error",
+            outcome="failed",
+            completion_reason="save_failed",
+            selected_targets=sql_output.selected_targets,
+            candidate_sql=sql_output.candidate_sql,
+            sql_result=sql_output.result,
+            saved_view_name=view_name,
+            saved_view=saved_view,
+            last_error=saved_view.get("message", f"Failed to save view {view_name}"),
+            validation_feedback=None,
+            validation_attempts=validation_attempts,
+            trace=_append_trace(run.trace, f"save failed for view {view_name}"),
+        )
+
+    return run.result(
+        status="saved",
+        outcome="fulfilled",
+        completion_reason="saved_view",
+        selected_targets=sql_output.selected_targets,
+        candidate_sql=sql_output.candidate_sql,
+        sql_result=sql_output.result,
+        saved_view_name=view_name,
+        saved_view=saved_view,
+        last_error=None,
+        validation_feedback=None,
+        validation_attempts=validation_attempts,
+        trace=_append_trace(run.trace, f"saved result as view {view_name}"),
+    )
+
+
+def _build_sql_failure_result(
+    run: WorkflowRun,
+    *,
+    loop: SqlLoopResult,
+) -> tuple[str, dict[str, Any]]:
+    """Build the final workflow result for an incomplete, blocked, or invalid SQL run."""
+    sql_output = loop.output
+    if sql_output is None:
+        return run.result(
+            status="error",
+            outcome="failed",
+            completion_reason="sql_execution_failed",
+            selected_targets=[],
+            candidate_sql=None,
+            sql_result=None,
+            saved_view_name=None,
+            saved_view=None,
+            last_error="SQL workflow did not run.",
+            validation_feedback=loop.validation_feedback,
+            validation_attempts=loop.validation_attempts,
+            trace=_append_trace(run.trace, "sql workflow did not run"),
+        )
+
+    if sql_output.status != "complete":
+        return run.result(
+            status=sql_output.status,
+            outcome="blocked" if sql_output.status == "blocked" else "failed",
+            completion_reason="sql_blocked" if sql_output.status == "blocked" else "sql_execution_failed",
+            selected_targets=sql_output.selected_targets,
+            candidate_sql=sql_output.candidate_sql,
+            sql_result=sql_output.result,
+            saved_view_name=None,
+            saved_view=None,
+            last_error=sql_output.last_error,
+            validation_feedback=loop.validation_feedback,
+            validation_attempts=loop.validation_attempts,
+        )
+
+    completion_reason = "validation_attempt_limit"
+    outcome = "failed"
+    last_error = None
+    if loop.validation_feedback:
+        last_error = loop.validation_feedback["summary"]
+        if not loop.validation_feedback.get("retryable", True):
+            completion_reason = "validation_blocked"
+            outcome = "blocked"
+
+    return run.result(
+        status="error",
+        outcome=outcome,
+        completion_reason=completion_reason,
+        selected_targets=sql_output.selected_targets,
+        candidate_sql=sql_output.candidate_sql,
+        sql_result=sql_output.result,
+        saved_view_name=None,
+        saved_view=None,
+        last_error=last_error,
+        validation_feedback=loop.validation_feedback,
+        validation_attempts=loop.validation_attempts,
+    )
 
 
 def make_orchestrator_tools(
@@ -281,6 +472,7 @@ def make_orchestrator_tools(
     """Build the static tool set exposed to the top-level orchestrator."""
     prep_agent: PrepAgent | None = None
     sql_agent: SQLAgent | None = None
+    validation_agent: ValidationAgent | None = None
 
     def get_prep_agent() -> PrepAgent:
         """Return one cached prep worker instance."""
@@ -299,6 +491,13 @@ def make_orchestrator_tools(
         if sql_agent is None:
             sql_agent = SQLAgent(llm=llm) if llm is not None else SQLAgent()
         return sql_agent
+
+    def get_validation_agent() -> ValidationAgent:
+        """Return one cached validation worker instance."""
+        nonlocal validation_agent
+        if validation_agent is None:
+            validation_agent = ValidationAgent(llm=llm) if llm is not None else ValidationAgent()
+        return validation_agent
 
     @tool(parse_docstring=True, response_format="content_and_artifact")
     def run_sql_workflow(
@@ -343,32 +542,27 @@ def make_orchestrator_tools(
         if llm is None:
             raise ValueError("run_workflow requires an orchestrator LLM for validation.")
 
-        prep_agent = get_prep_agent()
-        sql_agent = get_sql_agent()
-        skill_payload = _build_worker_skill_payload(task)
-        run_id = uuid4().hex[:8]
-        trace: list[str] = []
-
-        prep_output = prep_agent.invoke(
-            task,
+        run = WorkflowRun(
+            task=task,
             source_files=source_files,
-            worker_instructions=skill_payload["worker_instructions"],
-            skill_refs=skill_payload["skill_refs"],
+            skill_payload=_build_worker_skill_payload(task),
+        )
+        prep_output = get_prep_agent().invoke(
+            run.task,
+            source_files=run.source_files,
+            worker_instructions=run.skill_payload.worker_instructions,
+            skill_refs=run.skill_payload.skill_refs,
             max_prep_trials=max_prep_trials,
         )
-
-        for message in prep_output.trace:
-            trace = _append_trace(trace, message)
+        run.database_path = prep_output.database_path
+        run.extracted_targets = prep_output.extracted_targets
+        run.append_trace(*prep_output.trace)
 
         if prep_output.status != "prepared":
-            artifact = build_result_artifact(
-                task=task,
+            return run.result(
                 status="error",
                 outcome="failed",
                 completion_reason="prep_failed",
-                source_files=source_files,
-                database_path=prep_output.database_path,
-                extracted_targets=prep_output.extracted_targets,
                 selected_targets=[],
                 candidate_sql=None,
                 sql_result=None,
@@ -377,178 +571,21 @@ def make_orchestrator_tools(
                 last_error=prep_output.last_error or "Preparation failed.",
                 validation_feedback=None,
                 validation_attempts=0,
-                trace=trace,
             )
-            return build_result_message(artifact), artifact
-
-        validation_feedback: dict[str, Any] | None = None
-        validation_attempts = 0
-        last_sql_output = None
-        sql_output = None
-
-        for attempt_idx in range(max(1, max_validation_retries) + 1):
-            sql_prompt = _build_sql_task_prompt(
-                prompt,
-                task,
-                source_files,
-                worker_instructions=skill_payload["worker_instructions"],
-                skill_refs=skill_payload["skill_refs"],
-                validation_feedback=validation_feedback,
-            )
-            sql_output = sql_agent.invoke(
-                sql_prompt,
-                database_path=prep_output.database_path,
-            )
-            last_sql_output = sql_output
-            for message in sql_output.trace:
-                trace = _append_trace(trace, message)
-
-            if sql_output.status != "complete":
-                break
-
-            decision = _validate_result(
-                llm=llm,
-                task=task,
-                source_files=source_files,
-                extracted_targets=prep_output.extracted_targets,
-                selected_targets=sql_output.selected_targets,
-                candidate_sql=sql_output.candidate_sql,
-                sql_result=sql_output.result,
-                previous_feedback=validation_feedback,
-                validation_attempts=validation_attempts,
-            )
-            if decision.valid:
-                trace = _append_trace(trace, "orchestrator validation accepted the SQL result")
-                view_name = _build_saved_view_name(task, run_id)
-                saved_view = save_view(
-                    sql_output.candidate_sql,
-                    view_name,
-                    database_path=prep_output.database_path,
-                    replace=False,
-                )
-                if saved_view.get("status") != "ok":
-                    artifact = build_result_artifact(
-                        task=task,
-                        status="error",
-                        outcome="failed",
-                        completion_reason="save_failed",
-                        source_files=source_files,
-                        database_path=prep_output.database_path,
-                        extracted_targets=prep_output.extracted_targets,
-                        selected_targets=sql_output.selected_targets,
-                        candidate_sql=sql_output.candidate_sql,
-                        sql_result=sql_output.result,
-                        saved_view_name=view_name,
-                        saved_view=saved_view,
-                        last_error=saved_view.get("message", f"Failed to save view {view_name}"),
-                        validation_feedback=validation_feedback,
-                        validation_attempts=validation_attempts,
-                        trace=_append_trace(trace, f"save failed for view {view_name}"),
-                    )
-                    return build_result_message(artifact), artifact
-
-                artifact = build_result_artifact(
-                    task=task,
-                    status="saved",
-                    outcome="fulfilled",
-                    completion_reason="saved_view",
-                    source_files=source_files,
-                    database_path=prep_output.database_path,
-                    extracted_targets=prep_output.extracted_targets,
-                    selected_targets=sql_output.selected_targets,
-                    candidate_sql=sql_output.candidate_sql,
-                    sql_result=sql_output.result,
-                    saved_view_name=view_name,
-                    saved_view=saved_view,
-                    last_error=None,
-                    validation_feedback=None,
-                    validation_attempts=validation_attempts,
-                    trace=_append_trace(trace, f"saved result as view {view_name}"),
-                )
-                return build_result_message(artifact), artifact
-
-            validation_feedback = {
-                "retryable": decision.retryable,
-                "summary": decision.summary.strip() or "The SQL result does not appear to fully satisfy the task.",
-                "instructions": [instruction.strip() for instruction in decision.instructions if instruction.strip()],
-            }
-            if not validation_feedback["instructions"] and validation_feedback["summary"]:
-                validation_feedback["instructions"] = [validation_feedback["summary"]]
-            trace = _append_trace(trace, f"orchestrator validation requested another SQL attempt: {validation_feedback['summary']}")
-            validation_attempts += 1
-            if not decision.retryable or attempt_idx >= max_validation_retries:
-                break
-
-        if sql_output is None and last_sql_output is None:
-            artifact = build_result_artifact(
-                task=task,
-                status="error",
-                outcome="failed",
-                completion_reason="sql_execution_failed",
-                source_files=source_files,
-                database_path=prep_output.database_path,
-                extracted_targets=prep_output.extracted_targets,
-                selected_targets=[],
-                candidate_sql=None,
-                sql_result=None,
-                saved_view_name=None,
-                saved_view=None,
-                last_error="SQL workflow did not run.",
-                validation_feedback=validation_feedback,
-                validation_attempts=validation_attempts,
-                trace=_append_trace(trace, "sql workflow did not run"),
-            )
-            return build_result_message(artifact), artifact
-
-        sql_output = last_sql_output or sql_output
-        if sql_output is not None and sql_output.status != "complete":
-            completion_reason = "sql_blocked" if sql_output.status == "blocked" else "sql_execution_failed"
-            outcome = "blocked" if sql_output.status == "blocked" else "failed"
-            artifact = build_result_artifact(
-                task=task,
-                status=sql_output.status,
-                outcome=outcome,
-                completion_reason=completion_reason,
-                source_files=source_files,
-                database_path=prep_output.database_path,
-                extracted_targets=prep_output.extracted_targets,
-                selected_targets=sql_output.selected_targets,
-                candidate_sql=sql_output.candidate_sql,
-                sql_result=sql_output.result,
-                saved_view_name=None,
-                saved_view=None,
-                last_error=sql_output.last_error,
-                validation_feedback=validation_feedback,
-                validation_attempts=validation_attempts,
-                trace=trace,
-            )
-            return build_result_message(artifact), artifact
-
-        completion_reason = "validation_attempt_limit"
-        outcome = "failed"
-        if validation_feedback and not validation_feedback.get("retryable", True):
-            completion_reason = "validation_blocked"
-            outcome = "blocked"
-
-        artifact = build_result_artifact(
-            task=task,
-            status="error",
-            outcome=outcome,
-            completion_reason=completion_reason,
-            source_files=source_files,
-            database_path=prep_output.database_path,
-            extracted_targets=prep_output.extracted_targets,
-            selected_targets=[] if sql_output is None else sql_output.selected_targets,
-            candidate_sql=None if sql_output is None else sql_output.candidate_sql,
-            sql_result=None if sql_output is None else sql_output.result,
-            saved_view_name=None,
-            saved_view=None,
-            last_error=None if validation_feedback is None else validation_feedback["summary"],
-            validation_feedback=validation_feedback,
-            validation_attempts=validation_attempts,
-            trace=trace,
+        loop = _run_sql_validation_loop(
+            run,
+            prompt=prompt,
+            sql_agent=get_sql_agent(),
+            validation_agent=get_validation_agent(),
+            max_validation_retries=max_validation_retries,
         )
-        return build_result_message(artifact), artifact
+        if loop.validated and loop.output is not None:
+            return _save_validated_result(
+                run,
+                sql_output=loop.output,
+                validation_attempts=loop.validation_attempts,
+            )
+        return _build_sql_failure_result(run, loop=loop)
 
     return [
         load_skills,
