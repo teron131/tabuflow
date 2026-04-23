@@ -108,7 +108,6 @@ def _build_worker_skill_payload(
     """Search and load matched skills into one worker-ready payload."""
     search_result = search_skills_context(task, path=path)
     matched_skills = list(search_result.get("skills", []))
-    matched_skill_names: list[str] = []
     worker_sections: list[str] = []
     skill_refs: list[dict[str, Any]] = []
     diagnostics = [str(item) for item in search_result.get("diagnostics", [])]
@@ -117,7 +116,6 @@ def _build_worker_skill_payload(
         skill_name = str(skill.get("name", "")).strip()
         if not skill_name:
             continue
-        matched_skill_names.append(skill_name)
 
         load_result = load_skills.invoke(
             {
@@ -144,7 +142,6 @@ def _build_worker_skill_payload(
         worker_sections.extend(f"- {message}" for message in diagnostics)
 
     return {
-        "matched_skill_names": matched_skill_names,
         "worker_instructions": "\n\n".join(section for section in worker_sections if section.strip()),
         "skill_refs": skill_refs,
     }
@@ -222,7 +219,6 @@ def make_orchestrator_tools(
         output = tabular_agent.invoke(
             task,
             source_files=source_files,
-            matched_skill_names=skill_payload["matched_skill_names"],
             worker_instructions=skill_payload["worker_instructions"],
             skill_refs=skill_payload["skill_refs"],
             run_id=uuid4().hex[:8],
