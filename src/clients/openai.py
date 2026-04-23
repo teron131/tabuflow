@@ -33,6 +33,7 @@ def _strip_reserved_model_kwargs(kwargs: dict[str, Any]) -> None:
     """Remove keys passed positionally in the constructor call."""
     kwargs.pop("model", None)
     kwargs.pop("temperature", None)
+    kwargs.pop("reasoning_effort", None)
 
 
 def ChatOpenAI(
@@ -53,18 +54,17 @@ def ChatOpenAI(
     resolved_base_url = _resolve_base_url()
     _strip_reserved_model_kwargs(kwargs)
 
-    model_kwargs: dict[str, Any] = {
+    client_kwargs: dict[str, Any] = {
         "api_key": resolved_api_key,
         "base_url": resolved_base_url,
         **kwargs,
     }
-    if reasoning_effort:
-        model_kwargs["reasoning_effort"] = reasoning_effort
 
     return NativeChatOpenAI(
         model=model,
         temperature=temperature,
-        **model_kwargs,
+        reasoning_effort=reasoning_effort,
+        **client_kwargs,
     )
 
 

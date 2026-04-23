@@ -29,7 +29,8 @@ class Orchestrator:
     ):
         self.prompt = prompt
         self.root_dir = root_dir
-        self.model = get_agent_settings().resolve_orchestrator_model()
+        settings = get_agent_settings()
+        self.model = settings.main_llm or settings.fast_llm or "openai/gpt-5.4-nano"
         self.llm = ChatOpenAI(
             model=self.model,
             temperature=0,
