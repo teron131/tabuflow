@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from pathlib import Path
 from typing import Any
 
@@ -14,12 +13,12 @@ from langgraph.graph.state import CompiledStateGraph
 
 from ...clients.openai import ChatOpenAI
 from ...tools.tabular import make_tabular_tools
+from ..config import DEFAULT_REASONING_EFFORT, get_agent_settings
 from .payloads import collect_extracted_targets
 from .prompts import PREP_AGENT_SYSTEM_PROMPT, build_prep_request, parse_tool_content
 from .state import PrepAgentDecision, PrepTaskInput, PrepTaskOutput, append_trace
 
 PREP_AGENT_RECURSION_LIMIT = 12
-DEFAULT_MODEL = "openai/gpt-5.4-nano"
 
 
 @dataclass
@@ -45,11 +44,11 @@ class PrepAgent:
         self.prompt = prompt
         self.root_dir = root_dir
         if llm is None:
-            resolved_model = os.getenv("FAST_LLM") or os.getenv("QUALITY_LLM") or DEFAULT_MODEL
+            resolved_model = get_agent_settings().resolve_worker_model()
             llm = ChatOpenAI(
                 model=resolved_model,
                 temperature=0,
-                reasoning_effort="high",
+                reasoning_effort=DEFAULT_REASONING_EFFORT,
             )
         self.llm = llm
         self.graph = self.build_graph()

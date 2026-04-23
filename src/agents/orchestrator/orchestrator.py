@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Any
 
@@ -12,19 +11,11 @@ from langgraph.graph.state import CompiledStateGraph
 
 from ...clients.openai import ChatOpenAI
 from ...utils import write_langgraph_artifacts
+from ..config import DEFAULT_REASONING_EFFORT, get_agent_settings
 from .middleware import SkillsContextMiddleware
 from .prompts import build_system_prompt
 from .state import OrchestratorState
 from .tools import make_orchestrator_tools
-
-DEFAULT_MODEL_ENV = "MAIN_LLM"
-FALLBACK_MODEL_ENV = "FAST_LLM"
-DEFAULT_MODEL = "openai/gpt-5.4-nano"
-
-
-def _resolve_model_name() -> str:
-    """Resolve the orchestrator model from the environment."""
-    return os.getenv(DEFAULT_MODEL_ENV) or os.getenv(FALLBACK_MODEL_ENV) or DEFAULT_MODEL
 
 
 class Orchestrator:
@@ -38,11 +29,11 @@ class Orchestrator:
     ):
         self.prompt = prompt
         self.root_dir = root_dir
-        self.model = _resolve_model_name()
+        self.model = get_agent_settings().resolve_orchestrator_model()
         self.llm = ChatOpenAI(
             model=self.model,
             temperature=0,
-            reasoning_effort="high",
+            reasoning_effort=DEFAULT_REASONING_EFFORT,
         )
         self.graph = self.build_graph()
         self.graph_artifacts = write_langgraph_artifacts(

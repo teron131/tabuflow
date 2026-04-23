@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 
 from ...clients.openai import ChatOpenAI
+from ..config import DEFAULT_REASONING_EFFORT, get_agent_settings
 from .state import ValidationInput, ValidationOutput
-
-DEFAULT_VALIDATION_MODEL = "openai/gpt-5.4-nano"
 
 VALIDATION_SYSTEM_PROMPT = """Review whether a SQL result appears to satisfy the user's task.
 
@@ -29,18 +27,14 @@ class ValidationAgent:
 
     def __init__(self, *, llm: BaseChatModel | None = None):
         if llm is None:
-            resolved_model = os.getenv("FAST_LLM") or os.getenv("QUALITY_LLM") or DEFAULT_VALIDATION_MODEL
+            resolved_model = get_agent_settings().resolve_worker_model()
             llm = ChatOpenAI(
                 model=resolved_model,
                 temperature=0,
-                reasoning_effort="high",
+                reasoning_effort=DEFAULT_REASONING_EFFORT,
             )
         self.llm = llm
-        self.validator = self.build_validator()
-
-    def build_validator(self) -> Any:
-        """Build the structured-output validator."""
-        return self.llm.with_structured_output(ValidationOutput)
+        self.validator = self.llm.with_structured_output(ValidationOutput)
 
     def invoke(
         self,

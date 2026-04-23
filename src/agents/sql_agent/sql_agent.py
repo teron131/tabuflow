@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import json
-import os
 from pathlib import Path
 import re
 from typing import Any, cast
@@ -17,10 +16,10 @@ from langgraph.graph.state import CompiledStateGraph
 from ...clients.openai import ChatOpenAI
 from ...tools.sql.query import describe_target, run_query, suggest_sql_error_repair, suggest_targets
 from ...utils import write_langgraph_artifacts
+from ..config import DEFAULT_REASONING_EFFORT, get_agent_settings
 from .prompts import SQL_PLANNER_SYSTEM_PROMPT
 from .state import PlannerFn, SQLAgentInput, SQLAgentOutput, SQLAgentState, SQLPlan
 
-DEFAULT_SQL_AGENT_MODEL = "openai/gpt-5.4-nano"
 MAX_INSPECTED_TARGETS = 2
 MAX_TRACE_MESSAGES = 8
 MAX_AGENT_SAMPLE_ROWS = 2
@@ -422,7 +421,7 @@ class SQLAgent:
         llm: BaseChatModel | None = None,
         model: str | None = None,
         temperature: float = 0,
-        reasoning_effort: str = "high",
+        reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     ):
         """Initialize the SQL agent with the available tool set."""
         self.planner = planner or self.build_planner(
@@ -443,13 +442,11 @@ class SQLAgent:
         llm: BaseChatModel | None = None,
         model: str | None = None,
         temperature: float = 0,
-        reasoning_effort: str = "high",
+        reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     ) -> PlannerFn:
         """Build the structured SQL planner used by this agent."""
         if llm is None:
-            resolved_model = model or os.getenv("FAST_LLM") or DEFAULT_SQL_AGENT_MODEL
-            if not resolved_model:
-                raise ValueError("No SQL agent model configured. Pass `llm=...`, `model=...`, or set `FAST_LLM`.")
+            resolved_model = get_agent_settings().resolve_sql_model(model=model)
             llm = ChatOpenAI(
                 model=resolved_model,
                 temperature=temperature,
