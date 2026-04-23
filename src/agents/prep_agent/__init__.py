@@ -1,10 +1,8 @@
 """Prep-agent public exports."""
 
-from .prep_agent import PrepAgent
-from .state import PrepTaskInput, PrepTaskOutput
+from .prep_agent import PrepAgent, PrepTaskOutput
 
 __all__ = [
     "PrepAgent",
-    "PrepTaskInput",
     "PrepTaskOutput",
 ]

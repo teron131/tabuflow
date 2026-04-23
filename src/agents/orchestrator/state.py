@@ -11,4 +11,6 @@ class OrchestratorState(AgentState[None]):
     """Messages-first state for the orchestrator graph."""
 
     latest_artifact: NotRequired[dict[str, Any]]
-    active_worker: NotRequired[str | None]
+    workflow_artifact: NotRequired[dict[str, Any]]
+    agent_artifacts: NotRequired[dict[str, dict[str, Any]]]
+    active_agent: NotRequired[str | None]

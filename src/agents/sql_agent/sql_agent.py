@@ -16,9 +16,15 @@ from langgraph.graph.state import CompiledStateGraph
 from ...clients.openai import ChatOpenAI
 from ...tools.sql.query import describe_target, run_query, suggest_sql_error_repair, suggest_targets
 from ...utils import write_langgraph_artifacts
-from ..config import DEFAULT_REASONING_EFFORT, get_agent_settings
+from ..config import DEFAULT_AGENT_MODEL, DEFAULT_REASONING_EFFORT, get_agent_settings
 from .prompts import SQL_PLANNER_SYSTEM_PROMPT
-from .state import PlannerFn, SQLAgentInput, SQLAgentOutput, SQLAgentState, SQLPlan
+from .state import (
+    PlannerFn,
+    SQLAgentInput,
+    SQLAgentOutput,
+    SQLAgentState,
+    SQLPlan,
+)
 
 MAX_INSPECTED_TARGETS = 2
 MAX_TRACE_MESSAGES = 8
@@ -54,6 +60,26 @@ _QUESTION_STOP_WORDS = {
     "with",
 }
 _VAGUE_QUESTION_TOKENS = {"doing", "everything", "numbers", "overall", "overview", "performance", "stats", "status", "summary"}
+
+
+def _blocked_sql_plan(
+    state: SQLAgentState,
+    error: BaseException | None,
+) -> SQLPlan:
+    """Return a blocked SQL plan when structured planning fails."""
+    selected_targets = []
+    for target in state.inspected_targets:
+        if not target.get("name"):
+            continue
+        selected_targets.append(cast(str, target["name"]))
+
+    blocking_reason = str(error) if error is not None else "Planner did not return a usable structured SQL plan."
+    return SQLPlan(
+        ready=False,
+        selected_targets=selected_targets,
+        rationale="Planner did not return a valid structured plan.",
+        blocking_reason=blocking_reason,
+    )
 
 
 def _append_trace(
@@ -446,18 +472,28 @@ class SQLAgent:
     ) -> PlannerFn:
         """Build the structured SQL planner used by this agent."""
         if llm is None:
-            resolved_model = get_agent_settings().resolve_sql_model(model=model)
+            settings = get_agent_settings()
+            resolved_model = model or settings.fast_llm or DEFAULT_AGENT_MODEL
             llm = ChatOpenAI(
                 model=resolved_model,
                 temperature=temperature,
                 reasoning_effort=reasoning_effort,
             )
-
-        structured_llm = llm.with_structured_output(SQLPlan)
+        planner_model = llm.with_structured_output(
+            SQLPlan,
+            method="function_calling",
+        )
 
         def planner(state: SQLAgentState) -> SQLPlan:
             """Plan the next SQL investigation step."""
-            return structured_llm.invoke(_build_planner_messages(state))
+            planner_messages = _build_planner_messages(state)
+            try:
+                return cast(SQLPlan, planner_model.invoke(planner_messages))
+            except Exception as exc:
+                return _blocked_sql_plan(
+                    state,
+                    exc,
+                )
 
         return planner
 
@@ -511,7 +547,7 @@ class SQLAgent:
             },
         )
         builder.add_edge("repair", "plan")
-        return builder.compile()
+        return builder.compile(name="sql_agent")
 
     def invoke(
         self,
@@ -527,7 +563,7 @@ class SQLAgent:
         result = self.graph.invoke(
             SQLAgentInput(
                 question=question,
-                database_path=None if database_path is None else str(Path(database_path).expanduser().resolve()),
+                database_path=(None if database_path is None else str(Path(database_path).expanduser().resolve())),
                 max_suggestions=max_suggestions,
                 max_repairs=max_repairs,
                 sample_rows=sample_rows,

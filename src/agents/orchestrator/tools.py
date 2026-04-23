@@ -6,22 +6,28 @@ from dataclasses import dataclass, field
 import json
 from pathlib import Path
 import re
-from typing import Any
+from typing import Annotated, Any
 from uuid import uuid4
 
+from langchain.messages import ToolMessage
 from langchain.tools import BaseTool, tool
+from langchain_core.tools import InjectedToolCallId
+from langgraph.types import Command
 
 from ...tools import list_skills, load_skills, search_skills
 from ...tools.sql.query import save_view
 from ..prep_agent import PrepAgent
 from ..sql_agent import SQLAgent, SQLAgentOutput
-from ..validation_agent import ValidationAgent
+from ..validation_agent import ValidationAgent, ValidationOutput
 from .payloads import build_result_artifact, build_result_message
 
 SKILLS_PATH = "skills"
 DEFAULT_VIEW_NAME = "analysis_result"
 VIEW_NAME_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with"}
 MAX_SKILL_REF_PREVIEW = 8
+PREP_AGENT_NAME = "prep_agent"
+SQL_AGENT_NAME = "sql_agent"
+VALIDATION_AGENT_NAME = "validation_agent"
 
 
 @dataclass
@@ -92,6 +98,7 @@ class SqlLoopResult:
     """State accumulated across orchestrator-owned SQL attempts."""
 
     output: SQLAgentOutput | None = None
+    validation_output: ValidationOutput | None = None
     validation_feedback: dict[str, Any] | None = None
     validation_attempts: int = 0
     validated: bool = False
@@ -118,16 +125,18 @@ def search_skills_context(
 
 def format_skills_overview(result: dict[str, Any]) -> str:
     """Render a deterministic system-prompt section for available skills."""
-    diagnostics = [str(item) for item in result.get("diagnostics", [])]
     if result.get("status") == "error":
-        message = "; ".join(diagnostics) or "unknown error"
-        return f"Workspace skills listing failed: {message}"
+        return "Workspace skills available under `skills`:\n- unavailable"
 
+    diagnostics = [str(item) for item in result.get("diagnostics", [])]
     skills = list(result.get("skills", []))
     lines = ["Workspace skills available under `skills`:"]
     if skills:
         for skill in skills:
-            lines.append(f"- {skill.get('name', 'unknown')}: {str(skill.get('description', '')).strip()} ({skill.get('path', '')})")
+            skill_name = skill.get("name", "unknown")
+            description = str(skill.get("description", "")).strip()
+            skill_path = skill.get("path", "")
+            lines.append(f"- {skill_name}: {description} ({skill_path})")
     else:
         lines.append("- none found")
 
@@ -138,18 +147,20 @@ def format_skills_overview(result: dict[str, Any]) -> str:
 
 def format_skill_matches(result: dict[str, Any]) -> str:
     """Render a deterministic user-turn section for relevant skills."""
-    diagnostics = [str(item) for item in result.get("diagnostics", [])]
     if result.get("status") == "error":
-        message = "; ".join(diagnostics) or "unknown error"
-        return f"Workspace skills search failed: {message}"
+        return "- unavailable"
 
+    diagnostics = [str(item) for item in result.get("diagnostics", [])]
     skills = list(result.get("skills", []))
     lines = []
     if skills:
         for skill in skills:
             score = skill.get("score")
             suffix = f", score={score}" if score is not None else ""
-            lines.append(f"- {skill.get('name', 'unknown')}: {str(skill.get('description', '')).strip()} ({skill.get('path', '')}{suffix})")
+            skill_name = skill.get("name", "unknown")
+            description = str(skill.get("description", "")).strip()
+            skill_path = skill.get("path", "")
+            lines.append(f"- {skill_name}: {description} ({skill_path}{suffix})")
     else:
         lines.append("- none above threshold")
 
@@ -191,8 +202,6 @@ def _build_worker_skill_payload(
     matched_skills = list(search_result.get("skills", []))
     worker_sections: list[str] = []
     skill_refs: list[dict[str, Any]] = []
-    diagnostics = [str(item) for item in search_result.get("diagnostics", [])]
-
     for skill in matched_skills:
         skill_name = str(skill.get("name", "")).strip()
         if not skill_name:
@@ -204,7 +213,6 @@ def _build_worker_skill_payload(
                 "skills": skill_name,
             }
         )
-        diagnostics.extend(str(item) for item in load_result.get("diagnostics", []))
         loaded_skills = list(load_result.get("skills", []))
         if not loaded_skills:
             continue
@@ -214,13 +222,10 @@ def _build_worker_skill_payload(
         instructions_payload = loaded_skill.get("instructions") or {}
         instructions = str(instructions_payload.get("content", "")).strip()
         if instructions:
-            worker_sections.append(f"Skill `{loaded_skill.get('name', 'unknown')}`: {description}".strip())
+            skill_title = f"Skill `{loaded_skill.get('name', 'unknown')}`: {description}"
+            worker_sections.append(skill_title.strip())
             worker_sections.append(instructions)
         skill_refs.append(loaded_skill)
-
-    if diagnostics:
-        worker_sections.append("Skill loading diagnostics:")
-        worker_sections.extend(f"- {message}" for message in diagnostics)
 
     return WorkerSkillPayload(
         worker_instructions="\n\n".join(section for section in worker_sections if section.strip()),
@@ -295,6 +300,35 @@ def _append_trace(trace: list[str], message: str) -> list[str]:
     return [*trace, message][-12:]
 
 
+def _agent_command(
+    *,
+    tool_name: str,
+    tool_call_id: str,
+    content: str,
+    latest_artifact: dict[str, Any],
+    active_agent: str | None,
+    workflow_artifact: dict[str, Any] | None = None,
+    agent_artifacts: dict[str, dict[str, Any]] | None = None,
+) -> Command:
+    """Return one tool command that updates orchestrator state plus tool history."""
+    update: dict[str, Any] = {
+        "messages": [
+            ToolMessage(
+                content=content,
+                tool_call_id=tool_call_id,
+                name=tool_name,
+            )
+        ],
+        "latest_artifact": latest_artifact,
+        "active_agent": active_agent,
+    }
+    if workflow_artifact is not None:
+        update["workflow_artifact"] = workflow_artifact
+    if agent_artifacts is not None:
+        update["agent_artifacts"] = agent_artifacts
+    return Command(update=update)
+
+
 def _run_sql_validation_loop(
     run: WorkflowRun,
     *,
@@ -335,6 +369,7 @@ def _run_sql_validation_loop(
             previous_feedback=loop.validation_feedback,
             validation_attempts=loop.validation_attempts,
         )
+        loop.validation_output = decision
         if decision.valid:
             loop.validated = True
             run.append_trace("orchestrator validation accepted the SQL result")
@@ -347,7 +382,8 @@ def _run_sql_validation_loop(
             "summary": summary,
             "instructions": instructions or [summary],
         }
-        run.append_trace(f"orchestrator validation requested another SQL attempt: {loop.validation_feedback['summary']}")
+        validation_summary = loop.validation_feedback["summary"]
+        run.append_trace(f"orchestrator validation requested another SQL attempt: {validation_summary}")
         loop.validation_attempts += 1
         if not decision.retryable or attempt_idx >= max_validation_retries:
             return loop
@@ -428,7 +464,7 @@ def _build_sql_failure_result(
         return run.result(
             status=sql_output.status,
             outcome="blocked" if sql_output.status == "blocked" else "failed",
-            completion_reason="sql_blocked" if sql_output.status == "blocked" else "sql_execution_failed",
+            completion_reason=("sql_blocked" if sql_output.status == "blocked" else "sql_execution_failed"),
             selected_targets=sql_output.selected_targets,
             candidate_sql=sql_output.candidate_sql,
             sql_result=sql_output.result,
@@ -499,14 +535,15 @@ def make_orchestrator_tools(
             validation_agent = ValidationAgent(llm=llm) if llm is not None else ValidationAgent()
         return validation_agent
 
-    @tool(parse_docstring=True, response_format="content_and_artifact")
+    @tool(parse_docstring=True)
     def run_sql_workflow(
         question: str,
         database_path: str,
         max_suggestions: int = 3,
         max_repairs: int = 2,
-    ) -> tuple[str, dict[str, Any]]:
-        """Run the SQL worker workflow against an existing SQLite database.
+        tool_call_id: Annotated[str, InjectedToolCallId] = "",
+    ) -> Command:
+        """Run the SQL agent workflow against an existing SQLite database.
 
         Args:
             question: Natural-language analysis question to answer with SQL.
@@ -522,15 +559,23 @@ def make_orchestrator_tools(
             max_repairs=max_repairs,
         )
         artifact = output.model_dump(mode="json")
-        return _summarize_sql_output(artifact), artifact
+        return _agent_command(
+            tool_name="run_sql_workflow",
+            tool_call_id=tool_call_id,
+            content=_summarize_sql_output(artifact),
+            latest_artifact=artifact,
+            active_agent=SQL_AGENT_NAME,
+            agent_artifacts={SQL_AGENT_NAME: artifact},
+        )
 
-    @tool(parse_docstring=True, response_format="content_and_artifact")
+    @tool(parse_docstring=True)
     def run_workflow(
         task: str,
         source_files: list[str],
         max_prep_trials: int = 2,
         max_validation_retries: int = 2,
-    ) -> tuple[str, dict[str, Any]]:
+        tool_call_id: Annotated[str, InjectedToolCallId] = "",
+    ) -> Command:
         """Run the workflow on local files and return its final result.
 
         Args:
@@ -547,6 +592,7 @@ def make_orchestrator_tools(
             source_files=source_files,
             skill_payload=_build_worker_skill_payload(task),
         )
+        agent_artifacts: dict[str, dict[str, Any]] = {}
         prep_output = get_prep_agent().invoke(
             run.task,
             source_files=run.source_files,
@@ -554,12 +600,13 @@ def make_orchestrator_tools(
             skill_refs=run.skill_payload.skill_refs,
             max_prep_trials=max_prep_trials,
         )
+        agent_artifacts[PREP_AGENT_NAME] = prep_output.model_dump(mode="json")
         run.database_path = prep_output.database_path
         run.extracted_targets = prep_output.extracted_targets
         run.append_trace(*prep_output.trace)
 
         if prep_output.status != "prepared":
-            return run.result(
+            content, artifact = run.result(
                 status="error",
                 outcome="failed",
                 completion_reason="prep_failed",
@@ -572,6 +619,15 @@ def make_orchestrator_tools(
                 validation_feedback=None,
                 validation_attempts=0,
             )
+            return _agent_command(
+                tool_name="run_workflow",
+                tool_call_id=tool_call_id,
+                content=content,
+                latest_artifact=artifact,
+                active_agent=PREP_AGENT_NAME,
+                workflow_artifact=artifact,
+                agent_artifacts=agent_artifacts,
+            )
         loop = _run_sql_validation_loop(
             run,
             prompt=prompt,
@@ -579,13 +635,36 @@ def make_orchestrator_tools(
             validation_agent=get_validation_agent(),
             max_validation_retries=max_validation_retries,
         )
+        if loop.output is not None:
+            agent_artifacts[SQL_AGENT_NAME] = loop.output.model_dump(mode="json")
+        if loop.validation_output is not None:
+            agent_artifacts[VALIDATION_AGENT_NAME] = loop.validation_output.model_dump(mode="json")
+
         if loop.validated and loop.output is not None:
-            return _save_validated_result(
+            content, artifact = _save_validated_result(
                 run,
                 sql_output=loop.output,
                 validation_attempts=loop.validation_attempts,
             )
-        return _build_sql_failure_result(run, loop=loop)
+            return _agent_command(
+                tool_name="run_workflow",
+                tool_call_id=tool_call_id,
+                content=content,
+                latest_artifact=artifact,
+                active_agent=None,
+                workflow_artifact=artifact,
+                agent_artifacts=agent_artifacts,
+            )
+        content, artifact = _build_sql_failure_result(run, loop=loop)
+        return _agent_command(
+            tool_name="run_workflow",
+            tool_call_id=tool_call_id,
+            content=content,
+            latest_artifact=artifact,
+            active_agent=(VALIDATION_AGENT_NAME if loop.validation_output is not None else SQL_AGENT_NAME),
+            workflow_artifact=artifact,
+            agent_artifacts=agent_artifacts,
+        )
 
     return [
         load_skills,

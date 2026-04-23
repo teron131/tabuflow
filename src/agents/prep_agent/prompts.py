@@ -12,6 +12,10 @@ Your job is to use the available prep tools to prepare the supplied source files
 
 Use the available prep tools to inspect, profile, and extract the supplied files in whatever order helps you understand them best. You can revisit inspect and profile whenever needed before or after extraction attempts.
 
+Try to finish the extraction in the current prep trial instead of saving extraction work for a later trial.
+Once `extract_tabular` succeeds with a usable shared SQLite result, stop using tools and return `status="prepared"`.
+Do not continue inspecting after a successful extraction unless the extraction output is clearly unusable.
+
 Do not invent source files, tables, sheets, or outputs. If the available tools cannot safely prepare the data, stop and explain why.
 
 Your structured response status must be one of:
@@ -21,6 +25,7 @@ Your structured response status must be one of:
 - error: prep failed in a non-retryable way.
 
 If you return retry, include short retry instructions for the next prep trial.
+Always include a short `summary` field in your structured response, even when the status is `prepared`.
 """.strip()
 
 
@@ -77,7 +82,9 @@ def build_prep_request(
         parts.append("Previous prep trials:\n" + "\n".join(f"- {attempt}" for attempt in previous_attempts))
     if retry_instructions:
         parts.append("Retry instructions for this prep trial:\n" + "\n".join(f"- {instruction}" for instruction in retry_instructions))
-    parts.append("Return the data in the final extraction shape best suited for the task. Use tool observations instead of guessing.")
+    parts.append(
+        "Return the data in the final extraction shape best suited for the task. Use tool observations instead of guessing, and try to complete the extraction in this trial."
+    )
     return "\n\n".join(parts)
 
 

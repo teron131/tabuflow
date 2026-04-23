@@ -20,18 +20,6 @@ class AgentSettings(BaseSettings):
 
     model_config = SettingsConfigDict(extra="ignore")
 
-    def resolve_orchestrator_model(self) -> str:
-        """Resolve the top-level orchestrator model name."""
-        return self.main_llm or self.fast_llm or DEFAULT_AGENT_MODEL
-
-    def resolve_worker_model(self, *, model: str | None = None) -> str:
-        """Resolve the default worker model name for prep and validation."""
-        return model or self.fast_llm or self.quality_llm or DEFAULT_AGENT_MODEL
-
-    def resolve_sql_model(self, *, model: str | None = None) -> str:
-        """Resolve the default SQL planner model name."""
-        return model or self.fast_llm or DEFAULT_AGENT_MODEL
-
 
 @lru_cache(maxsize=1)
 def get_agent_settings() -> AgentSettings:

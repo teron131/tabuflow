@@ -44,7 +44,7 @@ class SQLAgentOutput(BaseModel):
 
 
 class SQLAgentState(SQLAgentInput, SQLAgentOutput):
-    """Internal graph state."""
+    """Internal graph state for the SQL workflow."""
 
     suggestions: list[dict[str, Any]] = Field(default_factory=list)
     inspected_targets: list[dict[str, Any]] = Field(default_factory=list)

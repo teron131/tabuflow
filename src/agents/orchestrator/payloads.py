@@ -35,7 +35,10 @@ def compact_sql_result(result: dict[str, Any] | None) -> dict[str, Any] | None:
         }
 
     columns = [str(column) for column in result.get("columns", [])]
-    column_preview, columns_truncated = _preview_list(columns, max_items=MAX_SQL_RESULT_COLUMN_PREVIEW)
+    column_preview, columns_truncated = _preview_list(
+        columns,
+        max_items=MAX_SQL_RESULT_COLUMN_PREVIEW,
+    )
     rows = list(result.get("rows", []))
     row_preview, rows_truncated = _preview_list(rows, max_items=MAX_SQL_RESULT_ROW_PREVIEW)
 
@@ -45,7 +48,10 @@ def compact_sql_result(result: dict[str, Any] | None) -> dict[str, Any] | None:
             compact_rows.append({"value": row})
             continue
         row_items = list(row.items())
-        compact_items, row_columns_truncated = _preview_list(row_items, max_items=MAX_SQL_RESULT_COLUMN_PREVIEW)
+        compact_items, row_columns_truncated = _preview_list(
+            row_items,
+            max_items=MAX_SQL_RESULT_COLUMN_PREVIEW,
+        )
         compact_row = dict(compact_items)
         if row_columns_truncated:
             compact_row["__remaining_columns__"] = len(row_items) - len(compact_items)

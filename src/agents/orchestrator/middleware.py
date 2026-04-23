@@ -7,7 +7,12 @@ from collections.abc import Callable
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.messages import HumanMessage, SystemMessage
 
-from .tools import format_skill_matches, format_skills_overview, list_skills_context, search_skills_context
+from .tools import (
+    format_skill_matches,
+    format_skills_overview,
+    list_skills_context,
+    search_skills_context,
+)
 
 SKILLS_CONTEXT_HINT = "Load a workspace skill only when its detailed instructions are needed."
 
@@ -35,7 +40,7 @@ class SkillsContextMiddleware(AgentMiddleware):
         handler: Callable[[ModelRequest], ModelResponse],
     ) -> ModelResponse:
         """Augment the system message with available and relevant skills context."""
-        system_blocks = list(request.system_message.content_blocks) if request.system_message is not None else []
+        system_blocks = [] if request.system_message is None else list(request.system_message.content_blocks)
         system_blocks.append({"type": "text", "text": self.skills_overview})
 
         if latest_user_text := _latest_user_text(request.messages):

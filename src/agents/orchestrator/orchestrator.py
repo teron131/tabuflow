@@ -11,7 +11,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from ...clients.openai import ChatOpenAI
 from ...utils import write_langgraph_artifacts
-from ..config import DEFAULT_REASONING_EFFORT, get_agent_settings
+from ..config import DEFAULT_AGENT_MODEL, DEFAULT_REASONING_EFFORT, get_agent_settings
 from .middleware import SkillsContextMiddleware
 from .prompts import build_system_prompt
 from .state import OrchestratorState
@@ -30,7 +30,7 @@ class Orchestrator:
         self.prompt = prompt
         self.root_dir = root_dir
         settings = get_agent_settings()
-        self.model = settings.main_llm or settings.fast_llm or "openai/gpt-5.4-nano"
+        self.model = settings.main_llm or settings.fast_llm or DEFAULT_AGENT_MODEL
         self.llm = ChatOpenAI(
             model=self.model,
             temperature=0,
@@ -69,8 +69,9 @@ class Orchestrator:
     def answer(self, message: str | list[AnyMessage | dict[str, Any]]) -> str:
         """Return the final assistant text for one orchestrator turn."""
         result = self.invoke(message)
+        response_messages = reversed(result["messages"])
         response_message = next(
-            (item for item in reversed(result["messages"]) if isinstance(item, AIMessage) and not getattr(item, "tool_calls", None)),
+            (item for item in response_messages if isinstance(item, AIMessage) and not getattr(item, "tool_calls", None)),
             None,
         )
         if response_message is None:

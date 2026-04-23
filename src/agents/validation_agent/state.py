@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class ValidationInput(BaseModel):
-    """Public input schema for one validation pass."""
+    """Public input schema for one validation graph run."""
 
     task: str
     source_files: list[str]
@@ -23,7 +23,14 @@ class ValidationInput(BaseModel):
 class ValidationOutput(BaseModel):
     """Structured validation result for SQL output."""
 
-    valid: bool = Field(description="Whether the SQL result appears to satisfy the task.")
+    valid: bool = Field(default=False, description="Whether the SQL result appears to satisfy the task.")
     retryable: bool = Field(default=True, description="Whether another SQL attempt is likely to help.")
     summary: str = Field(default="", description="Short explanation of the validation judgment.")
     instructions: list[str] = Field(default_factory=list, description="Concrete guidance for the next SQL attempt when retryable.")
+
+
+class ValidationState(
+    ValidationInput,
+    ValidationOutput,
+):
+    """Internal validation graph state."""
