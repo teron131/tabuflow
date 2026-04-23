@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import math
 import os
 from pathlib import Path
@@ -45,6 +45,45 @@ class SkillsFile:
     skills_root: Path
     frontmatter: dict[str, Any]
     body: str
+
+
+@dataclass(frozen=True)
+class SkillsInstructions:
+    """Structured instructions payload for one skill."""
+
+    path: str
+    relative_path: str
+    content: str
+
+
+@dataclass(frozen=True)
+class SkillsReference:
+    """Structured reference payload for one text resource."""
+
+    path: str
+    relative_path: str
+    content: str
+
+
+@dataclass(frozen=True)
+class SkillsScript:
+    """Structured script payload for one runnable resource."""
+
+    path: str
+    relative_path: str
+
+
+@dataclass(frozen=True)
+class LoadedSkill:
+    """Structured loaded skill payload used by the skills tool."""
+
+    path: str
+    name: str
+    description: str
+    skills_path: str
+    instructions: SkillsInstructions
+    references: list[SkillsReference]
+    scripts: list[SkillsScript]
 
 
 @dataclass(frozen=True)
@@ -233,31 +272,52 @@ def _skills_metadata(
 def _read_text_file(
     path: Path,
     *,
-    root_dir: Path,
     max_chars: int,
-) -> dict[str, Any]:
-    """Return bounded UTF-8 text content for one file."""
+) -> str:
+    """Return UTF-8 text content for one file within the configured bound."""
     text = path.read_text(encoding="utf-8")
-    return {
-        "path": str(path),
-        "relative_path": str(path.relative_to(root_dir)),
-        "content": text[:max_chars],
-        "truncated": len(text) > max_chars,
-    }
+    if len(text) > max_chars:
+        raise ValueError(f"Skills resource exceeds max supported size: {path}")
+    return text
 
 
-def _load_resource_group(
+def _validate_bounded_text(text: str, *, path: Path, max_chars: int, label: str) -> str:
+    """Return text when it fits within the configured bound."""
+    if len(text) > max_chars:
+        raise ValueError(f"{label} exceeds max supported size: {path}")
+    return text
+
+
+def _load_reference_group(
     paths: list[Path],
     *,
     root_dir: Path,
     max_chars_per_file: int,
-) -> list[dict[str, Any]]:
-    """Load bounded text payloads for one resource group."""
+) -> list[SkillsReference]:
+    """Load structured text references for one resource group."""
     return [
-        _read_text_file(
-            path,
-            root_dir=root_dir,
-            max_chars=max_chars_per_file,
+        SkillsReference(
+            path=str(path),
+            relative_path=str(path.relative_to(root_dir)),
+            content=_read_text_file(
+                path,
+                max_chars=max_chars_per_file,
+            ),
+        )
+        for path in paths
+    ]
+
+
+def _load_script_group(
+    paths: list[Path],
+    *,
+    root_dir: Path,
+) -> list[SkillsScript]:
+    """Load structured script metadata for one resource group."""
+    return [
+        SkillsScript(
+            path=str(path),
+            relative_path=str(path.relative_to(root_dir)),
         )
         for path in paths
     ]
@@ -276,22 +336,36 @@ def _load_skills_entry(
 
     scripts = _iter_resource_paths(skills_file.skills_root, "scripts")
     references = _iter_resource_paths(skills_file.skills_root, "references")
-    return {
-        **metadata,
-        "skills_path": str(skills_file.path),
-        "instructions": skills_file.body[:max_chars_per_file],
-        "instructions_truncated": len(skills_file.body) > max_chars_per_file,
-        "scripts": _load_resource_group(
-            scripts,
-            root_dir=root_dir,
-            max_chars_per_file=max_chars_per_file,
-        ),
-        "references": _load_resource_group(
-            references,
-            root_dir=root_dir,
-            max_chars_per_file=max_chars_per_file,
-        ),
-    }, None
+    try:
+        loaded_skill = LoadedSkill(
+            path=metadata["path"],
+            name=metadata["name"],
+            description=metadata["description"],
+            skills_path=str(skills_file.path),
+            instructions=SkillsInstructions(
+                path=str(skills_file.path),
+                relative_path=metadata["path"],
+                content=_validate_bounded_text(
+                    skills_file.body,
+                    path=skills_file.path,
+                    max_chars=max_chars_per_file,
+                    label="Skill instructions",
+                ),
+            ),
+            references=_load_reference_group(
+                references,
+                root_dir=root_dir,
+                max_chars_per_file=max_chars_per_file,
+            ),
+            scripts=_load_script_group(
+                scripts,
+                root_dir=root_dir,
+            ),
+        )
+    except ValueError as exc:
+        return None, str(exc)
+
+    return asdict(loaded_skill), None
 
 
 def _matching_skills_files(

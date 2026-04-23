@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from langchain.tools import BaseTool, tool
 
 from ...tools import list_skills, load_skills, search_skills
 from ..sql_agent import SQLAgent
 from ..tabular_agent import TabularTaskAgent
+from ..tabular_agent.payloads import build_result_message_content
 
 SKILLS_PATH = "skills"
 
@@ -98,6 +100,56 @@ def _summarize_sql_output(output: dict[str, Any]) -> str:
     return f"SQL workflow ended with status={status}."
 
 
+def _build_worker_skill_payload(
+    task: str,
+    *,
+    path: str = SKILLS_PATH,
+) -> dict[str, Any]:
+    """Search and load matched skills into one worker-ready payload."""
+    search_result = search_skills_context(task, path=path)
+    matched_skills = list(search_result.get("skills", []))
+    matched_skill_names: list[str] = []
+    worker_sections: list[str] = []
+    skill_refs: list[dict[str, Any]] = []
+    diagnostics = [str(item) for item in search_result.get("diagnostics", [])]
+
+    for skill in matched_skills:
+        skill_name = str(skill.get("name", "")).strip()
+        if not skill_name:
+            continue
+        matched_skill_names.append(skill_name)
+
+        load_result = load_skills.invoke(
+            {
+                "path": path,
+                "skills": skill_name,
+            }
+        )
+        diagnostics.extend(str(item) for item in load_result.get("diagnostics", []))
+        loaded_skills = list(load_result.get("skills", []))
+        if not loaded_skills:
+            continue
+        loaded_skill = loaded_skills[0]
+
+        description = str(loaded_skill.get("description", "")).strip()
+        instructions_payload = loaded_skill.get("instructions") or {}
+        instructions = str(instructions_payload.get("content", "")).strip()
+        if instructions:
+            worker_sections.append(f"Skill `{loaded_skill.get('name', 'unknown')}`: {description}".strip())
+            worker_sections.append(instructions)
+        skill_refs.append(loaded_skill)
+
+    if diagnostics:
+        worker_sections.append("Skill loading diagnostics:")
+        worker_sections.extend(f"- {message}" for message in diagnostics)
+
+    return {
+        "matched_skill_names": matched_skill_names,
+        "worker_instructions": "\n\n".join(section for section in worker_sections if section.strip()),
+        "skill_refs": skill_refs,
+    }
+
+
 def make_orchestrator_tools(
     *,
     prompt: str = "",
@@ -151,21 +203,31 @@ def make_orchestrator_tools(
         return _summarize_sql_output(artifact), artifact
 
     @tool(parse_docstring=True, response_format="content_and_artifact")
-    def run_tabular_workflow(task: str, source_files: list[str]) -> tuple[str, dict[str, Any]]:
+    def run_tabular_workflow(
+        task: str,
+        source_files: list[str],
+        max_validation_retries: int = 2,
+    ) -> tuple[str, dict[str, Any]]:
         """Run the tabular worker workflow on local files and return its final result.
 
         Args:
             task: Natural-language task to execute against the supplied files.
             source_files: One or more local spreadsheet or table-like file paths.
+            max_validation_retries: Maximum number of validator-requested SQL retries.
         """
         tabular_agent = get_tabular_agent()
+        skill_payload = _build_worker_skill_payload(task)
         output = tabular_agent.invoke(
             task,
             source_files=source_files,
+            matched_skill_names=skill_payload["matched_skill_names"],
+            worker_instructions=skill_payload["worker_instructions"],
+            skill_refs=skill_payload["skill_refs"],
+            run_id=uuid4().hex[:8],
+            max_validation_retries=max_validation_retries,
         )
-        artifact = output.model_dump(mode="json")
-        content = output.result_message or f"Tabular workflow ended with status={output.status}."
-        return content, artifact
+        artifact = output.result_artifact or output.model_dump(mode="json")
+        return build_result_message_content(artifact), artifact
 
     return [
         load_skills,
