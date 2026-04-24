@@ -11,21 +11,47 @@ graph TD;
 	finalize(finalize)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> skill_context;
-	prep\3aprep_agent -.-> finalize;
-	prep\3aprep_agent -.-> sql\3asql_agent;
-	skill_context --> prep\3aprep_agent;
-	sql\3asql_agent -.-> finalize;
-	sql\3asql_agent -.-> validate;
+	prep\3aPrepResultMiddleware\2eafter_agent -.-> finalize;
+	prep\3aPrepResultMiddleware\2eafter_agent -.-> sql\3asuggest;
+	skill_context --> prep\3a__start__;
+	sql\3a__end__ -.-> finalize;
+	sql\3a__end__ -.-> validate;
 	validate -.-> finalize;
 	validate -.-> save;
-	validate -.-> sql\3asql_agent;
+	validate -.-> sql\3asuggest;
 	finalize --> __end__;
 	save --> __end__;
 	subgraph prep
-	prep\3aprep_agent(prep_agent)
+	prep\3a__start__(<p>__start__</p>)
+	prep\3amodel(model)
+	prep\3atools(tools)
+	prep\3aPrepResultMiddleware\2eafter_agent(PrepResultMiddleware.after_agent)
+	prep\3a__start__ --> prep\3amodel;
+	prep\3amodel -.-> prep\3aPrepResultMiddleware\2eafter_agent;
+	prep\3amodel -.-> prep\3atools;
+	prep\3atools -.-> prep\3aPrepResultMiddleware\2eafter_agent;
+	prep\3atools -.-> prep\3amodel;
+	prep\3amodel -.-> prep\3amodel;
 	end
 	subgraph sql
-	sql\3asql_agent(sql_agent)
+	sql\3asuggest(suggest)
+	sql\3aclarify(clarify)
+	sql\3ainspect(inspect)
+	sql\3aplan(plan)
+	sql\3aexecute(execute)
+	sql\3arepair(repair)
+	sql\3a__end__(<p>__end__</p>)
+	sql\3aexecute -.-> sql\3a__end__;
+	sql\3aexecute -.-> sql\3arepair;
+	sql\3ainspect -.-> sql\3a__end__;
+	sql\3ainspect -.-> sql\3aplan;
+	sql\3aplan -.-> sql\3a__end__;
+	sql\3aplan -.-> sql\3aexecute;
+	sql\3arepair --> sql\3aplan;
+	sql\3asuggest -.-> sql\3a__end__;
+	sql\3asuggest -.-> sql\3aclarify;
+	sql\3asuggest -.-> sql\3ainspect;
+	sql\3aclarify --> sql\3a__end__;
 	end
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -116,19 +117,30 @@ class PrepAgent(ApplicationAgent):
         llm: BaseChatModel | None = None,
         prompt: str = "",
         root_dir: str | Path | None = None,
+        state_schema: type[Any] | None = None,
+        middleware: Sequence[Any] = (),
     ):
         super().__init__(llm=llm)
         self.prompt = prompt
         self.root_dir = root_dir
+        self.state_schema = state_schema
+        self.middleware = middleware
         self.graph = self.build_graph()
 
-    def build_graph(self) -> CompiledStateGraph:
+    def build_graph(
+        self,
+        *,
+        state_schema: type[Any] | None = None,
+        middleware: Sequence[Any] | None = None,
+    ) -> CompiledStateGraph:
         """Build the compiled prep-agent graph."""
         return create_agent(
             model=self.llm,
             tools=make_tabular_tools(root_dir=self.root_dir),
             system_prompt=PREP_AGENT_SYSTEM_PROMPT,
             response_format=ToolStrategy(PrepAgentDecision),
+            state_schema=state_schema or self.state_schema,
+            middleware=self.middleware if middleware is None else middleware,
             name="prep_agent",
         )
 

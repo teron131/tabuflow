@@ -3,12 +3,15 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 import re
-from typing import Any
+from typing import Annotated, Any
 from uuid import uuid4
 
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import AnyMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import patch_config
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
 from langsmith import traceable
 from pydantic import BaseModel, Field
@@ -16,7 +19,11 @@ from pydantic import BaseModel, Field
 from ...tools.sql.query import save_view
 from ..base import ApplicationAgent
 from ..prep_agent import PrepAgent, PrepTaskOutput
-from ..sql_agent import SQLAgent, SQLAgentOutput
+from ..prep_agent.payloads import collect_extracted_targets
+from ..prep_agent.prep_agent import collect_prep_trial_result
+from ..prep_agent.prompts import build_prep_request
+from ..prep_agent.state import PrepAgentDecision
+from ..sql_agent import SQLAgent, SQLAgentOutput, SQLPlan
 from ..validation_agent import ValidationAgent, ValidationOutput
 from .payloads import build_result_artifact, build_result_message
 from .skill_context import WorkerSkillPayload, build_worker_skill_payload, format_skill_sql_references, summarize_skill_refs
@@ -126,6 +133,8 @@ class OrchestratorOutput(BaseModel):
 class OrchestratorState(OrchestratorInput, OrchestratorOutput):
     """Parent graph state that bridges the worker subgraph stages."""
 
+    messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list)
+    structured_response: Any | None = None
     run_id: str = Field(default_factory=lambda: uuid4().hex[:8])
     worker_instructions: str = ""
     skill_refs: list[dict[str, Any]] = Field(default_factory=list)
@@ -138,6 +147,25 @@ class OrchestratorState(OrchestratorInput, OrchestratorOutput):
     validation_feedback: dict[str, Any] | None = None
     validation_attempts: int = 0
     validated: bool = False
+    question: str = ""
+    preferred_targets: list[str] = Field(default_factory=list)
+    worker_context: str = ""
+    max_suggestions: int = 3
+    max_repairs: int = 2
+    sample_rows: int = 3
+    text_value_hints: int = 3
+    status: str = "pending"
+    selected_targets: list[str] = Field(default_factory=list)
+    candidate_sql: str | None = None
+    repair_hints: list[dict[str, Any]] = Field(default_factory=list)
+    result: dict[str, Any] | None = None
+    attempts: int = 0
+    rationale: str | None = None
+    last_error: str | None = None
+    suggestions: list[dict[str, Any]] = Field(default_factory=list)
+    inspected_targets: list[dict[str, Any]] = Field(default_factory=list)
+    plan: SQLPlan | None = None
+    repair_count: int = 0
 
 
 def _append_trace(trace: list[str], message: str) -> list[str]:
@@ -172,12 +200,56 @@ def _orchestrator_run_from_state(state: OrchestratorState) -> OrchestratorRun:
 def _sql_loop_from_state(state: OrchestratorState) -> SqlLoopResult:
     """Rebuild SQL loop state from parent graph fields."""
     return SqlLoopResult(
-        output=(None if state.sql_output is None else SQLAgentOutput.model_validate(state.sql_output)),
+        output=_sql_output_from_state(state),
         validation_output=(None if state.validation_output is None else ValidationOutput.model_validate(state.validation_output)),
         validation_feedback=state.validation_feedback,
         validation_attempts=state.validation_attempts,
         validated=state.validated,
     )
+
+
+def _sql_output_from_state(state: OrchestratorState) -> SQLAgentOutput | None:
+    """Rebuild the SQL agent output from direct subgraph state fields."""
+    has_direct_sql_output = state.status != "pending" or state.attempts > 0 or state.result is not None or state.candidate_sql is not None
+    if has_direct_sql_output:
+        return SQLAgentOutput(
+            status=state.status,
+            selected_targets=state.selected_targets,
+            candidate_sql=state.candidate_sql,
+            repair_hints=state.repair_hints,
+            result=state.result,
+            attempts=state.attempts,
+            rationale=state.rationale,
+            last_error=state.last_error,
+            trace=state.trace,
+        )
+    if state.sql_output is not None:
+        return SQLAgentOutput.model_validate(state.sql_output)
+    return None
+
+
+def _sql_output_artifact(state: OrchestratorState) -> dict[str, Any] | None:
+    """Return the current SQL output as a JSON artifact when it exists."""
+    sql_output = _sql_output_from_state(state)
+    return None if sql_output is None else sql_output.model_dump(mode="json")
+
+
+def _reset_sql_attempt_update() -> dict[str, Any]:
+    """Reset SQL graph fields before routing into another SQL attempt."""
+    return {
+        "status": "pending",
+        "selected_targets": [],
+        "candidate_sql": None,
+        "repair_hints": [],
+        "result": None,
+        "attempts": 0,
+        "rationale": None,
+        "last_error": None,
+        "suggestions": [],
+        "inspected_targets": [],
+        "plan": None,
+        "repair_count": 0,
+    }
 
 
 def _orchestrator_result_update(
@@ -208,6 +280,58 @@ def _orchestrator_view_name(run: OrchestratorRun) -> str:
     return f"{DEFAULT_VIEW_NAME}_{_task_view_slug(run.task)}_{run.run_id}"
 
 
+def _build_prep_task_output(state: OrchestratorState) -> PrepTaskOutput:
+    """Collect the visible prep ReAct graph result into orchestrator state."""
+    trial = collect_prep_trial_result(
+        {
+            "messages": state.messages,
+            "structured_response": state.structured_response,
+        }
+    )
+    trace = state.trace
+    for message in trial.trace:
+        trace = _append_trace(trace, f"[trial 1] {message}")
+
+    extracted_targets = collect_extracted_targets(trial.extraction_results)
+    database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}
+    trial_error = trial.last_error
+    if trial_error is None:
+        if not trial.extraction_results:
+            trial_error = "Prep agent finished without extracting any data."
+        elif len(database_paths) != 1:
+            trial_error = "Expected one shared SQLite database path after extraction."
+        elif not extracted_targets:
+            trial_error = "Prep agent extracted data but did not produce usable targets."
+
+    decision = trial.decision
+    is_prepared = decision is None or decision.status == "prepared"
+    if trial_error is None and len(database_paths) == 1 and extracted_targets and is_prepared:
+        database_path = next(iter(database_paths))
+        return PrepTaskOutput(
+            status="prepared",
+            database_path=database_path,
+            extraction_results=trial.extraction_results,
+            extracted_targets=extracted_targets,
+            prep_attempts=1,
+            trace=_append_trace(
+                trace,
+                f"prep agent prepared {len(extracted_targets)} targets into {database_path}",
+            ),
+        )
+
+    last_error = trial_error
+    if decision is not None:
+        last_error = decision.last_error or last_error or decision.summary
+    return PrepTaskOutput(
+        status="error",
+        extraction_results=trial.extraction_results,
+        extracted_targets=extracted_targets,
+        last_error=last_error or "Prep agent did not produce a usable extraction.",
+        prep_attempts=1,
+        trace=_append_trace(trace, "prep agent ended without a usable extraction"),
+    )
+
+
 def _preferred_sql_targets(extracted_targets: list[dict[str, Any]]) -> list[str]:
     """Return current-run SQL targets in the order they should be inspected."""
     preferred_targets: list[str] = []
@@ -236,6 +360,31 @@ def _build_sql_worker_context(
     if sql_references := format_skill_sql_references(skill_refs):
         parts.append(sql_references)
     return "\n\n".join(parts)
+
+
+class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepAgentDecision]):
+    """Collect the prep ReAct graph output into shared orchestrator fields."""
+
+    state_schema = OrchestratorState
+
+    def after_agent(
+        self,
+        state: OrchestratorState,
+        _runtime: Any,
+    ) -> dict[str, Any]:
+        """Store prep artifacts after the create_agent graph reaches its end."""
+        prep_output = _build_prep_task_output(state)
+        prep_artifact = prep_output.model_dump(mode="json")
+        agent_artifacts = {**state.agent_artifacts, PREP_AGENT_NAME: prep_artifact}
+        return {
+            "prep_output": prep_artifact,
+            "agent_artifacts": agent_artifacts,
+            "database_path": prep_output.database_path,
+            "extracted_targets": prep_output.extracted_targets,
+            "preferred_targets": _preferred_sql_targets(prep_output.extracted_targets),
+            "trace": prep_output.trace,
+            "active_agent": PREP_AGENT_NAME,
+        }
 
 
 def _save_validated_result(
@@ -447,9 +596,28 @@ def build_orchestrator_graph(
             state.task,
             config=patch_config(config, run_name="skills_context"),
         )
+        prep_request = build_prep_request(
+            prompt,
+            state.task,
+            state.source_files,
+            prep_attempt=1,
+            max_prep_trials=1,
+            worker_instructions=skill_payload.worker_instructions,
+            skill_refs=skill_payload.skill_refs,
+            previous_attempts=[],
+            retry_instructions=[],
+        )
+        worker_context = _build_sql_worker_context(
+            prompt,
+            worker_instructions=skill_payload.worker_instructions,
+            skill_refs=skill_payload.skill_refs,
+        )
         return {
             "worker_instructions": skill_payload.worker_instructions,
             "skill_refs": skill_payload.skill_refs,
+            "messages": [HumanMessage(content=prep_request)],
+            "question": state.task,
+            "worker_context": worker_context,
         }
 
     def prep_stage(
@@ -477,7 +645,13 @@ def build_orchestrator_graph(
         }
 
     def build_prep_subgraph() -> CompiledStateGraph:
-        """Build the prep stage as a named orchestrator subgraph."""
+        """Build the prep stage as the visible prep ReAct graph."""
+        if isinstance(resolved_prep_agent, PrepAgent):
+            return resolved_prep_agent.build_graph(
+                state_schema=OrchestratorState,
+                middleware=[PrepResultMiddleware()],
+            )
+
         builder = StateGraph(OrchestratorState)
         builder.add_node("prep_agent", prep_stage)
         builder.add_edge(START, "prep_agent")
@@ -514,7 +688,10 @@ def build_orchestrator_graph(
         }
 
     def build_sql_subgraph() -> CompiledStateGraph:
-        """Build the SQL agent as a named orchestrator subgraph."""
+        """Build the SQL stage as the visible SQL workflow graph."""
+        if isinstance(resolved_sql_agent, SQLAgent):
+            return resolved_sql_agent.graph
+
         builder = StateGraph(OrchestratorState)
         builder.add_node("sql_agent", sql_stage)
         builder.add_edge(START, "sql_agent")
@@ -526,7 +703,18 @@ def build_orchestrator_graph(
         config: RunnableConfig | None = None,
     ) -> dict[str, Any]:
         """Validate the SQL result before saving a view."""
-        sql_output = SQLAgentOutput.model_validate(state.sql_output)
+        sql_output = _sql_output_from_state(state)
+        if sql_output is None:
+            return {
+                "validation_feedback": {
+                    "retryable": False,
+                    "summary": "SQL agent did not run.",
+                    "instructions": ["Run the SQL stage before validation."],
+                },
+                "trace": _append_trace(state.trace, "orchestrator validation could not find a SQL output"),
+                "active_agent": VALIDATION_AGENT_NAME,
+            }
+        sql_artifact = sql_output.model_dump(mode="json")
         validation_output = resolved_validation_agent.invoke(
             task=state.task,
             source_files=state.source_files,
@@ -541,10 +729,12 @@ def build_orchestrator_graph(
         validation_artifact = validation_output.model_dump(mode="json")
         agent_artifacts = {
             **state.agent_artifacts,
+            SQL_AGENT_NAME: sql_artifact,
             VALIDATION_AGENT_NAME: validation_artifact,
         }
         if validation_output.valid:
             return {
+                "sql_output": sql_artifact,
                 "validation_output": validation_artifact,
                 "agent_artifacts": agent_artifacts,
                 "validated": True,
@@ -561,6 +751,8 @@ def build_orchestrator_graph(
             "instructions": instructions or [summary],
         }
         return {
+            **_reset_sql_attempt_update(),
+            "sql_output": sql_artifact,
             "validation_output": validation_artifact,
             "agent_artifacts": agent_artifacts,
             "validation_feedback": validation_feedback,
@@ -637,7 +829,7 @@ def build_orchestrator_graph(
 
     def route_after_sql(state: OrchestratorState) -> str:
         """Route completed SQL results to validation, otherwise finalize."""
-        sql_output = None if state.sql_output is None else SQLAgentOutput.model_validate(state.sql_output)
+        sql_output = _sql_output_from_state(state)
         return "validate" if sql_output is not None and sql_output.status == "complete" else "finalize"
 
     def route_after_validation(state: OrchestratorState) -> str:
