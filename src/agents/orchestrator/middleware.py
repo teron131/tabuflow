@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import asyncio
+from collections.abc import Awaitable, Callable
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.messages import HumanMessage, SystemMessage
@@ -34,12 +35,8 @@ class SkillsContextMiddleware(AgentMiddleware):
         self.available_skills = list_skills_context(path=path)
         self.skills_overview = format_skills_overview(self.available_skills)
 
-    def wrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], ModelResponse],
-    ) -> ModelResponse:
-        """Augment the system message with available and relevant skills context."""
+    def _request_with_skills_context(self, request: ModelRequest) -> ModelRequest:
+        """Return a model request augmented with deterministic skills context."""
         system_blocks = [] if request.system_message is None else list(request.system_message.content_blocks)
         system_blocks.append({"type": "text", "text": self.skills_overview})
 
@@ -63,8 +60,23 @@ class SkillsContextMiddleware(AgentMiddleware):
                 }
             )
 
-        return handler(
-            request.override(
-                system_message=SystemMessage(content=system_blocks),
-            )
+        return request.override(
+            system_message=SystemMessage(content=system_blocks),
         )
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        """Augment the system message with available and relevant skills context."""
+        return handler(self._request_with_skills_context(request))
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], Awaitable[ModelResponse]],
+    ) -> ModelResponse:
+        """Augment async model calls with the same skills context as sync calls."""
+        enriched_request = await asyncio.to_thread(self._request_with_skills_context, request)
+        return await handler(enriched_request)
