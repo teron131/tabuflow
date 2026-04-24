@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
-import re
 from typing import Any
 from uuid import uuid4
 
@@ -21,7 +20,6 @@ from .payloads import build_result_artifact, build_result_message
 from .skill_context import WorkerSkillPayload, build_worker_skill_payload, summarize_skill_refs
 
 DEFAULT_VIEW_NAME = "analysis_result"
-VIEW_NAME_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with"}
 PREP_AGENT_NAME = "prep_agent"
 SQL_AGENT_NAME = "sql_agent"
 VALIDATION_AGENT_NAME = "validation_agent"
@@ -150,16 +148,6 @@ def _build_sql_task_prompt(
     return "\n\n".join(parts)
 
 
-def _build_saved_view_name(task: str, run_id: str) -> str:
-    """Build a deterministic SQLite view name from the task and run id."""
-    tokens = [token for token in re.findall(r"[a-z0-9]+", task.lower()) if token not in VIEW_NAME_STOP_WORDS]
-    base = "_".join(tokens[:6]) or DEFAULT_VIEW_NAME
-    if base[0].isdigit():
-        base = f"analysis_{base}"
-    safe_run_id = "_".join(re.findall(r"[a-z0-9]+", run_id.lower())) or "manual"
-    return f"{base}__{safe_run_id[:12]}"
-
-
 def _run_sql_validation_loop(
     run: WorkflowRun,
     *,
@@ -233,12 +221,11 @@ def _save_validated_result(
     validation_attempts: int,
 ) -> tuple[str, dict[str, Any]]:
     """Persist one validated SQL result as a SQLite view and return the final workflow result."""
-    view_name = _build_saved_view_name(run.task, run.run_id)
     saved_view = save_view(
         sql_output.candidate_sql,
-        view_name,
+        DEFAULT_VIEW_NAME,
         database_path=run.database_path,
-        replace=False,
+        replace=True,
     )
     if saved_view.get("status") != "ok":
         return run.result(
@@ -248,12 +235,12 @@ def _save_validated_result(
             selected_targets=sql_output.selected_targets,
             candidate_sql=sql_output.candidate_sql,
             sql_result=sql_output.result,
-            saved_view_name=view_name,
+            saved_view_name=DEFAULT_VIEW_NAME,
             saved_view=saved_view,
-            last_error=saved_view.get("message", f"Failed to save view {view_name}"),
+            last_error=saved_view.get("message", f"Failed to save view {DEFAULT_VIEW_NAME}"),
             validation_feedback=None,
             validation_attempts=validation_attempts,
-            trace=_append_trace(run.trace, f"save failed for view {view_name}"),
+            trace=_append_trace(run.trace, f"save failed for view {DEFAULT_VIEW_NAME}"),
         )
 
     return run.result(
@@ -263,12 +250,12 @@ def _save_validated_result(
         selected_targets=sql_output.selected_targets,
         candidate_sql=sql_output.candidate_sql,
         sql_result=sql_output.result,
-        saved_view_name=view_name,
+        saved_view_name=DEFAULT_VIEW_NAME,
         saved_view=saved_view,
         last_error=None,
         validation_feedback=None,
         validation_attempts=validation_attempts,
-        trace=_append_trace(run.trace, f"saved result as view {view_name}"),
+        trace=_append_trace(run.trace, f"saved result as view {DEFAULT_VIEW_NAME}"),
     )
 
 
