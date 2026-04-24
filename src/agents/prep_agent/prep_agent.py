@@ -18,17 +18,12 @@ from pydantic import BaseModel, Field
 
 from ...tools.tabular import make_tabular_tools
 from ..base import ApplicationAgent
+from ..trace_utils import PREP_STAGE, append_stage_trace, append_trace
 from .payloads import collect_extracted_targets
 from .prompts import PREP_AGENT_SYSTEM_PROMPT, build_prep_request, parse_tool_content
 from .state import PrepAgentDecision
 
 PREP_AGENT_RECURSION_LIMIT = 12
-MAX_TRACE_MESSAGES = 12
-
-
-def _append_trace(trace: list[str], message: str) -> list[str]:
-    """Append one trace message and keep the trace bounded."""
-    return [*trace, message][-MAX_TRACE_MESSAGES:]
 
 
 class PrepTaskOutput(BaseModel):
@@ -69,12 +64,12 @@ def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
         tool_label = f"{tool_name}({tool_path})" if tool_path else tool_name
 
         if message.status == "error":
-            trace = _append_trace(trace, f"prep tool failed: {tool_label}")
+            trace = append_trace(trace, f"tool failed: {tool_label}")
             last_error = str(message.content)
             continue
 
         if tool_name in {"inspect_tabular", "profile_tabular"}:
-            trace = _append_trace(trace, f"prep observed {tool_label}")
+            trace = append_trace(trace, f"observed {tool_label}")
             continue
 
         if tool_name != "extract_tabular" or not tool_payload:
@@ -89,7 +84,7 @@ def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
                 )
             )
             continue
-        trace = _append_trace(trace, f"prep extracted {tool_path or 'one source file'}")
+        trace = append_trace(trace, f"extracted {tool_path or 'one source file'}")
 
     decision = None
     structured_response = result.get("structured_response")
@@ -98,7 +93,7 @@ def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
         if decision.last_error:
             last_error = decision.last_error
         if decision.summary:
-            trace = _append_trace(trace, f"prep summary: {decision.summary}")
+            trace = append_trace(trace, f"summary: {decision.summary}")
 
     return PrepTrialResult(
         decision=decision,
@@ -157,15 +152,6 @@ class PrepAgent(ApplicationAgent):
         )
         return collect_prep_trial_result(result)
 
-    def _run_trial(
-        self,
-        request: str,
-        *,
-        config: RunnableConfig | None = None,
-    ) -> PrepTrialResult:
-        """Run one prep-agent trial and collect the resulting tool outputs."""
-        return self.run_trial(request, config=config)
-
     def invoke(
         self,
         task: str,
@@ -199,7 +185,7 @@ class PrepAgent(ApplicationAgent):
             last_trial = trial
 
             for message in trial.trace:
-                trace = _append_trace(trace, f"[trial {prep_attempt}] {message}")
+                trace = append_stage_trace(trace, PREP_STAGE, f"trial {prep_attempt} {message}")
 
             decision = trial.decision
             extracted_targets = collect_extracted_targets(trial.extraction_results)
@@ -216,48 +202,51 @@ class PrepAgent(ApplicationAgent):
             decision_summary = decision.summary if decision and decision.summary else trial_error or "Prep trial finished without a usable extraction."
             previous_attempts.append(f"trial {prep_attempt}: {decision_summary}")
 
-            is_prepared = decision is None or decision.status == "prepared"
-            if trial_error is None and len(database_paths) == 1 and extracted_targets and is_prepared:
+            extraction_ready = trial_error is None and len(database_paths) == 1 and bool(extracted_targets)
+            if extraction_ready:
                 database_path = next(iter(database_paths))
-                success_message = f"prep agent prepared {len(extracted_targets)} targets into {database_path}"
+                success_message = f"prepared {len(extracted_targets)} target(s) into {database_path}"
                 return PrepTaskOutput(
                     status="prepared",
                     database_path=database_path,
                     extraction_results=trial.extraction_results,
                     extracted_targets=extracted_targets,
                     prep_attempts=prep_attempt,
-                    trace=_append_trace(
+                    trace=append_stage_trace(
                         trace,
+                        PREP_STAGE,
                         success_message,
                     ),
                 )
 
             if decision is not None and decision.status in {"blocked", "error"}:
-                stop_message = f"prep agent stopped after trial {prep_attempt} with status={decision.status}"
+                stop_message = f"stopped after trial {prep_attempt} with status={decision.status}"
                 return PrepTaskOutput(
                     status="error",
                     extraction_results=trial.extraction_results,
                     extracted_targets=extracted_targets,
                     last_error=decision.last_error or trial_error or decision.summary,
                     prep_attempts=prep_attempt,
-                    trace=_append_trace(
+                    trace=append_stage_trace(
                         trace,
+                        PREP_STAGE,
                         stop_message,
                     ),
                 )
 
             retry_instructions = decision.retry_instructions if decision is not None else []
             if prep_attempt < safe_max_prep_trials:
-                trace = _append_trace(
+                trace = append_stage_trace(
                     trace,
-                    f"prep retrying after trial {prep_attempt}: {decision_summary}",
+                    PREP_STAGE,
+                    f"retrying after trial {prep_attempt}: {decision_summary}",
                 )
 
         if last_trial is None:
             return PrepTaskOutput(
                 status="error",
                 last_error="Prep agent did not run.",
-                trace=_append_trace(trace, "prep agent failed before starting"),
+                trace=append_stage_trace(trace, PREP_STAGE, "failed before starting"),
             )
 
         final_decision = last_trial.decision
@@ -274,5 +263,5 @@ class PrepAgent(ApplicationAgent):
             extracted_targets=collect_extracted_targets(last_trial.extraction_results),
             last_error=final_error,
             prep_attempts=safe_max_prep_trials,
-            trace=_append_trace(trace, f"prep agent exhausted {safe_max_prep_trials} trial(s)"),
+            trace=append_stage_trace(trace, PREP_STAGE, f"exhausted {safe_max_prep_trials} trial(s)"),
         )

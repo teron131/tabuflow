@@ -7,6 +7,7 @@ from uuid import uuid4
 
 from ...tools.sql.query import save_view
 from ..sql_agent import SQLAgentOutput
+from ..trace_utils import SAVE_STAGE, append_stage_trace
 from .payloads import build_result_artifact, build_result_message
 from .state import OrchestratorState
 
@@ -74,19 +75,6 @@ class SqlLoopResult:
     output: SQLAgentOutput | None = None
     validation_feedback: dict[str, Any] | None = None
     validation_attempts: int = 0
-
-
-def append_trace(trace: list[str], message: str) -> list[str]:
-    """Append one trace message while keeping the trace compact."""
-    return [*trace, message][-12:]
-
-
-def append_trace_messages(trace: list[str], messages: list[str]) -> list[str]:
-    """Append multiple trace messages while preserving the bounded trace shape."""
-    next_trace = trace
-    for message in messages:
-        next_trace = append_trace(next_trace, message)
-    return next_trace
 
 
 def orchestrator_run_from_state(state: OrchestratorState) -> OrchestratorRun:
@@ -216,7 +204,7 @@ def save_validated_result(
             last_error=saved_view.get("message", f"Failed to save view {view_name}"),
             validation_feedback=None,
             validation_attempts=validation_attempts,
-            trace=append_trace(run.trace, f"save failed for view {view_name}"),
+            trace=append_stage_trace(run.trace, SAVE_STAGE, f"failed for view {view_name}"),
         )
 
     return run.result(
@@ -231,7 +219,7 @@ def save_validated_result(
         last_error=None,
         validation_feedback=None,
         validation_attempts=validation_attempts,
-        trace=append_trace(run.trace, f"saved result as view {view_name}"),
+        trace=append_stage_trace(run.trace, SAVE_STAGE, f"saved result as view {view_name}"),
     )
 
 
@@ -255,7 +243,7 @@ def build_sql_failure_result(
             last_error="SQL agent did not run.",
             validation_feedback=loop.validation_feedback,
             validation_attempts=loop.validation_attempts,
-            trace=append_trace(run.trace, "sql agent did not run"),
+            trace=append_stage_trace(run.trace, SAVE_STAGE, "sql agent did not run"),
         )
 
     if sql_output.status != "complete":

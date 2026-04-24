@@ -12,11 +12,11 @@ from sqlglot import exp
 from sqlglot.errors import ParseError
 
 from ...tools.sql.query import describe_target, run_query, suggest_sql_error_repair, suggest_targets
+from ..trace_utils import SQL_STAGE, append_stage_trace
 from .state import PlannerFn, SQLAgentState
 
 MAX_INSPECTED_TARGETS = 4
 MAX_PREFERRED_INSPECTED_TARGETS = 6
-MAX_TRACE_MESSAGES = 8
 _QUESTION_STOP_WORDS = {
     "a",
     "an",
@@ -52,8 +52,7 @@ def _append_trace(
     message: str,
 ) -> list[str]:
     """Append one trace message."""
-    next_trace = [*state.trace, message]
-    return next_trace[-MAX_TRACE_MESSAGES:]
+    return append_stage_trace(state.trace, SQL_STAGE, message)
 
 
 def _needs_clarification(question: str) -> str | None:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain.messages import SystemMessage
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 
@@ -19,7 +18,11 @@ class ValidationAgent(ApplicationAgent):
 
     def __init__(self, *, llm: BaseChatModel | None = None):
         super().__init__(llm=llm)
-        self.validator = self.llm.with_structured_output(ValidationOutput)
+        self.validator = self.build_structured_agent(
+            ValidationOutput,
+            system_prompt=VALIDATION_SYSTEM_PROMPT,
+            name="validation_agent",
+        )
 
     def validate(
         self,
@@ -33,13 +36,14 @@ class ValidationAgent(ApplicationAgent):
             return deterministic_failure
 
         result = self.validator.invoke(
-            [
-                SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
-                *build_validation_messages(validation_input),
-            ],
+            {"messages": build_validation_messages(validation_input)},
             config=config,
         )
-        return ValidationOutput.model_validate(result)
+        return self.get_structured_response(
+            result,
+            ValidationOutput,
+            agent_name="validation_agent",
+        )
 
     def invoke(
         self,

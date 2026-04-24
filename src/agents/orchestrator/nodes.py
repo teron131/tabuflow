@@ -14,14 +14,19 @@ from ..prep_agent.payloads import collect_extracted_targets
 from ..prep_agent.prep_agent import collect_prep_trial_result
 from ..prep_agent.state import PrepAgentDecision
 from ..sql_agent import SQLAgent, SQLAgentOutput
+from ..trace_utils import (
+    PREP_STAGE,
+    SKILL_CONTEXT_STAGE,
+    VALIDATION_STAGE,
+    append_stage_trace,
+    append_trace_messages,
+)
 from ..validation_agent import ValidationAgent
 from .prompts import build_prep_stage_message, build_sql_worker_context
 from .runtime import (
     PREP_AGENT_NAME,
     SQL_AGENT_NAME,
     VALIDATION_AGENT_NAME,
-    append_trace,
-    append_trace_messages,
     build_sql_failure_result,
     orchestrator_result_update,
     orchestrator_run_from_state,
@@ -42,13 +47,18 @@ class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepAgentDec
 
     def after_agent(
         self,
-        state: OrchestratorState,
-        _runtime: Any,
+        state: OrchestratorState | dict[str, Any],
+        runtime: Any,
     ) -> dict[str, Any]:
         """Store prep artifacts after the create_agent graph reaches its end."""
+        _ = runtime
+        state = normalize_orchestrator_state(state)
         prep_output = build_prep_task_output(state)
         prep_artifact = prep_output.model_dump(mode="json")
-        agent_artifacts = {**state.agent_artifacts, PREP_AGENT_NAME: prep_artifact}
+        agent_artifacts = {
+            **state.agent_artifacts,
+            PREP_AGENT_NAME: prep_artifact,
+        }
         return {
             "prep_output": prep_artifact,
             "agent_artifacts": agent_artifacts,
@@ -60,8 +70,10 @@ class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepAgentDec
         }
 
 
-def build_prep_task_output(state: OrchestratorState) -> PrepTaskOutput:
+def build_prep_task_output(state: OrchestratorState | dict[str, Any]) -> PrepTaskOutput:
     """Collect the visible prep ReAct graph result into orchestrator state."""
+    state = normalize_orchestrator_state(state)
+
     trial = collect_prep_trial_result(
         {
             "messages": state.messages,
@@ -70,7 +82,7 @@ def build_prep_task_output(state: OrchestratorState) -> PrepTaskOutput:
     )
     trace = state.trace
     for message in trial.trace:
-        trace = append_trace(trace, f"[trial 1] {message}")
+        trace = append_stage_trace(trace, PREP_STAGE, f"trial 1 {message}")
 
     extracted_targets = collect_extracted_targets(trial.extraction_results)
     database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}
@@ -84,8 +96,8 @@ def build_prep_task_output(state: OrchestratorState) -> PrepTaskOutput:
             trial_error = "Prep agent extracted data but did not produce usable targets."
 
     decision = trial.decision
-    is_prepared = decision is None or decision.status == "prepared"
-    if trial_error is None and len(database_paths) == 1 and extracted_targets and is_prepared:
+    extraction_ready = trial_error is None and len(database_paths) == 1 and bool(extracted_targets)
+    if extraction_ready:
         database_path = next(iter(database_paths))
         return PrepTaskOutput(
             status="prepared",
@@ -93,9 +105,10 @@ def build_prep_task_output(state: OrchestratorState) -> PrepTaskOutput:
             extraction_results=trial.extraction_results,
             extracted_targets=extracted_targets,
             prep_attempts=1,
-            trace=append_trace(
+            trace=append_stage_trace(
                 trace,
-                f"prep agent prepared {len(extracted_targets)} targets into {database_path}",
+                PREP_STAGE,
+                f"prepared {len(extracted_targets)} target(s) into {database_path}",
             ),
         )
 
@@ -108,8 +121,35 @@ def build_prep_task_output(state: OrchestratorState) -> PrepTaskOutput:
         extracted_targets=extracted_targets,
         last_error=last_error or "Prep agent did not produce a usable extraction.",
         prep_attempts=1,
-        trace=append_trace(trace, "prep agent ended without a usable extraction"),
+        trace=append_stage_trace(trace, PREP_STAGE, "ended without a usable extraction"),
     )
+
+
+def normalize_orchestrator_state(state: OrchestratorState | dict[str, Any]) -> OrchestratorState:
+    """Normalize LangGraph dict state into the orchestrator state model."""
+    if isinstance(state, OrchestratorState):
+        return state
+    return OrchestratorState.model_validate(state)
+
+
+def workflow_trace_from_state(
+    state: OrchestratorState,
+    *,
+    sql_output: SQLAgentOutput | None = None,
+) -> list[str]:
+    """Merge parent and worker traces into one caller-facing workflow log."""
+    trace: list[str] = []
+    if state.prep_output is None:
+        trace = append_trace_messages(trace, state.trace)
+    else:
+        prep_output = PrepTaskOutput.model_validate(state.prep_output)
+        trace = append_trace_messages(trace, prep_output.trace)
+
+    if sql_output is None:
+        sql_output = sql_output_from_state(state)
+    if sql_output is not None:
+        trace = append_trace_messages(trace, sql_output.trace)
+    return trace
 
 
 class OrchestratorNodes:
@@ -162,6 +202,7 @@ class OrchestratorNodes:
                 worker_instructions=skill_payload.worker_instructions,
                 skill_refs=skill_payload.skill_refs,
             ),
+            "trace": append_stage_trace(state.trace, SKILL_CONTEXT_STAGE, f"loaded {len(skill_payload.skill_refs)} skill ref(s)"),
         }
 
     def prep(self, state: OrchestratorState, config: RunnableConfig | None = None) -> dict[str, Any]:
@@ -246,7 +287,7 @@ class OrchestratorNodes:
                     "summary": "SQL agent did not run.",
                     "instructions": ["Run the SQL stage before validation."],
                 },
-                "trace": append_trace(state.trace, "orchestrator validation could not find a SQL output"),
+                "trace": append_stage_trace(state.trace, VALIDATION_STAGE, "could not find a SQL output"),
                 "active_agent": VALIDATION_AGENT_NAME,
             }
         sql_artifact = sql_output.model_dump(mode="json")
@@ -262,6 +303,7 @@ class OrchestratorNodes:
             config=patch_config(config, run_name=f"validation_agent_attempt_{state.validation_attempts + 1}"),
         )
         validation_artifact = validation_output.model_dump(mode="json")
+        workflow_trace = workflow_trace_from_state(state, sql_output=sql_output)
         agent_artifacts = {
             **state.agent_artifacts,
             SQL_AGENT_NAME: sql_artifact,
@@ -272,7 +314,7 @@ class OrchestratorNodes:
                 "sql_output": sql_artifact,
                 "agent_artifacts": agent_artifacts,
                 "validation_feedback": None,
-                "trace": append_trace(state.trace, "orchestrator validation accepted the SQL result"),
+                "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, "accepted the SQL result"),
                 "active_agent": None,
             }
 
@@ -289,7 +331,7 @@ class OrchestratorNodes:
             "agent_artifacts": agent_artifacts,
             "validation_feedback": validation_feedback,
             "validation_attempts": state.validation_attempts + 1,
-            "trace": append_trace(state.trace, f"orchestrator validation requested another SQL attempt: {summary}"),
+            "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, f"requested another SQL attempt: {summary}"),
             "active_agent": VALIDATION_AGENT_NAME,
         }
 
