@@ -560,6 +560,7 @@ def search_skills(
     path: str = ".",
     top_k: int = DEFAULT_SKILLS_TOP_K,
     score_threshold: float = DEFAULT_SKILLS_SCORE_THRESHOLD,
+    search_mode: str = "lexical",
     model: str = DEFAULT_SEARCH_SKILLS_MODEL,
 ) -> dict[str, Any]:
     """Search workspace skills semantically from descriptions and metadata only.
@@ -569,12 +570,26 @@ def search_skills(
         path: Relative directory or file path from the current working directory, or an absolute path. Defaults to the current working directory.
         top_k: Maximum number of matching skills entries to return.
         score_threshold: Minimum cosine similarity score required to include a match.
+        search_mode: Search strategy. Use "lexical" for token overlap or "embedding" for embedding similarity.
         model: Embedding model name understood by the configured OpenAI-compatible endpoint.
     """
     if not query.strip():
         return _result_payload([], ["Missing required query"])
 
     skills_files, skills_root = _discover_skills_for_path(path)
+    normalized_search_mode = search_mode.strip().lower()
+    if normalized_search_mode != "embedding":
+        lexical_skills, diagnostics = _lexical_search_results(
+            skills_files=skills_files,
+            query=query,
+            top_k=top_k,
+            score_threshold=score_threshold,
+        )
+        result = _result_payload(lexical_skills, diagnostics)
+        result["search_mode"] = "lexical"
+        result["score_threshold"] = score_threshold
+        return result
+
     try:
         embeddings = OpenAIEmbeddings(
             model=model,
