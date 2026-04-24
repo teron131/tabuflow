@@ -2,6 +2,7 @@
 uv.lock
 data/*
 skills/*
+*.sqlite
 
 *test*
 backup/
