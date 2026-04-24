@@ -1,13 +1,14 @@
-"""Shared helpers for orchestrator nodes, routing, and result shaping."""
+"""Runtime state adapters and graph-update helpers for orchestrator stages."""
 
+from dataclasses import dataclass, field
 import re
 from typing import Any
+from uuid import uuid4
 
 from ...tools.sql.query import save_view
 from ..sql_agent import SQLAgentOutput
-from ..validation_agent import ValidationOutput
-from .skill_context import WorkerSkillPayload
-from .state import OrchestratorRun, OrchestratorState, SqlLoopResult
+from .payloads import build_result_artifact, build_result_message
+from .state import OrchestratorState
 
 DEFAULT_VIEW_NAME = "analysis_result"
 MAX_VIEW_TASK_SLUG_CHARS = 48
@@ -15,6 +16,64 @@ PREP_AGENT_NAME = "prep_agent"
 SQL_AGENT_NAME = "sql_agent"
 VALIDATION_AGENT_NAME = "validation_agent"
 VIEW_TASK_SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
+
+
+@dataclass
+class OrchestratorRun:
+    """Shared orchestrator run state used across prep, SQL, and save stages."""
+
+    task: str
+    source_files: list[str]
+    run_id: str = field(default_factory=lambda: uuid4().hex[:8])
+    trace: list[str] = field(default_factory=list)
+    database_path: str | None = None
+    extracted_targets: list[dict[str, Any]] = field(default_factory=list)
+
+    def result(
+        self,
+        *,
+        status: str,
+        outcome: str,
+        completion_reason: str | None,
+        selected_targets: list[str],
+        candidate_sql: str | None,
+        sql_result: dict[str, Any] | None,
+        saved_view_name: str | None,
+        saved_view: dict[str, Any] | None,
+        last_error: str | None,
+        validation_feedback: dict[str, Any] | None,
+        validation_attempts: int,
+        trace: list[str] | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        """Build the caller-facing result from the current run state."""
+        artifact = build_result_artifact(
+            task=self.task,
+            status=status,
+            outcome=outcome,
+            completion_reason=completion_reason,
+            source_files=self.source_files,
+            database_path=self.database_path,
+            extracted_targets=self.extracted_targets,
+            selected_targets=selected_targets,
+            candidate_sql=candidate_sql,
+            sql_result=sql_result,
+            saved_view_name=saved_view_name,
+            saved_view=saved_view,
+            last_error=last_error,
+            validation_feedback=validation_feedback,
+            validation_attempts=validation_attempts,
+            trace=self.trace if trace is None else trace,
+        )
+        return build_result_message(artifact), artifact
+
+
+@dataclass
+class SqlLoopResult:
+    """State accumulated across orchestrator-owned SQL attempts."""
+
+    output: SQLAgentOutput | None = None
+    validation_feedback: dict[str, Any] | None = None
+    validation_attempts: int = 0
 
 
 def append_trace(trace: list[str], message: str) -> list[str]:
@@ -35,10 +94,6 @@ def orchestrator_run_from_state(state: OrchestratorState) -> OrchestratorRun:
     return OrchestratorRun(
         task=state.task,
         source_files=state.source_files,
-        skill_payload=WorkerSkillPayload(
-            worker_instructions=state.worker_instructions,
-            skill_refs=state.skill_refs,
-        ),
         run_id=state.run_id,
         trace=state.trace,
         database_path=state.database_path,
@@ -50,10 +105,8 @@ def sql_loop_from_state(state: OrchestratorState) -> SqlLoopResult:
     """Rebuild SQL loop state from parent graph fields."""
     return SqlLoopResult(
         output=sql_output_from_state(state),
-        validation_output=(None if state.validation_output is None else ValidationOutput.model_validate(state.validation_output)),
         validation_feedback=state.validation_feedback,
         validation_attempts=state.validation_attempts,
-        validated=state.validated,
     )
 
 

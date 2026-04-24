@@ -1,6 +1,6 @@
 """State and public schemas for the orchestrator graph."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Annotated, Any
 from uuid import uuid4
 
@@ -8,76 +8,7 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-from ..sql_agent import SQLAgentOutput, SQLPlan
-from ..validation_agent import ValidationOutput
-from .payloads import build_result_artifact, build_result_message
-from .skill_context import WorkerSkillPayload
-
-
-@dataclass
-class OrchestratorRun:
-    """Shared orchestrator run state used across prep, SQL, and save stages."""
-
-    task: str
-    source_files: list[str]
-    skill_payload: WorkerSkillPayload
-    run_id: str = field(default_factory=lambda: uuid4().hex[:8])
-    trace: list[str] = field(default_factory=list)
-    database_path: str | None = None
-    extracted_targets: list[dict[str, Any]] = field(default_factory=list)
-
-    def append_trace(self, *messages: str) -> None:
-        """Append one or more trace messages while keeping the trace compact."""
-        for message in messages:
-            self.trace = [*self.trace, message][-12:]
-
-    def result(
-        self,
-        *,
-        status: str,
-        outcome: str,
-        completion_reason: str | None,
-        selected_targets: list[str],
-        candidate_sql: str | None,
-        sql_result: dict[str, Any] | None,
-        saved_view_name: str | None,
-        saved_view: dict[str, Any] | None,
-        last_error: str | None,
-        validation_feedback: dict[str, Any] | None,
-        validation_attempts: int,
-        trace: list[str] | None = None,
-    ) -> tuple[str, dict[str, Any]]:
-        """Build the caller-facing result from the current run state."""
-        artifact = build_result_artifact(
-            task=self.task,
-            status=status,
-            outcome=outcome,
-            completion_reason=completion_reason,
-            source_files=self.source_files,
-            database_path=self.database_path,
-            extracted_targets=self.extracted_targets,
-            selected_targets=selected_targets,
-            candidate_sql=candidate_sql,
-            sql_result=sql_result,
-            saved_view_name=saved_view_name,
-            saved_view=saved_view,
-            last_error=last_error,
-            validation_feedback=validation_feedback,
-            validation_attempts=validation_attempts,
-            trace=self.trace if trace is None else trace,
-        )
-        return build_result_message(artifact), artifact
-
-
-@dataclass
-class SqlLoopResult:
-    """State accumulated across orchestrator-owned SQL attempts."""
-
-    output: SQLAgentOutput | None = None
-    validation_output: ValidationOutput | None = None
-    validation_feedback: dict[str, Any] | None = None
-    validation_attempts: int = 0
-    validated: bool = False
+from ..sql_agent import SQLPlan
 
 
 @dataclass
@@ -87,7 +18,7 @@ class OrchestratorExecutionResult:
     content: str
     artifact: dict[str, Any]
     agent_artifacts: dict[str, dict[str, Any]]
-    active_agent: str | None
+    active_agent: str | None = None
 
 
 class OrchestratorInput(BaseModel):
@@ -121,10 +52,8 @@ class OrchestratorState(OrchestratorInput, OrchestratorOutput):
     extracted_targets: list[dict[str, Any]] = Field(default_factory=list)
     prep_output: dict[str, Any] | None = None
     sql_output: dict[str, Any] | None = None
-    validation_output: dict[str, Any] | None = None
     validation_feedback: dict[str, Any] | None = None
     validation_attempts: int = 0
-    validated: bool = False
     question: str = ""
     preferred_targets: list[str] = Field(default_factory=list)
     worker_context: str = ""

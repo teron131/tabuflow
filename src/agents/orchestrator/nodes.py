@@ -16,9 +16,7 @@ from ..prep_agent.state import PrepAgentDecision
 from ..sql_agent import SQLAgent, SQLAgentOutput
 from ..validation_agent import ValidationAgent
 from .prompts import build_prep_stage_message, build_sql_worker_context
-from .skill_context import build_worker_skill_payload
-from .state import OrchestratorState
-from .utils import (
+from .runtime import (
     PREP_AGENT_NAME,
     SQL_AGENT_NAME,
     VALIDATION_AGENT_NAME,
@@ -33,6 +31,8 @@ from .utils import (
     sql_loop_from_state,
     sql_output_from_state,
 )
+from .skill_context import build_worker_skill_payload
+from .state import OrchestratorState
 
 
 class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepAgentDecision]):
@@ -181,6 +181,7 @@ class OrchestratorNodes:
             "agent_artifacts": agent_artifacts,
             "database_path": prep_output.database_path,
             "extracted_targets": prep_output.extracted_targets,
+            "preferred_targets": preferred_sql_targets(prep_output.extracted_targets),
             "trace": append_trace_messages(state.trace, prep_output.trace),
             "active_agent": PREP_AGENT_NAME,
         }
@@ -204,13 +205,9 @@ class OrchestratorNodes:
         sql_output = self.sql_agent.invoke(
             state.task,
             database_path=state.database_path,
-            preferred_targets=preferred_sql_targets(state.extracted_targets),
+            preferred_targets=state.preferred_targets,
             source_files=state.source_files,
-            worker_context=build_sql_worker_context(
-                self.prompt,
-                worker_instructions=state.worker_instructions,
-                skill_refs=state.skill_refs,
-            ),
+            worker_context=state.worker_context,
             skill_refs=state.skill_refs,
             validation_feedback=state.validation_feedback,
             config=patch_config(config, run_name=f"sql_agent_attempt_{state.validation_attempts + 1}"),
@@ -273,9 +270,7 @@ class OrchestratorNodes:
         if validation_output.valid:
             return {
                 "sql_output": sql_artifact,
-                "validation_output": validation_artifact,
                 "agent_artifacts": agent_artifacts,
-                "validated": True,
                 "validation_feedback": None,
                 "trace": append_trace(state.trace, "orchestrator validation accepted the SQL result"),
                 "active_agent": None,
@@ -291,7 +286,6 @@ class OrchestratorNodes:
         return {
             **reset_sql_attempt_update(),
             "sql_output": sql_artifact,
-            "validation_output": validation_artifact,
             "agent_artifacts": agent_artifacts,
             "validation_feedback": validation_feedback,
             "validation_attempts": state.validation_attempts + 1,
@@ -360,7 +354,7 @@ class OrchestratorNodes:
             content=content,
             artifact=artifact,
             agent_artifacts=state.agent_artifacts,
-            active_agent=(VALIDATION_AGENT_NAME if state.validation_output is not None else SQL_AGENT_NAME),
+            active_agent=(VALIDATION_AGENT_NAME if state.validation_feedback is not None else SQL_AGENT_NAME),
         )
 
 
@@ -378,9 +372,9 @@ def route_after_sql(state: OrchestratorState) -> str:
 
 def route_after_validation(state: OrchestratorState) -> str:
     """Route validation acceptance, retry, or terminal failure."""
-    if state.validated:
+    if state.validation_feedback is None:
         return "save"
-    if not state.validation_feedback or not state.validation_feedback.get("retryable", True):
+    if not state.validation_feedback.get("retryable", True):
         return "finalize"
     if state.validation_attempts <= state.max_validation_retries:
         return "sql"
