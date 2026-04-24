@@ -2,20 +2,27 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-import json
 from pathlib import Path
-import re
-from typing import Any, cast
 
-from langchain.messages import HumanMessage
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from ...tools.sql.query import describe_target, run_query, suggest_sql_error_repair, suggest_targets
 from ..base import ApplicationAgent
 from ..config import DEFAULT_REASONING_EFFORT
+from .nodes import (
+    clarify_node,
+    execute_node,
+    inspect_node,
+    make_plan_node,
+    repair_node,
+    route_after_execute,
+    route_after_inspect,
+    route_after_plan,
+    route_after_suggest,
+    suggest_node,
+)
+from .payloads import build_planner_messages
 from .prompts import SQL_PLANNER_SYSTEM_PROMPT
 from .state import (
     PlannerFn,
@@ -24,464 +31,6 @@ from .state import (
     SQLAgentState,
     SQLPlan,
 )
-
-MAX_INSPECTED_TARGETS = 2
-MAX_TRACE_MESSAGES = 8
-MAX_AGENT_SAMPLE_ROWS = 2
-MAX_AGENT_ROW_COLUMNS = 8
-MAX_AGENT_TEXT_HINT_COLUMNS = 2
-MAX_AGENT_TEXT_HINT_VALUES = 3
-MAX_AGENT_SOURCE_MAPPING_PREVIEW = 2
-_QUESTION_STOP_WORDS = {
-    "a",
-    "an",
-    "and",
-    "are",
-    "by",
-    "for",
-    "get",
-    "give",
-    "how",
-    "i",
-    "in",
-    "is",
-    "me",
-    "of",
-    "our",
-    "show",
-    "tell",
-    "the",
-    "to",
-    "us",
-    "we",
-    "what",
-    "which",
-    "with",
-}
-_VAGUE_QUESTION_TOKENS = {"doing", "everything", "numbers", "overall", "overview", "performance", "stats", "status", "summary"}
-
-
-def _append_trace(
-    state: SQLAgentState,
-    message: str,
-) -> list[str]:
-    """Append one trace message."""
-    next_trace = [*state.trace, message]
-    return next_trace[-MAX_TRACE_MESSAGES:]
-
-
-def _preview_list(
-    items: list[Any],
-    *,
-    max_items: int,
-) -> tuple[
-    list[Any],
-    bool,
-]:
-    """Return a bounded preview of one list plus truncation state."""
-    safe_max_items = max(0, max_items)
-    return items[:safe_max_items], len(items) > safe_max_items
-
-
-def _compact_row(row: dict[str, Any]) -> dict[str, Any]:
-    """Return a bounded row preview for prompts and traces."""
-    row_items = list(row.items())
-    preview_items, truncated = _preview_list(
-        row_items,
-        max_items=MAX_AGENT_ROW_COLUMNS,
-    )
-    compact_row = dict(preview_items)
-    if truncated:
-        compact_row["__remaining_columns__"] = len(row_items) - len(preview_items)
-    return compact_row
-
-
-def _compact_sample_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Return a bounded sample-row preview for one inspected target."""
-    preview_rows, truncated = _preview_list(
-        rows,
-        max_items=MAX_AGENT_SAMPLE_ROWS,
-    )
-    return {
-        "count": len(rows),
-        "truncated": truncated,
-        "items": [_compact_row(row) for row in preview_rows],
-    }
-
-
-def _compact_text_value_hints(text_value_hints: dict[str, list[str]]) -> dict[str, Any]:
-    """Return bounded text-value hints for planning."""
-    hint_items = list(text_value_hints.items())
-    preview_items, truncated = _preview_list(
-        hint_items,
-        max_items=MAX_AGENT_TEXT_HINT_COLUMNS,
-    )
-    compact_hints = {column_name: values[:MAX_AGENT_TEXT_HINT_VALUES] for column_name, values in preview_items}
-    return {
-        "count": len(hint_items),
-        "truncated": truncated,
-        "items": compact_hints,
-    }
-
-
-def _compact_source_mappings(source_mappings: list[dict[str, Any]]) -> dict[str, Any]:
-    """Return a bounded preview of source mappings."""
-    preview_mappings, truncated = _preview_list(
-        source_mappings,
-        max_items=MAX_AGENT_SOURCE_MAPPING_PREVIEW,
-    )
-    return {
-        "count": len(source_mappings),
-        "truncated": truncated,
-        "items": [
-            {
-                "source_path": mapping.get("source_path"),
-                "source_sheet_name": mapping.get("source_sheet_name"),
-                "source_table_name": mapping.get("source_table_name"),
-            }
-            for mapping in preview_mappings
-        ],
-    }
-
-
-def _compact_inspected_target(target: dict[str, Any]) -> dict[str, Any]:
-    """Return the compact inspected-target payload sent to the planner."""
-    columns = list(target.get("columns", []))
-    return {
-        "name": target.get("name"),
-        "kind": target.get("kind"),
-        "type": target.get("type"),
-        "row_count": target.get("row_count"),
-        "summary": target.get("summary"),
-        "columns": [
-            {
-                "name": column.get("name"),
-                "type": column.get("type"),
-            }
-            for column in columns
-        ],
-        "column_count": len(columns),
-        "sample_rows": _compact_sample_rows(
-            list(target.get("sample_rows", [])),
-        ),
-        "text_value_hints": _compact_text_value_hints(
-            cast(
-                dict[str, list[str]],
-                target.get("text_value_hints", {}),
-            )
-        ),
-        "source_mappings": _compact_source_mappings(
-            list(target.get("source_mappings", [])),
-        ),
-    }
-
-
-def _compact_query_result(result: dict[str, Any]) -> dict[str, Any]:
-    """Return a bounded SQL execution result for workflow state."""
-    if result.get("status") != "ok":
-        return {
-            "status": result.get("status"),
-            "error_type": result.get("error_type"),
-            "message": result.get("message"),
-            "database_path": result.get("database_path"),
-            "summary": result.get("summary"),
-        }
-
-    rows = list(result.get("rows", []))
-    columns = [str(column) for column in result.get("columns", [])]
-    preview_columns, columns_truncated = _preview_list(columns, max_items=MAX_AGENT_ROW_COLUMNS)
-    preview_rows, rows_truncated = _preview_list(rows, max_items=MAX_AGENT_SAMPLE_ROWS)
-    return {
-        "status": "ok",
-        "database_path": result.get("database_path"),
-        "summary": result.get("summary"),
-        "row_count": result.get("row_count", 0),
-        "truncated": result.get("truncated", False),
-        "column_count": len(columns),
-        "columns": preview_columns,
-        "columns_truncated": columns_truncated,
-        "rows": [_compact_row(cast(dict[str, Any], row)) for row in preview_rows],
-        "rows_truncated": rows_truncated or bool(result.get("truncated")),
-    }
-
-
-def _needs_clarification(question: str) -> str | None:
-    """Return a clarification message when the question is too vague."""
-    tokens = [token for token in re.findall(r"[a-z0-9_]+", question.lower()) if token not in _QUESTION_STOP_WORDS]
-    if not tokens:
-        return "Question is too vague. Ask for a specific metric, dimension, or summary target."
-    if all(token in _VAGUE_QUESTION_TOKENS for token in tokens):
-        return "Question is too vague. Ask for a concrete metric or breakdown, for example revenue by customer or gross profit summary."
-    return None
-
-
-def _build_planner_messages(state: SQLAgentState) -> list[HumanMessage]:
-    """Build planner messages for the structured planning model."""
-    payload = {
-        "question": state.question,
-        "candidate_targets": _planner_candidate_targets(state),
-        "inspected_targets": [_compact_inspected_target(target) for target in state.inspected_targets],
-        "previous_sql": state.candidate_sql,
-        "previous_error": state.last_error,
-        "repair_hints": state.repair_hints,
-        "repair_count": state.repair_count,
-    }
-    return [
-        HumanMessage(
-            content=json.dumps(
-                payload,
-                ensure_ascii=True,
-                sort_keys=True,
-            ),
-        ),
-    ]
-
-
-def _planner_candidate_targets(state: SQLAgentState) -> list[dict[str, Any]]:
-    """Return planner candidate targets, preferring current-run targets when available."""
-    if not state.preferred_targets:
-        return state.suggestions
-
-    preferred_target_names = set(state.preferred_targets)
-    preferred_suggestions = [suggestion for suggestion in state.suggestions if suggestion.get("name") in preferred_target_names]
-    if preferred_suggestions:
-        return preferred_suggestions
-
-    inspected_candidates = []
-    for target in state.inspected_targets:
-        target_name = str(target.get("name", "")).strip()
-        if not target_name or target_name not in preferred_target_names:
-            continue
-
-        column_names = [str(column.get("name")) for column in target.get("columns", []) if column.get("name")]
-        source_paths = list(dict.fromkeys(str(mapping.get("source_path")) for mapping in target.get("source_mappings", []) if mapping.get("source_path")))
-        column_preview, columns_truncated = _preview_list(
-            column_names,
-            max_items=MAX_AGENT_ROW_COLUMNS,
-        )
-        source_path_preview, source_paths_truncated = _preview_list(
-            source_paths,
-            max_items=MAX_AGENT_SOURCE_MAPPING_PREVIEW,
-        )
-        inspected_candidates.append(
-            {
-                "name": target_name,
-                "type": target.get("type"),
-                "kind": target.get("kind"),
-                "score": 999,
-                "reasons": ["current run target"],
-                "column_count": len(column_names),
-                "column_preview": column_preview,
-                "columns_truncated": columns_truncated,
-                "source_path_count": len(source_paths),
-                "source_path_preview": source_path_preview,
-                "source_paths_truncated": source_paths_truncated,
-                "row_count": target.get("row_count"),
-                "summary": target.get("summary"),
-            }
-        )
-    if inspected_candidates:
-        return inspected_candidates
-
-    return [
-        {
-            "name": target_name,
-            "score": 999,
-            "reasons": ["current run target"],
-        }
-        for target_name in state.preferred_targets
-        if target_name
-    ]
-
-
-def suggest_node(state: SQLAgentState) -> dict[str, Any]:
-    """Suggest likely SQL targets for the question."""
-    suggestion_result = suggest_targets(
-        state.question,
-        database_path=state.database_path,
-        max_results=state.max_suggestions,
-    )
-    if suggestion_result["status"] != "ok":
-        return {
-            "status": "error",
-            "last_error": suggestion_result["message"],
-            "result": {
-                "status": suggestion_result.get("status"),
-                "error_type": suggestion_result.get("error_type"),
-                "message": suggestion_result.get("message"),
-                "database_path": suggestion_result.get("database_path"),
-            },
-            "trace": _append_trace(state, f"suggest failed: {suggestion_result['message']}"),
-        }
-
-    return {
-        "status": "suggested",
-        "suggestions": suggestion_result["suggestions"],
-        "trace": _append_trace(state, f"suggested {suggestion_result['suggestion_count']} targets"),
-    }
-
-
-def inspect_node(state: SQLAgentState) -> dict[str, Any]:
-    """Inspect the top suggested targets before planning SQL."""
-    inspected_targets: list[dict[str, Any]] = []
-    candidate_target_names = [
-        *[target_name for target_name in state.preferred_targets if target_name],
-        *[cast(str, suggestion["name"]) for suggestion in state.suggestions if suggestion.get("name")],
-    ]
-    seen_target_names: set[str] = set()
-    ordered_target_names: list[str] = []
-    for target_name in candidate_target_names:
-        if target_name in seen_target_names:
-            continue
-        seen_target_names.add(target_name)
-        ordered_target_names.append(target_name)
-
-    for target_name in ordered_target_names[:MAX_INSPECTED_TARGETS]:
-        description = describe_target(
-            target_name,
-            database_path=state.database_path,
-            sample_rows=state.sample_rows,
-            text_value_hints=state.text_value_hints,
-        )
-        if description["status"] == "ok":
-            inspected_targets.append(description)
-
-    if not inspected_targets:
-        return {
-            "status": "error",
-            "last_error": "No inspectable SQL targets were available.",
-            "trace": _append_trace(state, "inspect found no usable targets"),
-        }
-
-    return {
-        "status": "inspected",
-        "inspected_targets": inspected_targets,
-        "trace": _append_trace(state, f"inspected {len(inspected_targets)} targets"),
-    }
-
-
-def clarify_node(state: SQLAgentState) -> dict[str, Any]:
-    """Block execution when the question needs clarification."""
-    message = _needs_clarification(state.question) or "Question needs clarification before SQL planning."
-    return {
-        "status": "blocked",
-        "last_error": message,
-        "trace": _append_trace(state, "blocked for clarification"),
-    }
-
-
-def make_plan_node(planner: PlannerFn) -> Callable[[SQLAgentState], dict[str, Any]]:
-    """Create the planning node using the supplied planner function."""
-
-    def plan_node(state: SQLAgentState) -> dict[str, Any]:
-        """Run the planning node in the SQL agent graph."""
-        plan = planner(state)
-        selected_targets = plan.selected_targets or [cast(str, target["name"]) for target in state.inspected_targets]
-        if not plan.ready or not plan.sql:
-            return {
-                "status": "blocked",
-                "plan": plan,
-                "selected_targets": selected_targets,
-                "rationale": plan.rationale,
-                "last_error": plan.blocking_reason or "Planner could not produce a safe SQL query.",
-                "trace": _append_trace(state, "planner blocked execution"),
-            }
-
-        return {
-            "status": "planned",
-            "plan": plan,
-            "candidate_sql": plan.sql,
-            "selected_targets": selected_targets,
-            "rationale": plan.rationale,
-            "trace": _append_trace(state, f"planned SQL for {', '.join(selected_targets)}"),
-        }
-
-    return plan_node
-
-
-def execute_node(state: SQLAgentState) -> dict[str, Any]:
-    """Execute the planned SQL."""
-    if not state.candidate_sql:
-        return {
-            "status": "error",
-            "last_error": "No SQL query was available for execution.",
-            "trace": _append_trace(state, "execute skipped because no SQL was planned"),
-        }
-
-    result = run_query(
-        state.candidate_sql,
-        database_path=state.database_path,
-    )
-    attempts = state.attempts + 1
-    if result["status"] == "ok":
-        return {
-            "status": "complete",
-            "attempts": attempts,
-            "result": result,
-            "last_error": None,
-            "trace": _append_trace(state, f"execute succeeded on attempt {attempts}"),
-        }
-
-    repair_target_names = [cast(str, suggestion["name"]) for suggestion in state.suggestions if suggestion.get("name")]
-    repair_columns = {
-        cast(str, target["name"]): [cast(str, column["name"]) for column in target.get("columns", []) if column.get("name")]
-        for target in state.inspected_targets
-        if target.get("name")
-    }
-    error_message = cast(str, result["message"])
-    repair_hints = suggest_sql_error_repair(
-        error_message,
-        available_targets=repair_target_names,
-        target_columns=repair_columns,
-    )
-    trace_message = f"execute failed on attempt {attempts}: {error_message}"
-    if repair_hints:
-        trace_message += f" ({len(repair_hints)} repair hints)"
-    return {
-        "status": "needs_repair",
-        "attempts": attempts,
-        "repair_hints": repair_hints,
-        "result": result,
-        "last_error": error_message,
-        "trace": _append_trace(state, trace_message),
-    }
-
-
-def repair_node(state: SQLAgentState) -> dict[str, Any]:
-    """Mark a repair pass before planning again."""
-    return {
-        "status": "repairing",
-        "repair_count": state.repair_count + 1,
-        "trace": _append_trace(state, f"repair pass {state.repair_count + 1}"),
-    }
-
-
-def _route_after_suggest(state: SQLAgentState) -> str:
-    """Route after target suggestion."""
-    if state.status != "suggested":
-        return END
-    if _needs_clarification(state.question):
-        return "clarify"
-    return "inspect"
-
-
-def _route_after_inspect(state: SQLAgentState) -> str:
-    """Route after target inspection."""
-    return "plan" if state.status == "inspected" else END
-
-
-def _route_after_plan(state: SQLAgentState) -> str:
-    """Route after SQL planning."""
-    return "execute" if state.status == "planned" else END
-
-
-def _route_after_execute(state: SQLAgentState) -> str:
-    """Route after execution."""
-    if state.status == "complete":
-        return END
-    if state.status == "needs_repair" and state.repair_count < state.max_repairs:
-        return "repair"
-    return END
 
 
 class SQLAgent(ApplicationAgent):
@@ -522,7 +71,7 @@ class SQLAgent(ApplicationAgent):
 
         def planner(state: SQLAgentState) -> SQLPlan:
             """Plan the next SQL investigation step."""
-            result = planner_agent.invoke({"messages": _build_planner_messages(state)})
+            result = planner_agent.invoke({"messages": build_planner_messages(state)})
             return self.get_structured_response(
                 result,
                 SQLPlan,
@@ -548,7 +97,7 @@ class SQLAgent(ApplicationAgent):
         builder.add_edge(START, "suggest")
         builder.add_conditional_edges(
             "suggest",
-            _route_after_suggest,
+            route_after_suggest,
             {
                 "clarify": "clarify",
                 "inspect": "inspect",
@@ -558,7 +107,7 @@ class SQLAgent(ApplicationAgent):
         builder.add_edge("clarify", END)
         builder.add_conditional_edges(
             "inspect",
-            _route_after_inspect,
+            route_after_inspect,
             {
                 "plan": "plan",
                 END: END,
@@ -566,7 +115,7 @@ class SQLAgent(ApplicationAgent):
         )
         builder.add_conditional_edges(
             "plan",
-            _route_after_plan,
+            route_after_plan,
             {
                 "execute": "execute",
                 END: END,
@@ -574,7 +123,7 @@ class SQLAgent(ApplicationAgent):
         )
         builder.add_conditional_edges(
             "execute",
-            _route_after_execute,
+            route_after_execute,
             {
                 "repair": "repair",
                 END: END,
