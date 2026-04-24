@@ -3,17 +3,14 @@
 from __future__ import annotations
 
 import json
-import re
-from typing import Any, cast
+from typing import Any
 
-from langchain.messages import AIMessage, HumanMessage, SystemMessage
+from langchain.messages import HumanMessage
 from langchain_core.language_models import BaseChatModel
-from langchain_core.utils.json import parse_json_markdown
 from langgraph.graph import START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from ...clients.openai import ChatOpenAI
-from ..config import DEFAULT_AGENT_MODEL, DEFAULT_REASONING_EFFORT, get_agent_settings
+from ..base import ApplicationAgent
 from .state import ValidationInput, ValidationOutput, ValidationState
 
 VALIDATION_SYSTEM_PROMPT = """Review whether a SQL result appears to satisfy the user's task.
@@ -21,57 +18,66 @@ VALIDATION_SYSTEM_PROMPT = """Review whether a SQL result appears to satisfy the
 Rules:
 - Focus on task fulfillment, not stylistic SQL preferences.
 - Use the task, prepared targets, selected targets, SQL text, and SQL result payload.
-- If the result looks incomplete, wrong-grain, empty, or suspicious, set valid=false.
+- Prefer accepting useful, non-empty results that answer the main request even if they are not exhaustive.
+- For summary tasks, set valid=true when the result includes the requested main totals plus at least one meaningful breakdown or notable pattern.
+- Do not reject a result only because one breakdown label is blank, formatting is imperfect, or additional nice-to-have context could be added.
+- Set valid=false only when the result is empty, wrong-grain, unrelated to the task, missing the requested main metric, or obviously suspicious.
 - If another SQL attempt could plausibly fix it, set retryable=true and provide short concrete instructions.
 - Keep the feedback concise and directly actionable.
 """
 
 
-def _coerce_validation_output_from_raw(
-    raw_text: str,
-    parsing_error: BaseException | None,
-) -> ValidationOutput:
-    """Recover one validation output from raw model text when structured parsing fails."""
-    try:
-        return ValidationOutput.model_validate(parse_json_markdown(raw_text))
-    except Exception:
-        summary = raw_text or (str(parsing_error) if parsing_error is not None else "Validation model did not return a usable structured result.")
-        normalized_summary = summary.lower()
-        valid_match = re.search(r"\bvalid\b\s*[:=]\s*(true|false)", normalized_summary)
-        retryable_match = re.search(r"\bretryable\b\s*[:=]\s*(true|false)", normalized_summary)
+def _build_validation_messages(validation_input: ValidationInput) -> list[HumanMessage]:
+    """Build validator messages for structured output."""
+    prompt = json.dumps(
+        validation_input.model_dump(mode="json"),
+        ensure_ascii=True,
+        sort_keys=True,
+    )
+    return [HumanMessage(content=prompt)]
 
-        valid = valid_match.group(1) == "true" if valid_match else False
-        if retryable_match:
-            retryable = retryable_match.group(1) == "true"
-        elif valid:
-            retryable = False
-        else:
-            retryable = True
 
+def _deterministic_validation_failure(validation_input: ValidationInput) -> ValidationOutput | None:
+    """Reject SQL outputs that are invalid without needing model judgment."""
+    sql_result = validation_input.sql_result
+    if sql_result is None:
         return ValidationOutput(
-            valid=valid,
-            retryable=retryable,
-            summary=summary,
-            instructions=[summary] if summary and retryable else [],
+            valid=False,
+            retryable=True,
+            summary="SQL execution did not return a result payload.",
+            instructions=["Produce a non-empty SQL result before validation."],
         )
 
+    if sql_result.get("status") != "ok":
+        summary = str(sql_result.get("message") or sql_result.get("summary") or "SQL execution failed.")
+        return ValidationOutput(
+            valid=False,
+            retryable=True,
+            summary=summary,
+            instructions=[summary],
+        )
 
-class ValidationAgent:
+    row_count = int(sql_result.get("row_count", 0) or 0)
+    if row_count <= 0:
+        return ValidationOutput(
+            valid=False,
+            retryable=True,
+            summary="SQL returned no rows.",
+            instructions=["Adjust the query so it returns rows that answer the task."],
+        )
+
+    return None
+
+
+class ValidationAgent(ApplicationAgent):
     """Run one lightweight validation pass over a SQL result."""
 
     def __init__(self, *, llm: BaseChatModel | None = None):
-        if llm is None:
-            settings = get_agent_settings()
-            resolved_model = settings.fast_llm or settings.quality_llm or DEFAULT_AGENT_MODEL
-            llm = ChatOpenAI(
-                model=resolved_model,
-                temperature=0,
-                reasoning_effort=DEFAULT_REASONING_EFFORT,
-            )
-        self.llm = llm
-        self.validator = self.llm.with_structured_output(
+        super().__init__(llm=llm)
+        self.validator = self.build_structured_agent(
             ValidationOutput,
-            method="function_calling",
+            system_prompt=VALIDATION_SYSTEM_PROMPT,
+            name="validation_agent_decision",
         )
         self.graph = self.build_graph()
 
@@ -88,20 +94,17 @@ class ValidationAgent:
 
     def validate_node(self, state: ValidationState) -> dict[str, Any]:
         """Run the structured validation model for one graph invocation."""
-        prompt = json.dumps(
-            ValidationInput.model_validate(state).model_dump(mode="json"),
-            ensure_ascii=True,
-            sort_keys=True,
+        validation_input = ValidationInput.model_validate(state)
+        deterministic_failure = _deterministic_validation_failure(validation_input)
+        if deterministic_failure is not None:
+            return deterministic_failure.model_dump(mode="json")
+
+        result = self.validator.invoke({"messages": _build_validation_messages(validation_input)})
+        output: ValidationOutput = self.get_structured_response(
+            result,
+            ValidationOutput,
+            agent_name="validation_agent_decision",
         )
-        messages = [
-            SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
-            HumanMessage(content=prompt),
-        ]
-        try:
-            output = cast(ValidationOutput, self.validator.invoke(messages))
-        except Exception as exc:
-            raw_message = cast(AIMessage, self.llm.invoke(messages))
-            output = _coerce_validation_output_from_raw(str(raw_message.text).strip(), exc)
         return output.model_dump(mode="json")
 
     def invoke(

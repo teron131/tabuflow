@@ -8,15 +8,14 @@ from pathlib import Path
 import re
 from typing import Any, cast
 
-from langchain.messages import HumanMessage, SystemMessage
+from langchain.messages import HumanMessage
 from langchain_core.language_models import BaseChatModel
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from ...clients.openai import ChatOpenAI
 from ...tools.sql.query import describe_target, run_query, suggest_sql_error_repair, suggest_targets
-from ...utils import write_langgraph_artifacts
-from ..config import DEFAULT_AGENT_MODEL, DEFAULT_REASONING_EFFORT, get_agent_settings
+from ..base import ApplicationAgent
+from ..config import DEFAULT_REASONING_EFFORT
 from .prompts import SQL_PLANNER_SYSTEM_PROMPT
 from .state import (
     PlannerFn,
@@ -60,26 +59,6 @@ _QUESTION_STOP_WORDS = {
     "with",
 }
 _VAGUE_QUESTION_TOKENS = {"doing", "everything", "numbers", "overall", "overview", "performance", "stats", "status", "summary"}
-
-
-def _blocked_sql_plan(
-    state: SQLAgentState,
-    error: BaseException | None,
-) -> SQLPlan:
-    """Return a blocked SQL plan when structured planning fails."""
-    selected_targets = []
-    for target in state.inspected_targets:
-        if not target.get("name"):
-            continue
-        selected_targets.append(cast(str, target["name"]))
-
-    blocking_reason = str(error) if error is not None else "Planner did not return a usable structured SQL plan."
-    return SQLPlan(
-        ready=False,
-        selected_targets=selected_targets,
-        rationale="Planner did not return a valid structured plan.",
-        blocking_reason=blocking_reason,
-    )
 
 
 def _append_trace(
@@ -236,11 +215,11 @@ def _needs_clarification(question: str) -> str | None:
     return None
 
 
-def _build_planner_messages(state: SQLAgentState) -> list[SystemMessage | HumanMessage]:
+def _build_planner_messages(state: SQLAgentState) -> list[HumanMessage]:
     """Build planner messages for the structured planning model."""
     payload = {
         "question": state.question,
-        "candidate_targets": state.suggestions,
+        "candidate_targets": _planner_candidate_targets(state),
         "inspected_targets": [_compact_inspected_target(target) for target in state.inspected_targets],
         "previous_sql": state.candidate_sql,
         "previous_error": state.last_error,
@@ -248,7 +227,6 @@ def _build_planner_messages(state: SQLAgentState) -> list[SystemMessage | HumanM
         "repair_count": state.repair_count,
     }
     return [
-        SystemMessage(content=SQL_PLANNER_SYSTEM_PROMPT),
         HumanMessage(
             content=json.dumps(
                 payload,
@@ -256,6 +234,63 @@ def _build_planner_messages(state: SQLAgentState) -> list[SystemMessage | HumanM
                 sort_keys=True,
             ),
         ),
+    ]
+
+
+def _planner_candidate_targets(state: SQLAgentState) -> list[dict[str, Any]]:
+    """Return planner candidate targets, preferring current-run targets when available."""
+    if not state.preferred_targets:
+        return state.suggestions
+
+    preferred_target_names = set(state.preferred_targets)
+    preferred_suggestions = [suggestion for suggestion in state.suggestions if suggestion.get("name") in preferred_target_names]
+    if preferred_suggestions:
+        return preferred_suggestions
+
+    inspected_candidates = []
+    for target in state.inspected_targets:
+        target_name = str(target.get("name", "")).strip()
+        if not target_name or target_name not in preferred_target_names:
+            continue
+
+        column_names = [str(column.get("name")) for column in target.get("columns", []) if column.get("name")]
+        source_paths = list(dict.fromkeys(str(mapping.get("source_path")) for mapping in target.get("source_mappings", []) if mapping.get("source_path")))
+        column_preview, columns_truncated = _preview_list(
+            column_names,
+            max_items=MAX_AGENT_ROW_COLUMNS,
+        )
+        source_path_preview, source_paths_truncated = _preview_list(
+            source_paths,
+            max_items=MAX_AGENT_SOURCE_MAPPING_PREVIEW,
+        )
+        inspected_candidates.append(
+            {
+                "name": target_name,
+                "type": target.get("type"),
+                "kind": target.get("kind"),
+                "score": 999,
+                "reasons": ["current run target"],
+                "column_count": len(column_names),
+                "column_preview": column_preview,
+                "columns_truncated": columns_truncated,
+                "source_path_count": len(source_paths),
+                "source_path_preview": source_path_preview,
+                "source_paths_truncated": source_paths_truncated,
+                "row_count": target.get("row_count"),
+                "summary": target.get("summary"),
+            }
+        )
+    if inspected_candidates:
+        return inspected_candidates
+
+    return [
+        {
+            "name": target_name,
+            "score": 999,
+            "reasons": ["current run target"],
+        }
+        for target_name in state.preferred_targets
+        if target_name
     ]
 
 
@@ -289,9 +324,21 @@ def suggest_node(state: SQLAgentState) -> dict[str, Any]:
 def inspect_node(state: SQLAgentState) -> dict[str, Any]:
     """Inspect the top suggested targets before planning SQL."""
     inspected_targets: list[dict[str, Any]] = []
-    for suggestion in state.suggestions[:MAX_INSPECTED_TARGETS]:
+    candidate_target_names = [
+        *[target_name for target_name in state.preferred_targets if target_name],
+        *[cast(str, suggestion["name"]) for suggestion in state.suggestions if suggestion.get("name")],
+    ]
+    seen_target_names: set[str] = set()
+    ordered_target_names: list[str] = []
+    for target_name in candidate_target_names:
+        if target_name in seen_target_names:
+            continue
+        seen_target_names.add(target_name)
+        ordered_target_names.append(target_name)
+
+    for target_name in ordered_target_names[:MAX_INSPECTED_TARGETS]:
         description = describe_target(
-            cast(str, suggestion["name"]),
+            target_name,
             database_path=state.database_path,
             sample_rows=state.sample_rows,
             text_value_hints=state.text_value_hints,
@@ -437,8 +484,10 @@ def _route_after_execute(state: SQLAgentState) -> str:
     return END
 
 
-class SQLAgent:
+class SQLAgent(ApplicationAgent):
     """Minimal LangGraph SQL agent that orchestrates the standalone SQL tools."""
+
+    default_model_order = ("fast_llm", "main_llm", "quality_llm")
 
     def __init__(
         self,
@@ -450,50 +499,35 @@ class SQLAgent:
         reasoning_effort: str = DEFAULT_REASONING_EFFORT,
     ):
         """Initialize the SQL agent with the available tool set."""
-        self.planner = planner or self.build_planner(
+        super().__init__(
             llm=llm,
             model=model,
             temperature=temperature,
             reasoning_effort=reasoning_effort,
         )
+        self.planner = planner or self.build_planner()
         self.graph = self.build_graph()
-        self.graph_artifacts = write_langgraph_artifacts(
+        self.graph_artifacts = self.write_graph_artifacts(
             self.graph,
             filename_stem="sql-agent-graph",
         )
 
-    def build_planner(
-        self,
-        *,
-        llm: BaseChatModel | None = None,
-        model: str | None = None,
-        temperature: float = 0,
-        reasoning_effort: str = DEFAULT_REASONING_EFFORT,
-    ) -> PlannerFn:
+    def build_planner(self) -> PlannerFn:
         """Build the structured SQL planner used by this agent."""
-        if llm is None:
-            settings = get_agent_settings()
-            resolved_model = model or settings.fast_llm or DEFAULT_AGENT_MODEL
-            llm = ChatOpenAI(
-                model=resolved_model,
-                temperature=temperature,
-                reasoning_effort=reasoning_effort,
-            )
-        planner_model = llm.with_structured_output(
+        planner_agent = self.build_structured_agent(
             SQLPlan,
-            method="function_calling",
+            system_prompt=SQL_PLANNER_SYSTEM_PROMPT,
+            name="sql_planner",
         )
 
         def planner(state: SQLAgentState) -> SQLPlan:
             """Plan the next SQL investigation step."""
-            planner_messages = _build_planner_messages(state)
-            try:
-                return cast(SQLPlan, planner_model.invoke(planner_messages))
-            except Exception as exc:
-                return _blocked_sql_plan(
-                    state,
-                    exc,
-                )
+            result = planner_agent.invoke({"messages": _build_planner_messages(state)})
+            return self.get_structured_response(
+                result,
+                SQLPlan,
+                agent_name="sql_planner",
+            )
 
         return planner
 
@@ -554,6 +588,7 @@ class SQLAgent:
         question: str,
         *,
         database_path: str | Path | None = None,
+        preferred_targets: list[str] | None = None,
         max_suggestions: int = 3,
         max_repairs: int = 2,
         sample_rows: int = 3,
@@ -564,6 +599,7 @@ class SQLAgent:
             SQLAgentInput(
                 question=question,
                 database_path=(None if database_path is None else str(Path(database_path).expanduser().resolve())),
+                preferred_targets=preferred_targets or [],
                 max_suggestions=max_suggestions,
                 max_repairs=max_repairs,
                 sample_rows=sample_rows,
@@ -580,6 +616,7 @@ def answer_sql_question(
     llm: BaseChatModel | None = None,
     model: str | None = None,
     database_path: str | Path | None = None,
+    preferred_targets: list[str] | None = None,
     max_suggestions: int = 3,
     max_repairs: int = 2,
     sample_rows: int = 3,
@@ -594,6 +631,7 @@ def answer_sql_question(
     return agent.invoke(
         question,
         database_path=database_path,
+        preferred_targets=preferred_targets,
         max_suggestions=max_suggestions,
         max_repairs=max_repairs,
         sample_rows=sample_rows,

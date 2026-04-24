@@ -104,6 +104,16 @@ class SqlLoopResult:
     validated: bool = False
 
 
+@dataclass
+class WorkflowExecutionResult:
+    """Normalized result returned by direct and tool-backed workflow execution."""
+
+    content: str
+    artifact: dict[str, Any]
+    agent_artifacts: dict[str, dict[str, Any]]
+    active_agent: str | None
+
+
 def list_skills_context(*, path: str = SKILLS_PATH) -> dict[str, Any]:
     """Return the raw workspace-skills listing payload."""
     return list_skills.invoke({"path": path})
@@ -300,6 +310,19 @@ def _append_trace(trace: list[str], message: str) -> list[str]:
     return [*trace, message][-12:]
 
 
+def _preferred_sql_targets(extracted_targets: list[dict[str, Any]]) -> list[str]:
+    """Return current-run SQL targets in the order they should be inspected."""
+    preferred_targets: list[str] = []
+    for target in extracted_targets:
+        typed_view_name = str(target.get("typed_view_name", "")).strip()
+        table_name = str(target.get("table_name", "")).strip()
+        if typed_view_name:
+            preferred_targets.append(typed_view_name)
+        if table_name:
+            preferred_targets.append(table_name)
+    return list(dict.fromkeys(preferred_targets))
+
+
 def _agent_command(
     *,
     tool_name: str,
@@ -352,6 +375,7 @@ def _run_sql_validation_loop(
         sql_output = sql_agent.invoke(
             sql_prompt,
             database_path=run.database_path,
+            preferred_targets=_preferred_sql_targets(run.extracted_targets),
         )
         loop.output = sql_output
         run.append_trace(*sql_output.trace)
@@ -499,6 +523,101 @@ def _build_sql_failure_result(
     )
 
 
+def execute_workflow(
+    *,
+    task: str,
+    source_files: list[str],
+    max_prep_trials: int = 2,
+    max_validation_retries: int = 2,
+    prompt: str = "",
+    root_dir: str | Path | None = None,
+    llm: Any | None = None,
+    prep_agent: PrepAgent | None = None,
+    sql_agent: SQLAgent | None = None,
+    validation_agent: ValidationAgent | None = None,
+) -> WorkflowExecutionResult:
+    """Run the full workflow once and return its normalized result."""
+    resolved_prep_agent = prep_agent or PrepAgent(
+        llm=llm,
+        prompt=prompt,
+        root_dir=root_dir,
+    )
+    resolved_sql_agent = sql_agent or (SQLAgent(llm=llm) if llm is not None else SQLAgent())
+    resolved_validation_agent = validation_agent or (ValidationAgent(llm=llm) if llm is not None else ValidationAgent())
+
+    run = WorkflowRun(
+        task=task,
+        source_files=source_files,
+        skill_payload=_build_worker_skill_payload(task),
+    )
+    agent_artifacts: dict[str, dict[str, Any]] = {}
+    prep_output = resolved_prep_agent.invoke(
+        run.task,
+        source_files=run.source_files,
+        worker_instructions=run.skill_payload.worker_instructions,
+        skill_refs=run.skill_payload.skill_refs,
+        max_prep_trials=max_prep_trials,
+    )
+    agent_artifacts[PREP_AGENT_NAME] = prep_output.model_dump(mode="json")
+    run.database_path = prep_output.database_path
+    run.extracted_targets = prep_output.extracted_targets
+    run.append_trace(*prep_output.trace)
+
+    if prep_output.status != "prepared":
+        content, artifact = run.result(
+            status="error",
+            outcome="failed",
+            completion_reason="prep_failed",
+            selected_targets=[],
+            candidate_sql=None,
+            sql_result=None,
+            saved_view_name=None,
+            saved_view=None,
+            last_error=prep_output.last_error or "Preparation failed.",
+            validation_feedback=None,
+            validation_attempts=0,
+        )
+        return WorkflowExecutionResult(
+            content=content,
+            artifact=artifact,
+            agent_artifacts=agent_artifacts,
+            active_agent=PREP_AGENT_NAME,
+        )
+
+    loop = _run_sql_validation_loop(
+        run,
+        prompt=prompt,
+        sql_agent=resolved_sql_agent,
+        validation_agent=resolved_validation_agent,
+        max_validation_retries=max_validation_retries,
+    )
+    if loop.output is not None:
+        agent_artifacts[SQL_AGENT_NAME] = loop.output.model_dump(mode="json")
+    if loop.validation_output is not None:
+        agent_artifacts[VALIDATION_AGENT_NAME] = loop.validation_output.model_dump(mode="json")
+
+    if loop.validated and loop.output is not None:
+        content, artifact = _save_validated_result(
+            run,
+            sql_output=loop.output,
+            validation_attempts=loop.validation_attempts,
+        )
+        return WorkflowExecutionResult(
+            content=content,
+            artifact=artifact,
+            agent_artifacts=agent_artifacts,
+            active_agent=None,
+        )
+
+    content, artifact = _build_sql_failure_result(run, loop=loop)
+    return WorkflowExecutionResult(
+        content=content,
+        artifact=artifact,
+        agent_artifacts=agent_artifacts,
+        active_agent=(VALIDATION_AGENT_NAME if loop.validation_output is not None else SQL_AGENT_NAME),
+    )
+
+
 def make_orchestrator_tools(
     *,
     prompt: str = "",
@@ -584,86 +703,26 @@ def make_orchestrator_tools(
             max_prep_trials: Maximum number of prep-agent retries before stopping.
             max_validation_retries: Maximum number of validator-requested SQL retries.
         """
-        if llm is None:
-            raise ValueError("run_workflow requires an orchestrator LLM for validation.")
-
-        run = WorkflowRun(
+        workflow_result = execute_workflow(
             task=task,
             source_files=source_files,
-            skill_payload=_build_worker_skill_payload(task),
-        )
-        agent_artifacts: dict[str, dict[str, Any]] = {}
-        prep_output = get_prep_agent().invoke(
-            run.task,
-            source_files=run.source_files,
-            worker_instructions=run.skill_payload.worker_instructions,
-            skill_refs=run.skill_payload.skill_refs,
             max_prep_trials=max_prep_trials,
-        )
-        agent_artifacts[PREP_AGENT_NAME] = prep_output.model_dump(mode="json")
-        run.database_path = prep_output.database_path
-        run.extracted_targets = prep_output.extracted_targets
-        run.append_trace(*prep_output.trace)
-
-        if prep_output.status != "prepared":
-            content, artifact = run.result(
-                status="error",
-                outcome="failed",
-                completion_reason="prep_failed",
-                selected_targets=[],
-                candidate_sql=None,
-                sql_result=None,
-                saved_view_name=None,
-                saved_view=None,
-                last_error=prep_output.last_error or "Preparation failed.",
-                validation_feedback=None,
-                validation_attempts=0,
-            )
-            return _agent_command(
-                tool_name="run_workflow",
-                tool_call_id=tool_call_id,
-                content=content,
-                latest_artifact=artifact,
-                active_agent=PREP_AGENT_NAME,
-                workflow_artifact=artifact,
-                agent_artifacts=agent_artifacts,
-            )
-        loop = _run_sql_validation_loop(
-            run,
+            max_validation_retries=max_validation_retries,
             prompt=prompt,
+            root_dir=root_dir,
+            llm=llm,
+            prep_agent=get_prep_agent(),
             sql_agent=get_sql_agent(),
             validation_agent=get_validation_agent(),
-            max_validation_retries=max_validation_retries,
         )
-        if loop.output is not None:
-            agent_artifacts[SQL_AGENT_NAME] = loop.output.model_dump(mode="json")
-        if loop.validation_output is not None:
-            agent_artifacts[VALIDATION_AGENT_NAME] = loop.validation_output.model_dump(mode="json")
-
-        if loop.validated and loop.output is not None:
-            content, artifact = _save_validated_result(
-                run,
-                sql_output=loop.output,
-                validation_attempts=loop.validation_attempts,
-            )
-            return _agent_command(
-                tool_name="run_workflow",
-                tool_call_id=tool_call_id,
-                content=content,
-                latest_artifact=artifact,
-                active_agent=None,
-                workflow_artifact=artifact,
-                agent_artifacts=agent_artifacts,
-            )
-        content, artifact = _build_sql_failure_result(run, loop=loop)
         return _agent_command(
             tool_name="run_workflow",
             tool_call_id=tool_call_id,
-            content=content,
-            latest_artifact=artifact,
-            active_agent=(VALIDATION_AGENT_NAME if loop.validation_output is not None else SQL_AGENT_NAME),
-            workflow_artifact=artifact,
-            agent_artifacts=agent_artifacts,
+            content=workflow_result.content,
+            latest_artifact=workflow_result.artifact,
+            active_agent=workflow_result.active_agent,
+            workflow_artifact=workflow_result.artifact,
+            agent_artifacts=workflow_result.agent_artifacts,
         )
 
     return [

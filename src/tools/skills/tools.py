@@ -20,7 +20,7 @@ DEFAULT_MAX_FILES = 20
 DEFAULT_MAX_TOKENS = 50_000
 CHARS_PER_TOKEN_RATIO = 4
 DEFAULT_MAX_CHARS_PER_FILE = DEFAULT_MAX_TOKENS * CHARS_PER_TOKEN_RATIO
-DEFAULT_SEARCH_SKILLS_MODEL = "openai/text-embedding-3-small"
+DEFAULT_SEARCH_SKILLS_MODEL = "text-embedding-3-small"
 DEFAULT_SKILLS_TOP_K = 5
 DEFAULT_SKILLS_SCORE_THRESHOLD = 0.2
 IGNORED_DIR_NAMES = {
@@ -103,6 +103,11 @@ class SkillsSearchIndex:
 
 
 _SEARCH_SKILLS_CACHE: dict[tuple[str, str], SkillsSearchIndex] = {}
+
+
+def _search_tokens(text: str) -> set[str]:
+    """Return normalized lexical tokens used by the skills fallback search."""
+    return {token for token in re.findall(r"[a-z0-9]+", text.lower()) if len(token) >= 2}
 
 
 def _resolve_search_path(
@@ -443,6 +448,47 @@ def _cosine_similarity(left: list[float], right: list[float]) -> float:
     return dot_product / (left_norm * right_norm)
 
 
+def _lexical_search_results(
+    *,
+    skills_files: list[SkillsFile],
+    query: str,
+    top_k: int,
+    score_threshold: float,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Return lexical skills matches when embedding search is unavailable."""
+    diagnostics: list[str] = []
+    query_tokens = _search_tokens(query)
+    if not query_tokens:
+        return [], diagnostics
+
+    scored_results: list[dict[str, Any]] = []
+    for skills_file in skills_files:
+        searchable_entry, error_message = _searchable_skills_entry(skills_file)
+        if searchable_entry is None:
+            if error_message is not None:
+                diagnostics.append(error_message)
+            continue
+
+        payload, search_text = searchable_entry
+        text_tokens = _search_tokens(search_text)
+        if not text_tokens:
+            continue
+
+        shared_tokens = query_tokens & text_tokens
+        score = len(shared_tokens) / len(query_tokens)
+        if score < score_threshold:
+            continue
+        scored_results.append(
+            {
+                **payload,
+                "score": round(score, 6),
+            }
+        )
+
+    scored_results.sort(key=lambda skill: (-float(skill["score"]), str(skill["name"])))
+    return scored_results[: max(0, top_k)], diagnostics
+
+
 def _build_search_skills_index(
     *,
     skills_files: list[SkillsFile],
@@ -541,11 +587,20 @@ def search_skills(
         )
         query_embedding = [float(value) for value in embeddings.embed_query(query)]
     except Exception as exc:
-        return {
-            "status": "error",
-            "skills": [],
-            "diagnostics": [str(exc)],
-        }
+        lexical_skills, diagnostics = _lexical_search_results(
+            skills_files=skills_files,
+            query=query,
+            top_k=top_k,
+            score_threshold=score_threshold,
+        )
+        result = _result_payload(
+            lexical_skills,
+            [f"Embedding search unavailable: {exc}", "Used lexical fallback search.", *diagnostics],
+        )
+        result["search_mode"] = "lexical"
+        result["model"] = model
+        result["score_threshold"] = score_threshold
+        return result
 
     bounded_top_k = max(0, top_k)
     scored_skills = []

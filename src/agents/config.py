@@ -7,7 +7,7 @@ from functools import lru_cache
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DEFAULT_AGENT_MODEL = "openai/gpt-5.4-nano"
+DEFAULT_AGENT_MODEL = "gpt-5.4-nano"
 DEFAULT_REASONING_EFFORT = "high"
 
 

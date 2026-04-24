@@ -9,17 +9,17 @@ from langchain.agents import create_agent
 from langchain.messages import AIMessage, AnyMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 
-from ...clients.openai import ChatOpenAI
-from ...utils import write_langgraph_artifacts
-from ..config import DEFAULT_AGENT_MODEL, DEFAULT_REASONING_EFFORT, get_agent_settings
+from ..base import ApplicationAgent
 from .middleware import SkillsContextMiddleware
 from .prompts import build_system_prompt
 from .state import OrchestratorState
 from .tools import make_orchestrator_tools
 
 
-class Orchestrator:
+class Orchestrator(ApplicationAgent):
     """Top-level chatbot orchestrator built as a LangGraph agent runtime."""
+
+    default_model_order = ("main_llm", "fast_llm", "quality_llm")
 
     def __init__(
         self,
@@ -27,17 +27,11 @@ class Orchestrator:
         prompt: str = "",
         root_dir: str | Path | None = None,
     ):
+        super().__init__()
         self.prompt = prompt
         self.root_dir = root_dir
-        settings = get_agent_settings()
-        self.model = settings.main_llm or settings.fast_llm or DEFAULT_AGENT_MODEL
-        self.llm = ChatOpenAI(
-            model=self.model,
-            temperature=0,
-            reasoning_effort=DEFAULT_REASONING_EFFORT,
-        )
         self.graph = self.build_graph()
-        self.graph_artifacts = write_langgraph_artifacts(
+        self.graph_artifacts = self.write_graph_artifacts(
             self.graph,
             filename_stem="orchestrator-graph",
         )

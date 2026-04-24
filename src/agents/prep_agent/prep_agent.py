@@ -13,9 +13,8 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
-from ...clients.openai import ChatOpenAI
 from ...tools.tabular import make_tabular_tools
-from ..config import DEFAULT_AGENT_MODEL, DEFAULT_REASONING_EFFORT, get_agent_settings
+from ..base import ApplicationAgent
 from .payloads import collect_extracted_targets
 from .prompts import PREP_AGENT_SYSTEM_PROMPT, build_prep_request, parse_tool_content
 from .state import PrepAgentDecision
@@ -51,7 +50,7 @@ class PrepTrialResult:
     trace: list[str]
 
 
-class PrepAgent:
+class PrepAgent(ApplicationAgent):
     """Use prep tools iteratively to decide the final extraction shape."""
 
     def __init__(
@@ -61,17 +60,9 @@ class PrepAgent:
         prompt: str = "",
         root_dir: str | Path | None = None,
     ):
+        super().__init__(llm=llm)
         self.prompt = prompt
         self.root_dir = root_dir
-        if llm is None:
-            settings = get_agent_settings()
-            resolved_model = settings.fast_llm or settings.quality_llm or DEFAULT_AGENT_MODEL
-            llm = ChatOpenAI(
-                model=resolved_model,
-                temperature=0,
-                reasoning_effort=DEFAULT_REASONING_EFFORT,
-            )
-        self.llm = llm
         self.graph = self.build_graph()
 
     def build_graph(self) -> CompiledStateGraph:
