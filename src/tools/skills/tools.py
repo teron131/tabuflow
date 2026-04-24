@@ -62,6 +62,7 @@ class SkillsReference:
 
     path: str
     relative_path: str
+    kind: str
     content: str
 
 
@@ -304,6 +305,7 @@ def _load_reference_group(
         SkillsReference(
             path=str(path),
             relative_path=str(path.relative_to(root_dir)),
+            kind="sql" if path.suffix.lower() == ".sql" else "text",
             content=_read_text_file(
                 path,
                 max_chars=max_chars_per_file,

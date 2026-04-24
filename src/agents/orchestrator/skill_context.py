@@ -11,6 +11,8 @@ from ...tools import list_skills, load_skills, search_skills
 
 SKILLS_PATH = "skills"
 MAX_SKILL_REF_PREVIEW = 8
+MAX_SQL_REFERENCE_PREVIEW = 4
+MAX_SQL_REFERENCE_CHARS = 12_000
 
 
 @dataclass
@@ -49,11 +51,11 @@ def search_skills_context(
 def format_skills_overview(result: dict[str, Any]) -> str:
     """Render a deterministic system-prompt section for available skills."""
     if result.get("status") == "error":
-        return "Workspace skills available under `skills`:\n- unavailable"
+        return "Situational workspace skills available under `skills`:\n- unavailable"
 
     diagnostics = [str(item) for item in result.get("diagnostics", [])]
     skills = list(result.get("skills", []))
-    lines = ["Workspace skills available under `skills`:"]
+    lines = ["Situational workspace skills available under `skills`:"]
     if skills:
         for skill in skills:
             skill_name = skill.get("name", "unknown")
@@ -145,14 +147,55 @@ def summarize_skill_refs(skill_refs: list[dict[str, Any]]) -> str:
         skill_name = str(skill_ref.get("name", "unknown"))
         instructions = skill_ref.get("instructions") or {}
         instruction_path = str(instructions.get("relative_path") or skill_ref.get("path") or "")
-        reference_count = len(skill_ref.get("references", [])) if isinstance(skill_ref.get("references"), list) else 0
+        references = skill_ref.get("references", [])
+        reference_count = len(references) if isinstance(references, list) else 0
+        sql_reference_count = sum(1 for reference in references if str(reference.get("relative_path", "")).lower().endswith(".sql")) if isinstance(references, list) else 0
         script_count = len(skill_ref.get("scripts", [])) if isinstance(skill_ref.get("scripts"), list) else 0
         summary_parts = [instruction_path] if instruction_path else []
         if reference_count:
             summary_parts.append(f"{reference_count} refs")
+        if sql_reference_count:
+            summary_parts.append(f"{sql_reference_count} sql refs")
         if script_count:
             summary_parts.append(f"{script_count} scripts")
         lines.append(f"- {skill_name}: {', '.join(summary_parts) if summary_parts else 'loaded'}")
     if len(skill_refs) > MAX_SKILL_REF_PREVIEW:
         lines.append(f"- ... (+{len(skill_refs) - MAX_SKILL_REF_PREVIEW} more)")
     return "\n".join(lines)
+
+
+def format_skill_sql_references(skill_refs: list[dict[str, Any]]) -> str:
+    """Render loaded SQL reference files for SQL planning context."""
+    reference_sections: list[str] = []
+    for skill_ref in skill_refs:
+        skill_name = str(skill_ref.get("name", "unknown"))
+        references = skill_ref.get("references", [])
+        if not isinstance(references, list):
+            continue
+
+        for reference in references:
+            relative_path = str(reference.get("relative_path", ""))
+            reference_kind = str(reference.get("kind", ""))
+            if reference_kind != "sql" and not relative_path.lower().endswith(".sql"):
+                continue
+
+            content = str(reference.get("content", "")).strip()
+            if not content:
+                continue
+            if len(content) > MAX_SQL_REFERENCE_CHARS:
+                content = content[:MAX_SQL_REFERENCE_CHARS].rstrip() + "\n-- truncated"
+
+            reference_sections.append(
+                "\n".join(
+                    [
+                        f"SQL reference from skill `{skill_name}` ({relative_path}):",
+                        "```sql",
+                        content,
+                        "```",
+                    ]
+                )
+            )
+            if len(reference_sections) >= MAX_SQL_REFERENCE_PREVIEW:
+                return "\n\n".join(reference_sections)
+
+    return "\n\n".join(reference_sections)

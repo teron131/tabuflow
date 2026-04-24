@@ -14,7 +14,7 @@ from .skill_context import (
     search_skills_context,
 )
 
-SKILLS_CONTEXT_HINT = "Load a workspace skill only when its detailed instructions are needed."
+SKILLS_CONTEXT_HINT = "Load a situational workspace skill only when this use case needs its detailed instructions or references."
 
 
 def _latest_user_text(messages: list[object]) -> str | None:
@@ -55,7 +55,7 @@ class SkillsContextMiddleware(AgentMiddleware):
                     "type": "text",
                     "text": "\n".join(
                         [
-                            "Relevant workspace skills for the latest user request:",
+                            "Situational workspace skills matching the latest user request:",
                             skill_matches,
                             SKILLS_CONTEXT_HINT,
                         ]

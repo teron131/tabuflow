@@ -105,6 +105,12 @@ def _compact_skill_refs(skill_refs: list[dict[str, Any]]) -> dict[str, Any]:
                 "name": skill_ref.get("name"),
                 "path": skill_ref.get("path"),
                 "instructions_path": (skill_ref.get("instructions") or {}).get("relative_path"),
+                "reference_count": len(skill_ref.get("references", [])) if isinstance(skill_ref.get("references"), list) else 0,
+                "sql_reference_count": (
+                    sum(1 for reference in skill_ref.get("references", []) if str(reference.get("kind", "")).lower() == "sql")
+                    if isinstance(skill_ref.get("references"), list)
+                    else 0
+                ),
             }
             for skill_ref in preview_refs
         ],

@@ -17,7 +17,7 @@ from ..prep_agent import PrepAgent
 from ..sql_agent import SQLAgent, SQLAgentOutput
 from ..validation_agent import ValidationAgent, ValidationOutput
 from .payloads import build_result_artifact, build_result_message
-from .skill_context import WorkerSkillPayload, build_worker_skill_payload, summarize_skill_refs
+from .skill_context import WorkerSkillPayload, build_worker_skill_payload, format_skill_sql_references, summarize_skill_refs
 
 DEFAULT_VIEW_NAME = "analysis_result"
 MAX_VIEW_TASK_SLUG_CHARS = 48
@@ -145,6 +145,8 @@ def _build_sql_worker_context(
         parts.append(worker_instructions.strip())
     if skill_ref_summary := summarize_skill_refs(skill_refs):
         parts.append(skill_ref_summary)
+    if sql_references := format_skill_sql_references(skill_refs):
+        parts.append(sql_references)
     return "\n\n".join(parts)
 
 
