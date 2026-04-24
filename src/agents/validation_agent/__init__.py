@@ -1,7 +1,7 @@
 """Simple structured-output validation agent package."""
 
-from .state import ValidationInput, ValidationOutput, ValidationState
 from .prompts import VALIDATION_SYSTEM_PROMPT
+from .state import ValidationInput, ValidationOutput
 from .validation import ValidationAgent
 
 __all__ = [
@@ -9,5 +9,4 @@ __all__ = [
     "ValidationAgent",
     "ValidationInput",
     "ValidationOutput",
-    "ValidationState",
 ]

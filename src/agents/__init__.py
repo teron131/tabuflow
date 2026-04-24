@@ -5,7 +5,7 @@ from .config import AgentSettings, get_agent_settings
 from .orchestrator import Orchestrator
 from .prep_agent import PrepAgent, PrepTaskOutput
 from .sql_agent import SQLAgent, SQLAgentInput, SQLAgentOutput, SQLAgentState, answer_sql_question
-from .validation_agent import ValidationAgent, ValidationInput, ValidationOutput, ValidationState
+from .validation_agent import ValidationAgent, ValidationInput, ValidationOutput
 
 __all__ = [
     "AgentSettings",
@@ -20,7 +20,6 @@ __all__ = [
     "ValidationAgent",
     "ValidationInput",
     "ValidationOutput",
-    "ValidationState",
     "answer_sql_question",
     "get_agent_settings",
 ]

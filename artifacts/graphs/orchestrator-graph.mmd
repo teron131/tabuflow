@@ -3,11 +3,30 @@ config:
   flowchart:
     curve: linear
 ---
-graph LR;
-	model(model)
-	tools(tools)
-	model --> tools;
-	tools --> model;
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	skill_context(skill_context)
+	validate(validate)
+	save(save)
+	finalize(finalize)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> skill_context;
+	prep\3aprep_agent -.-> finalize;
+	prep\3aprep_agent -.-> sql\3asql_agent;
+	skill_context --> prep\3aprep_agent;
+	sql\3asql_agent -.-> finalize;
+	sql\3asql_agent -.-> validate;
+	validate -.-> finalize;
+	validate -.-> save;
+	validate -.-> sql\3asql_agent;
+	finalize --> __end__;
+	save --> __end__;
+	subgraph prep
+	prep\3aprep_agent(prep_agent)
+	end
+	subgraph sql
+	sql\3asql_agent(sql_agent)
+	end
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

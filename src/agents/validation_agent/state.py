@@ -27,10 +27,3 @@ class ValidationOutput(BaseModel):
     retryable: bool = Field(default=True, description="Whether another SQL attempt is likely to help.")
     summary: str = Field(default="", description="Short explanation of the validation judgment.")
     instructions: list[str] = Field(default_factory=list, description="Concrete guidance for the next SQL attempt when retryable.")
-
-
-class ValidationState(
-    ValidationInput,
-    ValidationOutput,
-):
-    """Internal validation graph state."""

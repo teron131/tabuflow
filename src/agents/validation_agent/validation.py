@@ -1,18 +1,17 @@
-"""LangGraph validation worker for workflow validation."""
+"""Structured validation worker for workflow SQL results."""
 
 from __future__ import annotations
 
 from typing import Any
 
+from langchain.messages import SystemMessage
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph import START, StateGraph
-from langgraph.graph.state import CompiledStateGraph
 
 from ..base import ApplicationAgent
 from .nodes import build_validation_messages, deterministic_validation_failure
 from .prompts import VALIDATION_SYSTEM_PROMPT
-from .state import ValidationInput, ValidationOutput, ValidationState
+from .state import ValidationInput, ValidationOutput
 
 
 class ValidationAgent(ApplicationAgent):
@@ -20,42 +19,27 @@ class ValidationAgent(ApplicationAgent):
 
     def __init__(self, *, llm: BaseChatModel | None = None):
         super().__init__(llm=llm)
-        self.validator = self.build_structured_agent(
-            ValidationOutput,
-            system_prompt=VALIDATION_SYSTEM_PROMPT,
-            name="validation_agent_decision",
-        )
-        self.graph = self.build_graph()
+        self.validator = self.llm.with_structured_output(ValidationOutput)
 
-    def build_graph(self) -> CompiledStateGraph:
-        """Build the compiled validation graph."""
-        builder = StateGraph(
-            ValidationState,
-            input_schema=ValidationInput,
-            output_schema=ValidationOutput,
-        )
-        builder.add_node("validate", self.validate_node)
-        builder.add_edge(START, "validate")
-        return builder.compile(name="validation_agent")
-
-    def validate_node(self, state: ValidationState) -> dict[str, Any]:
-        """Run the structured validation model for one graph invocation."""
-        validation_input = ValidationInput.model_validate(state)
+    def validate(
+        self,
+        validation_input: ValidationInput,
+        *,
+        config: RunnableConfig | None = None,
+    ) -> ValidationOutput:
+        """Run deterministic checks and the structured validation model."""
         deterministic_failure = deterministic_validation_failure(validation_input)
         if deterministic_failure is not None:
-            return deterministic_failure.model_dump(mode="json")
+            return deterministic_failure
 
         result = self.validator.invoke(
-            {
-                "messages": build_validation_messages(validation_input),
-            },
+            [
+                SystemMessage(content=VALIDATION_SYSTEM_PROMPT),
+                *build_validation_messages(validation_input),
+            ],
+            config=config,
         )
-        output: ValidationOutput = self.get_structured_response(
-            result,
-            ValidationOutput,
-            agent_name="validation_agent_decision",
-        )
-        return output.model_dump(mode="json")
+        return ValidationOutput.model_validate(result)
 
     def invoke(
         self,
@@ -81,5 +65,4 @@ class ValidationAgent(ApplicationAgent):
             previous_feedback=previous_feedback,
             validation_attempts=validation_attempts,
         )
-        validation_output = self.graph.invoke(validation_input, config=config)
-        return ValidationOutput.model_validate(validation_output)
+        return self.validate(validation_input, config=config)

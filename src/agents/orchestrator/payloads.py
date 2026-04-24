@@ -1,4 +1,4 @@
-"""Compact payload shaping helpers for orchestrator-owned workflow runs."""
+"""Compact payload shaping helpers for orchestrator-owned runs."""
 
 from __future__ import annotations
 
@@ -117,7 +117,7 @@ def build_result_artifact(
     validation_attempts: int,
     trace: list[str],
 ) -> dict[str, Any]:
-    """Build the compact execution payload for a workflow or tool result."""
+    """Build the compact execution payload for an orchestrator or tool result."""
     return {
         "task": task,
         "status": status,
@@ -139,7 +139,7 @@ def build_result_artifact(
 
 
 def build_result_message(artifact: dict[str, Any]) -> str:
-    """Render a concise, deterministic summary for a workflow caller."""
+    """Render a concise, deterministic summary for an orchestrator caller."""
     outcome = str(artifact.get("outcome", "pending"))
     status = str(artifact.get("status", "pending"))
     task = str(artifact.get("task", "")).strip()
@@ -153,13 +153,13 @@ def build_result_message(artifact: dict[str, Any]) -> str:
     validation_attempts = artifact.get("validation_attempts")
 
     if outcome == "fulfilled":
-        headline = "Workflow completed successfully."
+        headline = "Orchestrator completed successfully."
     elif outcome == "blocked":
-        headline = "Workflow stopped without a final answer."
+        headline = "Orchestrator stopped without a final answer."
     elif outcome == "failed":
-        headline = "Workflow failed."
+        headline = "Orchestrator failed."
     else:
-        headline = f"Workflow finished with status={status}."
+        headline = f"Orchestrator finished with status={status}."
 
     lines = [headline]
     if task:

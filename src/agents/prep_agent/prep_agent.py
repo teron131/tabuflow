@@ -52,6 +52,61 @@ class PrepTrialResult:
     trace: list[str]
 
 
+def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
+    """Collect structured decisions and tool artifacts from one prep-agent run."""
+    trace: list[str] = []
+    extraction_results: list[dict[str, Any]] = []
+    last_error: str | None = None
+
+    for message in result.get("messages", []):
+        if not isinstance(message, ToolMessage):
+            continue
+
+        tool_name = message.name or "unknown_tool"
+        tool_payload = parse_tool_content(message.content)
+        tool_path = str(tool_payload.get("path", "")) if tool_payload else ""
+        tool_label = f"{tool_name}({tool_path})" if tool_path else tool_name
+
+        if message.status == "error":
+            trace = _append_trace(trace, f"prep tool failed: {tool_label}")
+            last_error = str(message.content)
+            continue
+
+        if tool_name in {"inspect_tabular", "profile_tabular"}:
+            trace = _append_trace(trace, f"prep observed {tool_label}")
+            continue
+
+        if tool_name != "extract_tabular" or not tool_payload:
+            continue
+
+        extraction_results.append(tool_payload)
+        if tool_payload.get("status") != "loaded":
+            last_error = str(
+                tool_payload.get(
+                    "message",
+                    f"Extraction failed for {tool_path or 'unknown file'}",
+                )
+            )
+            continue
+        trace = _append_trace(trace, f"prep extracted {tool_path or 'one source file'}")
+
+    decision = None
+    structured_response = result.get("structured_response")
+    if structured_response is not None:
+        decision = PrepAgentDecision.model_validate(structured_response)
+        if decision.last_error:
+            last_error = decision.last_error
+        if decision.summary:
+            trace = _append_trace(trace, f"prep summary: {decision.summary}")
+
+    return PrepTrialResult(
+        decision=decision,
+        extraction_results=extraction_results,
+        last_error=last_error,
+        trace=trace,
+    )
+
+
 class PrepAgent(ApplicationAgent):
     """Use prep tools iteratively to decide the final extraction shape."""
 
@@ -77,7 +132,7 @@ class PrepAgent(ApplicationAgent):
             name="prep_agent",
         )
 
-    def _run_trial(
+    def run_trial(
         self,
         request: str,
         *,
@@ -88,58 +143,16 @@ class PrepAgent(ApplicationAgent):
             {"messages": [HumanMessage(content=request)]},
             config=patch_config(config, recursion_limit=PREP_AGENT_RECURSION_LIMIT),
         )
+        return collect_prep_trial_result(result)
 
-        trace: list[str] = []
-        extraction_results: list[dict[str, Any]] = []
-        last_error: str | None = None
-
-        for message in result.get("messages", []):
-            if not isinstance(message, ToolMessage):
-                continue
-
-            tool_name = message.name or "unknown_tool"
-            tool_payload = parse_tool_content(message.content)
-            tool_path = str(tool_payload.get("path", "")) if tool_payload else ""
-            tool_label = f"{tool_name}({tool_path})" if tool_path else tool_name
-
-            if message.status == "error":
-                trace = _append_trace(trace, f"prep tool failed: {tool_label}")
-                last_error = str(message.content)
-                continue
-
-            if tool_name in {"inspect_tabular", "profile_tabular"}:
-                trace = _append_trace(trace, f"prep observed {tool_label}")
-                continue
-
-            if tool_name != "extract_tabular" or not tool_payload:
-                continue
-
-            extraction_results.append(tool_payload)
-            if tool_payload.get("status") != "loaded":
-                last_error = str(
-                    tool_payload.get(
-                        "message",
-                        f"Extraction failed for {tool_path or 'unknown file'}",
-                    )
-                )
-                continue
-            trace = _append_trace(trace, f"prep extracted {tool_path or 'one source file'}")
-
-        decision = None
-        structured_response = result.get("structured_response")
-        if structured_response is not None:
-            decision = PrepAgentDecision.model_validate(structured_response)
-            if decision.last_error:
-                last_error = decision.last_error
-            if decision.summary:
-                trace = _append_trace(trace, f"prep summary: {decision.summary}")
-
-        return PrepTrialResult(
-            decision=decision,
-            extraction_results=extraction_results,
-            last_error=last_error,
-            trace=trace,
-        )
+    def _run_trial(
+        self,
+        request: str,
+        *,
+        config: RunnableConfig | None = None,
+    ) -> PrepTrialResult:
+        """Run one prep-agent trial and collect the resulting tool outputs."""
+        return self.run_trial(request, config=config)
 
     def invoke(
         self,
@@ -170,7 +183,7 @@ class PrepAgent(ApplicationAgent):
                 previous_attempts=previous_attempts,
                 retry_instructions=retry_instructions,
             )
-            trial = self._run_trial(request, config=config)
+            trial = self.run_trial(request, config=config)
             last_trial = trial
 
             for message in trial.trace:
