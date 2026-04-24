@@ -24,6 +24,10 @@ class SQLAgentInput(BaseModel):
     question: str
     database_path: str | None = None
     preferred_targets: list[str] = Field(default_factory=list)
+    source_files: list[str] = Field(default_factory=list)
+    worker_context: str = ""
+    skill_refs: list[dict[str, Any]] = Field(default_factory=list)
+    validation_feedback: dict[str, Any] | None = None
     max_suggestions: int = 3
     max_repairs: int = 2
     sample_rows: int = 3

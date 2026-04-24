@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import json
 from pathlib import Path
 import re
 from typing import Any
@@ -134,32 +133,18 @@ def _preferred_sql_targets(extracted_targets: list[dict[str, Any]]) -> list[str]
     return list(dict.fromkeys(preferred_targets))
 
 
-def _build_sql_task_prompt(
+def _build_sql_worker_context(
     prompt: str,
-    task: str,
-    source_files: list[str],
     *,
     worker_instructions: str,
     skill_refs: list[dict[str, Any]],
-    validation_feedback: dict[str, Any] | None = None,
 ) -> str:
-    """Build the SQL worker prompt for one orchestrator-owned run."""
+    """Build context that should inform SQL planning without redefining the task."""
     parts = [prompt.strip()] if prompt.strip() else []
-    source_file_list = "\n".join(f"- {source_file}" for source_file in source_files) or "- (none)"
-    parts.append(f"Source files:\n{source_file_list}\nTask: {task}")
     if worker_instructions.strip():
         parts.append(worker_instructions.strip())
     if skill_ref_summary := summarize_skill_refs(skill_refs):
         parts.append(skill_ref_summary)
-    if validation_feedback:
-        parts.append(
-            "\n".join(
-                [
-                    "Validation retry guidance for the next SQL attempt:",
-                    json.dumps(validation_feedback, ensure_ascii=True, sort_keys=True),
-                ]
-            )
-        )
     return "\n\n".join(parts)
 
 
@@ -176,18 +161,19 @@ def _run_sql_validation_loop(
     loop = SqlLoopResult()
 
     for attempt_idx in range(max(1, max_validation_retries) + 1):
-        sql_prompt = _build_sql_task_prompt(
+        worker_context = _build_sql_worker_context(
             prompt,
-            run.task,
-            run.source_files,
             worker_instructions=run.skill_payload.worker_instructions,
             skill_refs=run.skill_payload.skill_refs,
-            validation_feedback=loop.validation_feedback,
         )
         sql_output = sql_agent.invoke(
-            sql_prompt,
+            run.task,
             database_path=run.database_path,
             preferred_targets=_preferred_sql_targets(run.extracted_targets),
+            source_files=run.source_files,
+            worker_context=worker_context,
+            skill_refs=run.skill_payload.skill_refs,
+            validation_feedback=loop.validation_feedback,
             config=patch_config(config, run_name=f"sql_agent_attempt_{attempt_idx + 1}"),
         )
         loop.output = sql_output

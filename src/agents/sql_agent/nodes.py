@@ -7,11 +7,15 @@ import re
 from typing import Any
 
 from langgraph.graph import END
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import ParseError
 
 from ...tools.sql.query import describe_target, run_query, suggest_sql_error_repair, suggest_targets
 from .state import PlannerFn, SQLAgentState
 
-MAX_INSPECTED_TARGETS = 2
+MAX_INSPECTED_TARGETS = 4
+MAX_PREFERRED_INSPECTED_TARGETS = 6
 MAX_TRACE_MESSAGES = 8
 _QUESTION_STOP_WORDS = {
     "a",
@@ -40,6 +44,7 @@ _QUESTION_STOP_WORDS = {
     "with",
 }
 _VAGUE_QUESTION_TOKENS = {"doing", "everything", "numbers", "overall", "overview", "performance", "stats", "status", "summary"}
+_EXPLAIN_PREFIX = re.compile(r"^\s*EXPLAIN(?:\s+QUERY\s+PLAN)?\s+", re.IGNORECASE)
 
 
 def _append_trace(
@@ -61,12 +66,98 @@ def _needs_clarification(question: str) -> str | None:
     return None
 
 
+def _dedupe_names(names: list[str]) -> list[str]:
+    """Return non-empty target names in first-seen order."""
+    ordered_names: list[str] = []
+    seen_names: set[str] = set()
+    for name in names:
+        target_name = name.strip()
+        if not target_name or target_name in seen_names:
+            continue
+        seen_names.add(target_name)
+        ordered_names.append(target_name)
+    return ordered_names
+
+
+def _suggested_target_names(state: SQLAgentState) -> list[str]:
+    """Return suggested target names in suggestion-rank order."""
+    return _dedupe_names([str(suggestion["name"]) for suggestion in state.suggestions if suggestion.get("name")])
+
+
+def _preferred_target_names(state: SQLAgentState) -> list[str]:
+    """Return current-run target names in orchestrator-provided order."""
+    return _dedupe_names([str(target_name) for target_name in state.preferred_targets])
+
+
+def _ordered_inspection_target_names(state: SQLAgentState) -> list[str]:
+    """Return targets to inspect, ranking current-run targets by suggestion relevance."""
+    suggested_names = _suggested_target_names(state)
+    preferred_names = _preferred_target_names(state)
+    if not preferred_names:
+        return suggested_names
+
+    preferred_name_set = set(preferred_names)
+    suggested_preferred_names = [target_name for target_name in suggested_names if target_name in preferred_name_set]
+    remaining_preferred_names = [target_name for target_name in preferred_names if target_name not in set(suggested_preferred_names)]
+    suggested_other_names = [target_name for target_name in suggested_names if target_name not in preferred_name_set]
+    return _dedupe_names([*suggested_preferred_names, *remaining_preferred_names, *suggested_other_names])
+
+
+def _inspection_limit(state: SQLAgentState) -> int:
+    """Return a bounded inspection limit that gives current-run candidates enough room."""
+    preferred_count = len(_preferred_target_names(state))
+    if not preferred_count:
+        return MAX_INSPECTED_TARGETS
+    return min(max(MAX_INSPECTED_TARGETS, preferred_count), MAX_PREFERRED_INSPECTED_TARGETS)
+
+
+def _allowed_sql_target_names(state: SQLAgentState) -> set[str]:
+    """Return target names the planned SQL is allowed to reference."""
+    preferred_names = set(_preferred_target_names(state))
+    if preferred_names:
+        return preferred_names
+    return {str(target["name"]) for target in state.inspected_targets if target.get("name")}
+
+
+def _referenced_sql_target_names(sql: str) -> set[str]:
+    """Return base table/view names referenced by one SQL statement."""
+    parsed = sqlglot.parse_one(_EXPLAIN_PREFIX.sub("", sql, count=1), read="sqlite")
+    cte_names = {cte.alias for cte in parsed.find_all(exp.CTE) if cte.alias}
+    return {table.name for table in parsed.find_all(exp.Table) if table.name and table.name not in cte_names}
+
+
+def _sql_target_violation(state: SQLAgentState) -> str | None:
+    """Return an execution-blocking message when SQL leaves the allowed target set."""
+    if not state.candidate_sql:
+        return None
+
+    allowed_targets = _allowed_sql_target_names(state)
+    if not allowed_targets:
+        return "No inspected or current-run SQL targets are available for execution."
+
+    try:
+        referenced_targets = _referenced_sql_target_names(state.candidate_sql)
+    except ParseError as exc:
+        return f"Planned SQL could not be parsed before execution: {exc}"
+
+    if not referenced_targets:
+        return "Planned SQL must reference at least one inspected or current-run target."
+
+    allowed_target_names = {target_name.lower() for target_name in allowed_targets}
+    disallowed_targets = sorted(target_name for target_name in referenced_targets if target_name.lower() not in allowed_target_names)
+    if disallowed_targets:
+        allowed_preview = ", ".join(sorted(allowed_targets)[:MAX_PREFERRED_INSPECTED_TARGETS])
+        return f"Planned SQL referenced target(s) outside the allowed set: {', '.join(disallowed_targets)}. Allowed targets: {allowed_preview}."
+
+    return None
+
+
 def suggest_node(state: SQLAgentState) -> dict[str, Any]:
     """Suggest likely SQL targets for the question."""
     suggestion_result = suggest_targets(
         state.question,
         database_path=state.database_path,
-        max_results=state.max_suggestions,
+        max_results=max(state.max_suggestions, min(len(_preferred_target_names(state)), MAX_PREFERRED_INSPECTED_TARGETS)),
     )
     if suggestion_result["status"] != "ok":
         return {
@@ -91,19 +182,9 @@ def suggest_node(state: SQLAgentState) -> dict[str, Any]:
 def inspect_node(state: SQLAgentState) -> dict[str, Any]:
     """Inspect the top suggested targets before planning SQL."""
     inspected_targets: list[dict[str, Any]] = []
-    candidate_target_names = [
-        *[target_name for target_name in state.preferred_targets if target_name],
-        *[str(suggestion["name"]) for suggestion in state.suggestions if suggestion.get("name")],
-    ]
-    seen_target_names: set[str] = set()
-    ordered_target_names: list[str] = []
-    for target_name in candidate_target_names:
-        if target_name in seen_target_names:
-            continue
-        seen_target_names.add(target_name)
-        ordered_target_names.append(target_name)
+    ordered_target_names = _ordered_inspection_target_names(state)
 
-    for target_name in ordered_target_names[:MAX_INSPECTED_TARGETS]:
+    for target_name in ordered_target_names[: _inspection_limit(state)]:
         description = describe_target(
             target_name,
             database_path=state.database_path,
@@ -175,11 +256,26 @@ def execute_node(state: SQLAgentState) -> dict[str, Any]:
             "trace": _append_trace(state, "execute skipped because no SQL was planned"),
         }
 
+    attempts = state.attempts + 1
+    target_violation = _sql_target_violation(state)
+    if target_violation is not None:
+        return {
+            "status": "needs_repair",
+            "attempts": attempts,
+            "result": {
+                "status": "error",
+                "error_type": "disallowed_sql_target",
+                "message": target_violation,
+                "database_path": state.database_path,
+            },
+            "last_error": target_violation,
+            "trace": _append_trace(state, f"execute blocked before SQL run: {target_violation}"),
+        }
+
     result = run_query(
         state.candidate_sql,
         database_path=state.database_path,
     )
-    attempts = state.attempts + 1
     if result["status"] == "ok":
         return {
             "status": "complete",
@@ -189,7 +285,7 @@ def execute_node(state: SQLAgentState) -> dict[str, Any]:
             "trace": _append_trace(state, f"execute succeeded on attempt {attempts}"),
         }
 
-    repair_target_names = [str(suggestion["name"]) for suggestion in state.suggestions if suggestion.get("name")]
+    repair_target_names = sorted(_allowed_sql_target_names(state))
     repair_columns = {
         str(target["name"]): [str(column["name"]) for column in target.get("columns", []) if column.get("name")] for target in state.inspected_targets if target.get("name")
     }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
@@ -139,6 +140,10 @@ class SQLAgent(ApplicationAgent):
         *,
         database_path: str | Path | None = None,
         preferred_targets: list[str] | None = None,
+        source_files: list[str] | None = None,
+        worker_context: str = "",
+        skill_refs: list[dict[str, Any]] | None = None,
+        validation_feedback: dict[str, Any] | None = None,
         max_suggestions: int = 3,
         max_repairs: int = 2,
         sample_rows: int = 3,
@@ -151,6 +156,10 @@ class SQLAgent(ApplicationAgent):
                 question=question,
                 database_path=(None if database_path is None else str(Path(database_path).expanduser().resolve())),
                 preferred_targets=preferred_targets or [],
+                source_files=source_files or [],
+                worker_context=worker_context,
+                skill_refs=skill_refs or [],
+                validation_feedback=validation_feedback,
                 max_suggestions=max_suggestions,
                 max_repairs=max_repairs,
                 sample_rows=sample_rows,
@@ -169,6 +178,10 @@ def answer_sql_question(
     model: str | None = None,
     database_path: str | Path | None = None,
     preferred_targets: list[str] | None = None,
+    source_files: list[str] | None = None,
+    worker_context: str = "",
+    skill_refs: list[dict[str, Any]] | None = None,
+    validation_feedback: dict[str, Any] | None = None,
     max_suggestions: int = 3,
     max_repairs: int = 2,
     sample_rows: int = 3,
@@ -185,6 +198,10 @@ def answer_sql_question(
         question,
         database_path=database_path,
         preferred_targets=preferred_targets,
+        source_files=source_files,
+        worker_context=worker_context,
+        skill_refs=skill_refs,
+        validation_feedback=validation_feedback,
         max_suggestions=max_suggestions,
         max_repairs=max_repairs,
         sample_rows=sample_rows,

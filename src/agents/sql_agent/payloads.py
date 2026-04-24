@@ -14,6 +14,7 @@ MAX_AGENT_ROW_COLUMNS = 8
 MAX_AGENT_TEXT_HINT_COLUMNS = 2
 MAX_AGENT_TEXT_HINT_VALUES = 3
 MAX_AGENT_SOURCE_MAPPING_PREVIEW = 2
+MAX_AGENT_SKILL_REF_PREVIEW = 8
 
 
 def _preview_list(
@@ -90,6 +91,26 @@ def _compact_source_mappings(source_mappings: list[dict[str, Any]]) -> dict[str,
     }
 
 
+def _compact_skill_refs(skill_refs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return a bounded preview of worker-visible skill references."""
+    preview_refs, truncated = _preview_list(
+        skill_refs,
+        max_items=MAX_AGENT_SKILL_REF_PREVIEW,
+    )
+    return {
+        "count": len(skill_refs),
+        "truncated": truncated,
+        "items": [
+            {
+                "name": skill_ref.get("name"),
+                "path": skill_ref.get("path"),
+                "instructions_path": (skill_ref.get("instructions") or {}).get("relative_path"),
+            }
+            for skill_ref in preview_refs
+        ],
+    }
+
+
 def _compact_inspected_target(target: dict[str, Any]) -> dict[str, Any]:
     """Return the compact inspected-target payload sent to the planner."""
     columns = list(target.get("columns", []))
@@ -123,9 +144,7 @@ def _planner_candidate_targets(state: SQLAgentState) -> list[dict[str, Any]]:
         return state.suggestions
 
     preferred_target_names = set(state.preferred_targets)
-    preferred_suggestions = [suggestion for suggestion in state.suggestions if suggestion.get("name") in preferred_target_names]
-    if preferred_suggestions:
-        return preferred_suggestions
+    suggestions_by_name = {str(suggestion["name"]): suggestion for suggestion in state.suggestions if suggestion.get("name")}
 
     inspected_candidates = []
     for target in state.inspected_targets:
@@ -133,6 +152,7 @@ def _planner_candidate_targets(state: SQLAgentState) -> list[dict[str, Any]]:
         if not target_name or target_name not in preferred_target_names:
             continue
 
+        suggestion = suggestions_by_name.get(target_name, {})
         column_names = [str(column.get("name")) for column in target.get("columns", []) if column.get("name")]
         source_paths = list(dict.fromkeys(str(mapping.get("source_path")) for mapping in target.get("source_mappings", []) if mapping.get("source_path")))
         column_preview, columns_truncated = _preview_list(
@@ -148,8 +168,8 @@ def _planner_candidate_targets(state: SQLAgentState) -> list[dict[str, Any]]:
                 "name": target_name,
                 "type": target.get("type"),
                 "kind": target.get("kind"),
-                "score": 999,
-                "reasons": ["current run target"],
+                "score": suggestion.get("score", 0),
+                "reasons": list(dict.fromkeys(["current run target", *list(suggestion.get("reasons", []))])),
                 "column_count": len(column_names),
                 "column_preview": column_preview,
                 "columns_truncated": columns_truncated,
@@ -163,10 +183,14 @@ def _planner_candidate_targets(state: SQLAgentState) -> list[dict[str, Any]]:
     if inspected_candidates:
         return inspected_candidates
 
+    preferred_suggestions = [suggestion for suggestion in state.suggestions if suggestion.get("name") in preferred_target_names]
+    if preferred_suggestions:
+        return preferred_suggestions
+
     return [
         {
             "name": target_name,
-            "score": 999,
+            "score": 0,
             "reasons": ["current run target"],
         }
         for target_name in state.preferred_targets
@@ -178,6 +202,10 @@ def build_planner_messages(state: SQLAgentState) -> list[HumanMessage]:
     """Build planner messages for the structured planning model."""
     payload = {
         "question": state.question,
+        "source_files": state.source_files,
+        "worker_context": state.worker_context,
+        "skill_refs": _compact_skill_refs(state.skill_refs),
+        "validation_feedback": state.validation_feedback,
         "candidate_targets": _planner_candidate_targets(state),
         "inspected_targets": [_compact_inspected_target(target) for target in state.inspected_targets],
         "previous_sql": state.candidate_sql,

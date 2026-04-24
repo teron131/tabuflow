@@ -4,6 +4,7 @@ SQL_PLANNER_SYSTEM_PROMPT = """Turn the user question into one read-only SQLite 
 
 Rules:
 - Use only SELECT, WITH, or EXPLAIN.
+- Treat `question` as the user task. Use `source_files`, `worker_context`, and `validation_feedback` only as supporting context.
 - Use only tables/views and columns that appear in the inspected target context.
 - Prefer curated views and stable business-facing targets when possible.
 - If the question is concrete but omits a time range, use all available data by default.
