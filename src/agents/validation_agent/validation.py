@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -44,7 +45,11 @@ class ValidationAgent(ApplicationAgent):
         if deterministic_failure is not None:
             return deterministic_failure.model_dump(mode="json")
 
-        result = self.validator.invoke({"messages": build_validation_messages(validation_input)})
+        result = self.validator.invoke(
+            {
+                "messages": build_validation_messages(validation_input),
+            },
+        )
         output: ValidationOutput = self.get_structured_response(
             result,
             ValidationOutput,
@@ -63,6 +68,7 @@ class ValidationAgent(ApplicationAgent):
         sql_result: dict[str, Any] | None,
         previous_feedback: dict[str, Any] | None,
         validation_attempts: int,
+        config: RunnableConfig | None = None,
     ) -> ValidationOutput:
         """Validate one SQL result against the original task."""
         validation_input = ValidationInput(
@@ -75,5 +81,5 @@ class ValidationAgent(ApplicationAgent):
             previous_feedback=previous_feedback,
             validation_attempts=validation_attempts,
         )
-        validation_output = self.graph.invoke(validation_input)
+        validation_output = self.graph.invoke(validation_input, config=config)
         return ValidationOutput.model_validate(validation_output)

@@ -10,6 +10,8 @@ from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain.messages import HumanMessage, ToolMessage
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import patch_config
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 
@@ -75,11 +77,16 @@ class PrepAgent(ApplicationAgent):
             name="prep_agent",
         )
 
-    def _run_trial(self, request: str) -> PrepTrialResult:
+    def _run_trial(
+        self,
+        request: str,
+        *,
+        config: RunnableConfig | None = None,
+    ) -> PrepTrialResult:
         """Run one prep-agent trial and collect the resulting tool outputs."""
         result = self.graph.invoke(
             {"messages": [HumanMessage(content=request)]},
-            config={"recursion_limit": PREP_AGENT_RECURSION_LIMIT},
+            config=patch_config(config, recursion_limit=PREP_AGENT_RECURSION_LIMIT),
         )
 
         trace: list[str] = []
@@ -142,6 +149,7 @@ class PrepAgent(ApplicationAgent):
         worker_instructions: str = "",
         skill_refs: list[dict[str, Any]] | None = None,
         max_prep_trials: int = 2,
+        config: RunnableConfig | None = None,
     ) -> PrepTaskOutput:
         """Run the prep agent in bounded trials and normalize the final outputs."""
         safe_max_prep_trials = max(1, max_prep_trials)
@@ -162,7 +170,7 @@ class PrepAgent(ApplicationAgent):
                 previous_attempts=previous_attempts,
                 retry_instructions=retry_instructions,
             )
-            trial = self._run_trial(request)
+            trial = self._run_trial(request, config=config)
             last_trial = trial
 
             for message in trial.trace:

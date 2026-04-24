@@ -11,8 +11,11 @@ from uuid import uuid4
 
 from langchain.messages import ToolMessage
 from langchain.tools import BaseTool, tool
-from langchain_core.tools import InjectedToolCallId
+from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import patch_config
+from langchain_core.tools import InjectedToolArg, InjectedToolCallId
 from langgraph.types import Command
+from langsmith import traceable
 
 from ...tools import list_skills, load_skills, search_skills
 from ...tools.sql.query import save_view
@@ -114,22 +117,28 @@ class WorkflowExecutionResult:
     active_agent: str | None
 
 
-def list_skills_context(*, path: str = SKILLS_PATH) -> dict[str, Any]:
+def list_skills_context(
+    *,
+    path: str = SKILLS_PATH,
+    config: RunnableConfig | None = None,
+) -> dict[str, Any]:
     """Return the raw workspace-skills listing payload."""
-    return list_skills.invoke({"path": path})
+    return list_skills.invoke({"path": path}, config=config)
 
 
 def search_skills_context(
     query: str,
     *,
     path: str = SKILLS_PATH,
+    config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Return the raw semantic workspace-skills search payload."""
     return search_skills.invoke(
         {
             "path": path,
             "query": query,
-        }
+        },
+        config=config,
     )
 
 
@@ -206,9 +215,10 @@ def _build_worker_skill_payload(
     task: str,
     *,
     path: str = SKILLS_PATH,
+    config: RunnableConfig | None = None,
 ) -> WorkerSkillPayload:
     """Search and load matched skills into one worker-ready payload."""
-    search_result = search_skills_context(task, path=path)
+    search_result = search_skills_context(task, path=path, config=config)
     matched_skills = list(search_result.get("skills", []))
     worker_sections: list[str] = []
     skill_refs: list[dict[str, Any]] = []
@@ -221,7 +231,8 @@ def _build_worker_skill_payload(
             {
                 "path": path,
                 "skills": skill_name,
-            }
+            },
+            config=config,
         )
         loaded_skills = list(load_result.get("skills", []))
         if not loaded_skills:
@@ -359,6 +370,7 @@ def _run_sql_validation_loop(
     sql_agent: SQLAgent,
     validation_agent: ValidationAgent,
     max_validation_retries: int,
+    config: RunnableConfig | None = None,
 ) -> SqlLoopResult:
     """Run SQL attempts until validation accepts the result or the retry budget is spent."""
     loop = SqlLoopResult()
@@ -376,6 +388,7 @@ def _run_sql_validation_loop(
             sql_prompt,
             database_path=run.database_path,
             preferred_targets=_preferred_sql_targets(run.extracted_targets),
+            config=patch_config(config, run_name=f"sql_agent_attempt_{attempt_idx + 1}"),
         )
         loop.output = sql_output
         run.append_trace(*sql_output.trace)
@@ -392,6 +405,7 @@ def _run_sql_validation_loop(
             sql_result=sql_output.result,
             previous_feedback=loop.validation_feedback,
             validation_attempts=loop.validation_attempts,
+            config=patch_config(config, run_name=f"validation_agent_attempt_{loop.validation_attempts + 1}"),
         )
         loop.validation_output = decision
         if decision.valid:
@@ -523,6 +537,34 @@ def _build_sql_failure_result(
     )
 
 
+def _trace_workflow_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Keep LangSmith workflow inputs focused on the public request."""
+    return {
+        "task": inputs.get("task"),
+        "source_files": inputs.get("source_files"),
+        "max_prep_trials": inputs.get("max_prep_trials"),
+        "max_validation_retries": inputs.get("max_validation_retries"),
+        "prompt_provided": bool(str(inputs.get("prompt") or "").strip()),
+        "root_dir": None if inputs.get("root_dir") is None else str(inputs["root_dir"]),
+    }
+
+
+def _trace_workflow_outputs(output: WorkflowExecutionResult) -> dict[str, Any]:
+    """Keep LangSmith workflow outputs compact and reviewable."""
+    return {
+        "content": output.content,
+        "artifact": output.artifact,
+        "agent_artifacts": output.agent_artifacts,
+        "active_agent": output.active_agent,
+    }
+
+
+@traceable(
+    name="execute_workflow",
+    run_type="chain",
+    process_inputs=_trace_workflow_inputs,
+    process_outputs=_trace_workflow_outputs,
+)
 def execute_workflow(
     *,
     task: str,
@@ -535,6 +577,7 @@ def execute_workflow(
     prep_agent: PrepAgent | None = None,
     sql_agent: SQLAgent | None = None,
     validation_agent: ValidationAgent | None = None,
+    config: RunnableConfig | None = None,
 ) -> WorkflowExecutionResult:
     """Run the full workflow once and return its normalized result."""
     resolved_prep_agent = prep_agent or PrepAgent(
@@ -548,7 +591,10 @@ def execute_workflow(
     run = WorkflowRun(
         task=task,
         source_files=source_files,
-        skill_payload=_build_worker_skill_payload(task),
+        skill_payload=_build_worker_skill_payload(
+            task,
+            config=patch_config(config, run_name="skills_context"),
+        ),
     )
     agent_artifacts: dict[str, dict[str, Any]] = {}
     prep_output = resolved_prep_agent.invoke(
@@ -557,6 +603,7 @@ def execute_workflow(
         worker_instructions=run.skill_payload.worker_instructions,
         skill_refs=run.skill_payload.skill_refs,
         max_prep_trials=max_prep_trials,
+        config=patch_config(config, run_name="prep_agent"),
     )
     agent_artifacts[PREP_AGENT_NAME] = prep_output.model_dump(mode="json")
     run.database_path = prep_output.database_path
@@ -590,6 +637,7 @@ def execute_workflow(
         sql_agent=resolved_sql_agent,
         validation_agent=resolved_validation_agent,
         max_validation_retries=max_validation_retries,
+        config=config,
     )
     if loop.output is not None:
         agent_artifacts[SQL_AGENT_NAME] = loop.output.model_dump(mode="json")
@@ -661,6 +709,7 @@ def make_orchestrator_tools(
         max_suggestions: int = 3,
         max_repairs: int = 2,
         tool_call_id: Annotated[str, InjectedToolCallId] = "",
+        config: Annotated[RunnableConfig, InjectedToolArg] = None,
     ) -> Command:
         """Run the SQL agent workflow against an existing SQLite database.
 
@@ -676,6 +725,7 @@ def make_orchestrator_tools(
             database_path=database_path,
             max_suggestions=max_suggestions,
             max_repairs=max_repairs,
+            config=patch_config(config, run_name="sql_agent"),
         )
         artifact = output.model_dump(mode="json")
         return _agent_command(
@@ -694,6 +744,7 @@ def make_orchestrator_tools(
         max_prep_trials: int = 2,
         max_validation_retries: int = 2,
         tool_call_id: Annotated[str, InjectedToolCallId] = "",
+        config: Annotated[RunnableConfig, InjectedToolArg] = None,
     ) -> Command:
         """Run the workflow on local files and return its final result.
 
@@ -714,6 +765,7 @@ def make_orchestrator_tools(
             prep_agent=get_prep_agent(),
             sql_agent=get_sql_agent(),
             validation_agent=get_validation_agent(),
+            config=config,
         )
         return _agent_command(
             tool_name="run_workflow",

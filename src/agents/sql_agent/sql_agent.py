@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -142,6 +143,7 @@ class SQLAgent(ApplicationAgent):
         max_repairs: int = 2,
         sample_rows: int = 3,
         text_value_hints: int = 3,
+        config: RunnableConfig | None = None,
     ) -> SQLAgentOutput:
         """Run the SQL graph for one question."""
         result = self.graph.invoke(
@@ -153,7 +155,8 @@ class SQLAgent(ApplicationAgent):
                 max_repairs=max_repairs,
                 sample_rows=sample_rows,
                 text_value_hints=text_value_hints,
-            )
+            ),
+            config=config,
         )
         return SQLAgentOutput.model_validate(result)
 
@@ -170,6 +173,7 @@ def answer_sql_question(
     max_repairs: int = 2,
     sample_rows: int = 3,
     text_value_hints: int = 3,
+    config: RunnableConfig | None = None,
 ) -> SQLAgentOutput:
     """Convenience wrapper for one-shot SQL agent execution."""
     agent = SQLAgent(
@@ -185,4 +189,5 @@ def answer_sql_question(
         max_repairs=max_repairs,
         sample_rows=sample_rows,
         text_value_hints=text_value_hints,
+        config=config,
     )
