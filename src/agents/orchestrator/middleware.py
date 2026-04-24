@@ -7,7 +7,7 @@ from collections.abc import Callable
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain.messages import HumanMessage, SystemMessage
 
-from .tools import (
+from .skill_context import (
     format_skill_matches,
     format_skills_overview,
     list_skills_context,
