@@ -1,0 +1,11 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "orchestrator": "./src/agents/orchestrator/app.py:graph",
+    "workflow": "./src/agents/orchestrator/app.py:workflow_graph",
+    "prep_agent": "./src/agents/orchestrator/app.py:prep_graph",
+    "sql_agent": "./src/agents/orchestrator/app.py:sql_graph",
+    "validation_agent": "./src/agents/orchestrator/app.py:validation_graph"
+  },
+  "env": "./.env"
+}

@@ -214,6 +214,7 @@ cython_debug/
 
 # Ruff stuff:
 .ruff_cache/
+.langgraph_api/
 
 # PyPI configuration file
 .pypirc
