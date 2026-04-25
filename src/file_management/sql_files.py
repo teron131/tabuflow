@@ -120,24 +120,6 @@ def _sql_location(
     )
 
 
-def resolve_sql_path(
-    sql_path: str | Path | None = None,
-    *,
-    root_dir: str | Path | None = None,
-    run_id: str = "default",
-    description: str = DEFAULT_SQL_DESCRIPTION,
-    filename_hint: str | None = None,
-) -> Path:
-    """Return a safe SQL artifact path inside the bounded root."""
-    return _sql_location(
-        sql_path,
-        root_dir=root_dir,
-        run_id=run_id,
-        description=description,
-        filename_hint=filename_hint,
-    ).path
-
-
 def _comment_value(value: str) -> str:
     """Return one SQL-line-comment-safe value."""
     return " ".join(value.strip().split())
@@ -225,6 +207,72 @@ def read_sql_file(
     except ValueError as exc:
         return _error_result(
             error_type="invalid_sql_path",
+            message=str(exc),
+            sql_path=sql_path,
+        )
+
+
+def read_sql_hashlines(
+    sql_path: str | Path,
+    *,
+    root_dir: str | Path | None = None,
+    run_id: str = "default",
+) -> dict[str, Any]:
+    """Read one SQL artifact as hashline-addressed text."""
+    try:
+        location = _sql_location(
+            sql_path,
+            root_dir=root_dir,
+            run_id=run_id,
+        )
+        return {
+            "status": "ok",
+            "sql_path": str(location.path),
+            "hashlines": location.fs.read_hashline(location.user_path),
+        }
+    except OSError as exc:
+        return _error_result(
+            error_type="read_failed",
+            message=str(exc),
+            sql_path=sql_path,
+        )
+    except ValueError as exc:
+        return _error_result(
+            error_type="invalid_sql_path",
+            message=str(exc),
+            sql_path=sql_path,
+        )
+
+
+def edit_sql_file(
+    sql_path: str | Path,
+    edits: list[HashlineEdit],
+    *,
+    root_dir: str | Path | None = None,
+    run_id: str = "default",
+) -> dict[str, Any]:
+    """Apply hashline edits to one SQL artifact."""
+    try:
+        location = _sql_location(
+            sql_path,
+            root_dir=root_dir,
+            run_id=run_id,
+        )
+        sql_text = location.fs.edit_hashline(location.user_path, edits)
+        return {
+            "status": "ok",
+            "sql_path": str(location.path),
+            "sql": sql_text,
+        }
+    except OSError as exc:
+        return _error_result(
+            error_type="edit_failed",
+            message=str(exc),
+            sql_path=sql_path,
+        )
+    except ValueError as exc:
+        return _error_result(
+            error_type="invalid_sql_edit",
             message=str(exc),
             sql_path=sql_path,
         )

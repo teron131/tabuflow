@@ -3,7 +3,7 @@
 	"graphs": {
 		"orchestrator": "./src/agents/orchestrator/app.py:graph",
 		"prep": "./src/agents/orchestrator/app.py:prep_graph",
-		"sql": "./src/agents/orchestrator/app.py:sql_graph"
+		"query": "./src/agents/orchestrator/app.py:query_graph"
 	},
 	"env": "./.env"
 }

@@ -9,10 +9,10 @@ from langsmith import traceable
 
 from ..base import ApplicationAgent
 from ..prep_agent import PrepAgent
-from ..sql_agent import SQLAgent
 from ..validation_agent import ValidationAgent
-from .graph import build_orchestrator_graph
+from .graph import build_orchestrator_graph, build_query_stage_graph
 from .runtime import OrchestratorRun, SqlLoopResult
+from .sql_stage import DraftFn, RuntimeRepairFn
 from .state import (
     OrchestratorExecutionResult,
     OrchestratorInput,
@@ -24,18 +24,24 @@ from .state import (
 class Orchestrator(ApplicationAgent):
     """Top-level orchestrator whose graph is the staged data-analysis flow."""
 
-    default_model_order = ("main_llm", "fast_llm", "quality_llm")
-
     def __init__(
         self,
         *,
         prompt: str = "",
         root_dir: str | Path | None = None,
         llm: Any | None = None,
+        prep_agent: PrepAgent | None = None,
+        sql_drafter: DraftFn | None = None,
+        sql_runtime_repairer: RuntimeRepairFn | None = None,
+        validation_agent: ValidationAgent | None = None,
     ):
         super().__init__(llm=llm)
         self.prompt = prompt
         self.root_dir = root_dir
+        self.prep_agent = prep_agent
+        self.sql_drafter = sql_drafter
+        self.sql_runtime_repairer = sql_runtime_repairer
+        self.validation_agent = validation_agent
         self.graph = self.build_graph()
         self.graph_artifacts = self.write_graph_artifacts(
             self.graph,
@@ -48,6 +54,10 @@ class Orchestrator(ApplicationAgent):
             prompt=self.prompt,
             root_dir=self.root_dir,
             llm=self.llm,
+            prep_agent=self.prep_agent,
+            sql_drafter=self.sql_drafter,
+            sql_runtime_repairer=self.sql_runtime_repairer,
+            validation_agent=self.validation_agent,
         )
 
     def invoke(
@@ -132,26 +142,25 @@ def execute_orchestrator(
     root_dir: str | Path | None = None,
     llm: Any | None = None,
     prep_agent: PrepAgent | None = None,
-    sql_agent: SQLAgent | None = None,
+    sql_drafter: DraftFn | None = None,
+    sql_runtime_repairer: RuntimeRepairFn | None = None,
     validation_agent: ValidationAgent | None = None,
     config: RunnableConfig | None = None,
 ) -> OrchestratorExecutionResult:
     """Run the full orchestrator once and return its normalized result."""
-    graph = build_orchestrator_graph(
+    result = Orchestrator(
         prompt=prompt,
         root_dir=root_dir,
         llm=llm,
         prep_agent=prep_agent,
-        sql_agent=sql_agent,
+        sql_drafter=sql_drafter,
+        sql_runtime_repairer=sql_runtime_repairer,
         validation_agent=validation_agent,
-    )
-    result = graph.invoke(
-        OrchestratorInput(
-            task=task,
-            source_files=source_files,
-            max_prep_trials=max_prep_trials,
-            max_validation_retries=max_validation_retries,
-        ),
+    ).invoke(
+        task,
+        source_files=source_files,
+        max_prep_trials=max_prep_trials,
+        max_validation_retries=max_validation_retries,
         config=config,
     )
     output = OrchestratorOutput.model_validate(result)
@@ -167,5 +176,6 @@ __all__ = [
     "OrchestratorState",
     "SqlLoopResult",
     "build_orchestrator_graph",
+    "build_query_stage_graph",
     "execute_orchestrator",
 ]

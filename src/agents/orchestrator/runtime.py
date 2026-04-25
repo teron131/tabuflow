@@ -6,15 +6,15 @@ from typing import Any
 from uuid import uuid4
 
 from ...tools.sql.query import save_view
-from ..sql_agent import SQLAgentOutput
 from ..trace_utils import SAVE_STAGE, append_stage_trace
 from .payloads import build_result_artifact, build_result_message
+from .sql_stage import SQLStageOutput
 from .state import OrchestratorState
 
 DEFAULT_VIEW_NAME = "analysis_result"
 MAX_VIEW_TASK_SLUG_CHARS = 48
 PREP_AGENT_NAME = "prep_agent"
-SQL_AGENT_NAME = "sql_agent"
+SQL_STAGE_NAME = "sql_stage"
 VALIDATION_AGENT_NAME = "validation_agent"
 VIEW_TASK_SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
@@ -41,6 +41,7 @@ class OrchestratorRun:
         sql_result: dict[str, Any] | None,
         saved_view_name: str | None,
         saved_view: dict[str, Any] | None,
+        sql_path: str | None,
         last_error: str | None,
         validation_feedback: dict[str, Any] | None,
         validation_attempts: int,
@@ -54,6 +55,7 @@ class OrchestratorRun:
             completion_reason=completion_reason,
             source_files=self.source_files,
             database_path=self.database_path,
+            sql_path=sql_path,
             extracted_targets=self.extracted_targets,
             selected_targets=selected_targets,
             candidate_sql=candidate_sql,
@@ -72,7 +74,7 @@ class OrchestratorRun:
 class SqlLoopResult:
     """State accumulated across orchestrator-owned SQL attempts."""
 
-    output: SQLAgentOutput | None = None
+    output: SQLStageOutput | None = None
     validation_feedback: dict[str, Any] | None = None
     validation_attempts: int = 0
 
@@ -98,28 +100,28 @@ def sql_loop_from_state(state: OrchestratorState) -> SqlLoopResult:
     )
 
 
-def sql_output_from_state(state: OrchestratorState) -> SQLAgentOutput | None:
-    """Rebuild the SQL agent output from direct subgraph state fields."""
+def sql_output_from_state(state: OrchestratorState) -> SQLStageOutput | None:
+    """Rebuild the SQL stage output from direct orchestrator state fields."""
     has_direct_sql_output = state.status != "pending" or state.attempts > 0 or state.result is not None or state.candidate_sql is not None
     if has_direct_sql_output:
-        return SQLAgentOutput(
+        return SQLStageOutput(
             status=state.status,
+            sql_path=state.sql_path,
             selected_targets=state.selected_targets,
             candidate_sql=state.candidate_sql,
             repair_hints=state.repair_hints,
             result=state.result,
             attempts=state.attempts,
-            rationale=state.rationale,
             last_error=state.last_error,
             trace=state.trace,
         )
     if state.sql_output is not None:
-        return SQLAgentOutput.model_validate(state.sql_output)
+        return SQLStageOutput.model_validate(state.sql_output)
     return None
 
 
 def reset_sql_attempt_update() -> dict[str, Any]:
-    """Reset SQL graph fields before routing into another SQL attempt."""
+    """Reset SQL stage fields before routing into another SQL attempt."""
     return {
         "status": "pending",
         "selected_targets": [],
@@ -127,11 +129,8 @@ def reset_sql_attempt_update() -> dict[str, Any]:
         "repair_hints": [],
         "result": None,
         "attempts": 0,
-        "rationale": None,
         "last_error": None,
-        "suggestions": [],
-        "inspected_targets": [],
-        "plan": None,
+        "sql_hashlines": None,
         "repair_count": 0,
     }
 
@@ -149,22 +148,6 @@ def preferred_sql_targets(extracted_targets: list[dict[str, Any]]) -> list[str]:
     return list(dict.fromkeys(preferred_targets))
 
 
-def orchestrator_result_update(
-    *,
-    content: str,
-    artifact: dict,
-    agent_artifacts: dict[str, dict],
-    active_agent: str | None,
-) -> dict:
-    """Return the graph update that satisfies the orchestrator output schema."""
-    return {
-        "content": content,
-        "artifact": artifact,
-        "agent_artifacts": agent_artifacts,
-        "active_agent": active_agent,
-    }
-
-
 def task_view_slug(task: str) -> str:
     """Return a SQLite-safe slug for an orchestrator task."""
     slug = VIEW_TASK_SLUG_PATTERN.sub("_", task.lower()).strip("_")
@@ -177,10 +160,27 @@ def orchestrator_view_name(run: OrchestratorRun) -> str:
     return f"{DEFAULT_VIEW_NAME}_{task_view_slug(run.task)}_{run.run_id}"
 
 
+def _sql_output_result_fields(
+    sql_output: SQLStageOutput,
+    *,
+    saved_view_name: str | None = None,
+    saved_view: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return result fields carried by one SQL-stage output."""
+    return {
+        "selected_targets": sql_output.selected_targets,
+        "candidate_sql": sql_output.candidate_sql,
+        "sql_result": sql_output.result,
+        "saved_view_name": saved_view_name,
+        "saved_view": saved_view,
+        "sql_path": sql_output.sql_path,
+    }
+
+
 def save_validated_result(
     run: OrchestratorRun,
     *,
-    sql_output: SQLAgentOutput,
+    sql_output: SQLStageOutput,
     validation_attempts: int,
 ) -> tuple[str, dict]:
     """Persist one validated SQL result as a SQLite view and return the final result."""
@@ -196,11 +196,11 @@ def save_validated_result(
             status="error",
             outcome="failed",
             completion_reason="save_failed",
-            selected_targets=sql_output.selected_targets,
-            candidate_sql=sql_output.candidate_sql,
-            sql_result=sql_output.result,
-            saved_view_name=view_name,
-            saved_view=saved_view,
+            **_sql_output_result_fields(
+                sql_output,
+                saved_view_name=view_name,
+                saved_view=saved_view,
+            ),
             last_error=saved_view.get("message", f"Failed to save view {view_name}"),
             validation_feedback=None,
             validation_attempts=validation_attempts,
@@ -211,11 +211,11 @@ def save_validated_result(
         status="saved",
         outcome="fulfilled",
         completion_reason="saved_view",
-        selected_targets=sql_output.selected_targets,
-        candidate_sql=sql_output.candidate_sql,
-        sql_result=sql_output.result,
-        saved_view_name=view_name,
-        saved_view=saved_view,
+        **_sql_output_result_fields(
+            sql_output,
+            saved_view_name=view_name,
+            saved_view=saved_view,
+        ),
         last_error=None,
         validation_feedback=None,
         validation_attempts=validation_attempts,
@@ -240,10 +240,11 @@ def build_sql_failure_result(
             sql_result=None,
             saved_view_name=None,
             saved_view=None,
-            last_error="SQL agent did not run.",
+            sql_path=None,
+            last_error="SQL stage did not run.",
             validation_feedback=loop.validation_feedback,
             validation_attempts=loop.validation_attempts,
-            trace=append_stage_trace(run.trace, SAVE_STAGE, "sql agent did not run"),
+            trace=append_stage_trace(run.trace, SAVE_STAGE, "sql stage did not run"),
         )
 
     if sql_output.status != "complete":
@@ -251,11 +252,7 @@ def build_sql_failure_result(
             status=sql_output.status,
             outcome="blocked" if sql_output.status == "blocked" else "failed",
             completion_reason=("sql_blocked" if sql_output.status == "blocked" else "sql_execution_failed"),
-            selected_targets=sql_output.selected_targets,
-            candidate_sql=sql_output.candidate_sql,
-            sql_result=sql_output.result,
-            saved_view_name=None,
-            saved_view=None,
+            **_sql_output_result_fields(sql_output),
             last_error=sql_output.last_error,
             validation_feedback=loop.validation_feedback,
             validation_attempts=loop.validation_attempts,
@@ -274,11 +271,7 @@ def build_sql_failure_result(
         status="error",
         outcome=outcome,
         completion_reason=completion_reason,
-        selected_targets=sql_output.selected_targets,
-        candidate_sql=sql_output.candidate_sql,
-        sql_result=sql_output.result,
-        saved_view_name=None,
-        saved_view=None,
+        **_sql_output_result_fields(sql_output),
         last_error=last_error,
         validation_feedback=loop.validation_feedback,
         validation_attempts=loop.validation_attempts,

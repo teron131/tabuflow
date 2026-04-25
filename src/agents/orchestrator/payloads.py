@@ -22,7 +22,7 @@ def _preview_list(items: list[Any], *, max_items: int) -> tuple[list[Any], bool]
 
 
 def compact_sql_result(result: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Return the compact SQL result payload stored by the SQL agent."""
+    """Return the compact SQL result payload stored by the SQL stage."""
     if result is None:
         return None
     if result.get("status") != "ok":
@@ -85,7 +85,6 @@ def compact_validation_feedback(feedback: dict[str, Any] | None) -> dict[str, An
         "instructions": preview,
         "instruction_count": len(instructions),
         "instructions_truncated": truncated,
-        "rationale": feedback.get("rationale"),
     }
 
 
@@ -116,6 +115,7 @@ def build_result_artifact(
     validation_feedback: dict[str, Any] | None,
     validation_attempts: int,
     trace: list[str],
+    sql_path: str | None = None,
 ) -> dict[str, Any]:
     """Build the compact execution payload for an orchestrator or tool result."""
     return {
@@ -125,6 +125,7 @@ def build_result_artifact(
         "completion_reason": completion_reason,
         "source_files": source_files,
         "database_path": database_path,
+        "sql_path": sql_path,
         "extracted_targets": compact_extracted_targets(extracted_targets),
         "selected_targets": selected_targets,
         "candidate_sql": candidate_sql,
@@ -146,6 +147,7 @@ def build_result_message(artifact: dict[str, Any]) -> str:
     source_files = [str(item) for item in artifact.get("source_files", [])]
     selected_targets = [str(item) for item in artifact.get("selected_targets", [])]
     saved_view_name = artifact.get("saved_view_name")
+    sql_path = artifact.get("sql_path")
     sql_result = artifact.get("sql_result") or {}
     validation_feedback = artifact.get("validation_feedback") or {}
     completion_reason = artifact.get("completion_reason")
@@ -183,6 +185,8 @@ def build_result_message(artifact: dict[str, Any]) -> str:
 
     if saved_view_name:
         lines.append(f"Saved view: {saved_view_name}")
+    if sql_path:
+        lines.append(f"SQL file: {sql_path}")
 
     feedback_summary = validation_feedback.get("summary")
     if feedback_summary and outcome != "fulfilled":

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from typing import Any, TypeVar
 
 from langchain.agents import create_agent
@@ -13,15 +12,13 @@ from pydantic import BaseModel
 
 from ..clients.openai import ChatOpenAI
 from ..utils import write_langgraph_artifacts
-from .config import DEFAULT_AGENT_MODEL, DEFAULT_REASONING_EFFORT, get_agent_settings
+from .config import DEFAULT_REASONING_EFFORT, resolve_agent_model
 
 StructuredResponse = TypeVar("StructuredResponse", bound=BaseModel)
 
 
 class ApplicationAgent:
     """Base class for agents that share model resolution and graph artifacts."""
-
-    default_model_order: Sequence[str] = ("fast_llm", "quality_llm", "main_llm")
 
     def __init__(
         self,
@@ -39,15 +36,7 @@ class ApplicationAgent:
 
     def resolve_model(self, model: str | None = None) -> str:
         """Resolve the configured model name for this agent."""
-        if model:
-            return model
-
-        settings = get_agent_settings()
-        for setting_name in self.default_model_order:
-            value = getattr(settings, setting_name)
-            if value:
-                return value
-        return DEFAULT_AGENT_MODEL
+        return resolve_agent_model(model)
 
     def build_llm(
         self,

@@ -7,6 +7,7 @@ from .orchestrator import (
     OrchestratorOutput,
     OrchestratorState,
     build_orchestrator_graph,
+    build_query_stage_graph,
     execute_orchestrator,
 )
 from .payloads import build_result_artifact, build_result_message
@@ -24,6 +25,7 @@ __all__ = [
     "OrchestratorOutput",
     "OrchestratorState",
     "build_orchestrator_graph",
+    "build_query_stage_graph",
     "build_result_artifact",
     "build_result_message",
     "execute_orchestrator",

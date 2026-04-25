@@ -1,9 +1,10 @@
 """App-facing file management services."""
 
-from .sql_files import read_sql_file, resolve_sql_path, write_sql_file
+from .sql_files import edit_sql_file, read_sql_file, read_sql_hashlines, write_sql_file
 
 __all__ = [
+    "edit_sql_file",
     "read_sql_file",
-    "resolve_sql_path",
+    "read_sql_hashlines",
     "write_sql_file",
 ]
