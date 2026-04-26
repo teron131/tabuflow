@@ -263,7 +263,6 @@ class OrchestratorNodes:
             {
                 "validate": "validate",
                 "runtime_repair": "runtime_repair",
-                END: END,
             },
         )
         builder.add_edge("runtime_repair", "execute_sql")
@@ -412,13 +411,13 @@ def route_after_prep_stage(state: OrchestratorState) -> str:
 
 
 def route_after_execute_sql(state: OrchestratorState) -> str:
-    """Route completed, repairable, or failed SQL execution."""
+    """Route SQL execution through repair or validation."""
     sql_output = sql_output_from_state(state)
     if sql_output is not None and sql_output.status == "complete":
         return "validate"
     if state.status == "needs_repair" and state.repair_count < state.max_repairs:
         return "runtime_repair"
-    return END
+    return "validate"
 
 
 def route_after_validate(state: OrchestratorState) -> str:
