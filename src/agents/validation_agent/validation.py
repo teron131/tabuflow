@@ -48,7 +48,7 @@ class ValidationAgent(ApplicationAgent):
     def invoke(
         self,
         *,
-        task: str,
+        message: str,
         source_files: list[str],
         extracted_targets: list[dict[str, Any]],
         selected_targets: list[str],
@@ -58,9 +58,9 @@ class ValidationAgent(ApplicationAgent):
         validation_attempts: int,
         config: RunnableConfig | None = None,
     ) -> ValidationOutput:
-        """Validate one SQL result against the original task."""
+        """Validate one SQL result against the original message."""
         validation_input = ValidationInput(
-            task=task,
+            message=message,
             source_files=source_files,
             extracted_targets=extracted_targets,
             selected_targets=selected_targets,

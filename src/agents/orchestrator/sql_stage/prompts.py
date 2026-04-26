@@ -14,13 +14,13 @@ MAX_AGENT_SKILL_REF_PREVIEW = 8
 SQL_DRAFT_SYSTEM_PROMPT = """Draft one read-only SQLite query for the SQL stage.
 
 Rules:
-- The orchestrator/prep stages already chose the task, database, and allowed targets. Trust that context.
+- The orchestrator/prep stages already chose the message, database, and allowed targets. Trust that context.
 - Use only SELECT, WITH, or EXPLAIN.
 - Use only tables/views from `allowed_targets` and `target_context`.
 - `target_context` is shared graph state from the orchestrator/prep stage; do not ask to inspect or discover more targets.
-- Treat `task` as the user request and `validation_feedback` as semantic retry guidance from the validation stage.
+- Treat `message` as the user request and `validation_feedback` as semantic retry guidance from the validation stage.
 - If `validation_feedback` is present, revise the query to address it directly.
-- Do not ask clarifying questions, discover targets, or judge final task fulfillment.
+- Do not ask clarifying questions, discover targets, or judge final request fulfillment.
 - Set `filename_hint` to 3-4 kebab-case noun words that describe the query artifact, for example `gcp-group-totals-sep`.
 - Focus `filename_hint` on concrete nouns from the metric, entity, grouping, source, and period. Avoid verbs like show/get/list and filler words.
 """
@@ -30,7 +30,7 @@ SQL_RUNTIME_REPAIR_SYSTEM_PROMPT = """Repair a SQL file so SQLite can execute it
 Rules:
 - Only fix SQLite execution errors, syntax errors, or identifier errors.
 - Do not change the business meaning unless required to fix execution.
-- Do not judge whether the result satisfies the user task; validation owns that.
+- Do not judge whether the result satisfies the message; validation owns that.
 - Use hashline refs from `sql_hashlines` and return only hashline edits.
 - Prefer deterministic `repair_hints` when they identify replacement columns or targets.
 - Preserve the SQL comment header unless the broken line is inside the header.
@@ -92,7 +92,7 @@ def _message_from_payload(payload: dict[str, Any]) -> list[HumanMessage]:
 def build_draft_messages(state: SQLStageState) -> list[HumanMessage]:
     """Build draft messages for the structured SQL stage model."""
     payload = {
-        "task": state.task,
+        "message": state.message,
         "source_files": state.source_files,
         "worker_context": state.worker_context,
         "skill_refs": _compact_skill_refs(state.skill_refs),
@@ -112,7 +112,7 @@ def build_runtime_repair_messages(
 ) -> list[HumanMessage]:
     """Build runtime-repair messages for SQLite execution errors."""
     payload = {
-        "task": state.task,
+        "message": state.message,
         "allowed_targets": _allowed_targets(state),
         "target_context": _target_context(state),
         "sql_path": state.sql_path,

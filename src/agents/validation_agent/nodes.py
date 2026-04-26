@@ -45,7 +45,7 @@ def deterministic_validation_failure(validation_input: ValidationInput) -> Valid
             valid=False,
             retryable=True,
             summary="SQL returned no rows.",
-            instructions=["Adjust the query so it returns rows that answer the task."],
+            instructions=["Adjust the query so it returns rows that answer the message."],
         )
 
     return None

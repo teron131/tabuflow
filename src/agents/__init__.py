@@ -3,7 +3,7 @@
 from .base import ApplicationAgent
 from .config import AgentSettings, get_agent_settings, resolve_agent_model
 from .orchestrator import Orchestrator
-from .prep_agent import PrepAgent, PrepTaskOutput
+from .prep_agent import PrepAgent, PrepStageOutput
 from .validation_agent import ValidationAgent, ValidationInput, ValidationOutput
 
 __all__ = [
@@ -11,7 +11,7 @@ __all__ = [
     "ApplicationAgent",
     "Orchestrator",
     "PrepAgent",
-    "PrepTaskOutput",
+    "PrepStageOutput",
     "ValidationAgent",
     "ValidationInput",
     "ValidationOutput",

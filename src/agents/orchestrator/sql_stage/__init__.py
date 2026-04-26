@@ -10,11 +10,12 @@ from .state import (
     SQLStageOutput,
     SQLStageRuntimeState,
     SQLStageState,
-    TaskInput,
+    MessageInput,
 )
 
 __all__ = [
     "DraftFn",
+    "MessageInput",
     "RuntimeRepairFn",
     "SQLDraft",
     "SQLRuntimeRepair",
@@ -22,7 +23,6 @@ __all__ = [
     "SQLStageOutput",
     "SQLStageRuntimeState",
     "SQLStageState",
-    "TaskInput",
     "build_sql_drafter",
     "build_sql_runtime_repairer",
 ]

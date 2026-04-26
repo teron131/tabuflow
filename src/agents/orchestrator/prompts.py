@@ -6,10 +6,23 @@ from ..prep_agent.prompts import build_prep_request
 from .skill_context import format_skill_sql_references, summarize_skill_refs
 
 
+def build_user_request_message(
+    *,
+    message: str,
+    source_files: list[str],
+) -> HumanMessage:
+    """Package the public chat entrypoint as the first user message."""
+    source_list = "\n".join(f"- {source_file}" for source_file in source_files) or "- (none)"
+    return HumanMessage(
+        content=f"{message.strip() or '(empty message)'}\n\nDeclared source files:\n{source_list}",
+        name="user",
+    )
+
+
 def build_prep_stage_message(
     prompt: str,
     *,
-    task: str,
+    message: str,
     source_files: list[str],
     worker_instructions: str,
     skill_refs: list[dict],
@@ -18,7 +31,7 @@ def build_prep_stage_message(
     return HumanMessage(
         content=build_prep_request(
             prompt,
-            task,
+            message,
             source_files,
             prep_attempt=1,
             max_prep_trials=1,
@@ -36,7 +49,7 @@ def build_sql_worker_context(
     worker_instructions: str,
     skill_refs: list[dict],
 ) -> str:
-    """Build context that should inform SQL planning without redefining the task."""
+    """Build context that should inform SQL planning without redefining the message."""
     parts = [prompt.strip()] if prompt.strip() else []
     if worker_instructions.strip():
         parts.append(worker_instructions.strip())

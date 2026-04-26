@@ -29,7 +29,10 @@ def list_skills_context(
     config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Return the raw workspace-skills listing payload."""
-    return list_skills.invoke({"path": path}, config=config)
+    return list_skills.invoke(
+        {"path": path},
+        config=config,
+    )
 
 
 def search_skills_context(
@@ -95,13 +98,17 @@ def format_skill_matches(result: dict[str, Any]) -> str:
 
 
 def build_worker_skill_payload(
-    task: str,
+    message: str,
     *,
     path: str = SKILLS_PATH,
     config: RunnableConfig | None = None,
 ) -> WorkerSkillPayload:
     """Search and load matched skills into one worker-ready payload."""
-    search_result = search_skills_context(task, path=path, config=config)
+    search_result = search_skills_context(
+        message,
+        path=path,
+        config=config,
+    )
     matched_skills = list(search_result.get("skills", []))
     worker_sections: list[str] = []
     skill_refs: list[dict[str, Any]] = []

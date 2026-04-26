@@ -20,7 +20,7 @@ Do not invent source files, tables, sheets, or outputs. If the available tools c
 
 Your structured response status must be one of:
 - prepared: the extraction result is ready for downstream SQL work now.
-- blocked: prep cannot proceed safely with the available tools or task clarity.
+- blocked: prep cannot proceed safely with the available tools or message clarity.
 - error: prep failed in a non-retryable way.
 
 Always include a short `summary` field in your structured response, even when the status is `prepared`.
@@ -57,7 +57,7 @@ def summarize_skill_refs(skill_refs: list[dict[str, Any]]) -> str:
 
 def build_prep_request(
     prompt: str,
-    task: str,
+    message: str,
     source_files: list[str],
     *,
     prep_attempt: int,
@@ -73,7 +73,7 @@ def build_prep_request(
         parts.append("Prep stage run.")
     else:
         parts.append(f"Prep trial {prep_attempt} of {max_prep_trials}.")
-    parts.append(f"Source files:\n{format_source_file_list(source_files)}\nTask: {task}")
+    parts.append(f"Source files:\n{format_source_file_list(source_files)}\nMessage: {message}")
     if worker_instructions.strip():
         parts.append(worker_instructions.strip())
     skill_ref_summary = summarize_skill_refs(skill_refs)
@@ -84,7 +84,7 @@ def build_prep_request(
     if retry_instructions:
         parts.append("Retry instructions for this prep trial:\n" + "\n".join(f"- {instruction}" for instruction in retry_instructions))
     parts.append(
-        "Return the data in the final extraction shape best suited for the task. Use tool observations instead of guessing, and try to complete the extraction in this run."
+        "Return the data in the final extraction shape best suited for the message. Use tool observations instead of guessing, and try to complete the extraction in this run."
     )
     return "\n\n".join(parts)
 

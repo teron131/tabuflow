@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ....tools.fs import HashlineEdit
 
@@ -25,50 +25,59 @@ class SQLRuntimeRepair(BaseModel):
     edits: list[HashlineEdit] = Field(default_factory=list, description="Hashline edits to apply to the current SQL file.")
 
 
-class TaskInput(BaseModel):
-    """User task fields shared by orchestration and SQL-stage schemas."""
+class MessageInput(BaseModel):
+    """Chat message fields shared by orchestration and SQL-stage schemas."""
 
-    task: str
-    source_files: list[str] = Field(default_factory=list)
+    message: str = Field(description="Raw chat message that started the workflow turn.")
+    source_files: list[str] = Field(default_factory=list, description="Declared source files provided with the message.")
+
+    @field_validator("message")
+    @classmethod
+    def require_message(cls, value: str) -> str:
+        """Reject blank workflow requests."""
+        message = value.strip()
+        if not message:
+            raise ValueError("message must not be blank.")
+        return message
 
 
 class SQLStageContext(BaseModel):
     """Context fields consumed by SQL-stage nodes."""
 
-    run_id: str = Field(default_factory=lambda: uuid4().hex[:8])
-    database_path: str | None = None
-    sql_path: str | None = None
-    preferred_targets: list[str] = Field(default_factory=list)
-    extracted_targets: list[dict[str, Any]] = Field(default_factory=list)
-    worker_context: str = ""
-    skill_refs: list[dict[str, Any]] = Field(default_factory=list)
-    validation_feedback: dict[str, Any] | None = None
-    max_repairs: int = 2
+    run_id: str = Field(default_factory=lambda: uuid4().hex[:8], description="Short workflow run identifier used for generated artifacts.")
+    database_path: str | None = Field(default=None, description="SQLite database path prepared for SQL execution.")
+    sql_path: str | None = Field(default=None, description="Path to the current SQL artifact file.")
+    preferred_targets: list[str] = Field(default_factory=list, description="Preferred SQL target names selected by prep.")
+    extracted_targets: list[dict[str, Any]] = Field(default_factory=list, description="Prepared table or view metadata available to SQL drafting.")
+    worker_context: str = Field(default="", description="Worker-facing context assembled from harness prompt and matched skills.")
+    skill_refs: list[dict[str, Any]] = Field(default_factory=list, description="Loaded skill reference payloads relevant to this run.")
+    validation_feedback: dict[str, Any] | None = Field(default=None, description="Semantic validation feedback for another SQL draft.")
+    max_repairs: int = Field(default=2, description="Maximum SQLite runtime-repair attempts before validation/finalization.")
 
 
 class SQLStageOutput(BaseModel):
     """Output fields produced by the orchestrator-owned SQL stage nodes."""
 
-    status: str = "pending"
-    sql_path: str | None = None
-    selected_targets: list[str] = Field(default_factory=list)
-    candidate_sql: str | None = None
-    repair_hints: list[dict[str, Any]] = Field(default_factory=list)
-    result: dict[str, Any] | None = None
-    attempts: int = 0
-    last_error: str | None = None
-    trace: list[str] = Field(default_factory=list)
+    status: str = Field(default="pending", description="Current SQL-stage status.")
+    sql_path: str | None = Field(default=None, description="Path to the SQL artifact used for the current output.")
+    selected_targets: list[str] = Field(default_factory=list, description="SQL targets selected by the current draft.")
+    candidate_sql: str | None = Field(default=None, description="Current SQL text read from or written to the SQL artifact.")
+    repair_hints: list[dict[str, Any]] = Field(default_factory=list, description="Deterministic hints for repairing SQLite runtime errors.")
+    result: dict[str, Any] | None = Field(default=None, description="SQLite execution result payload.")
+    attempts: int = Field(default=0, description="Number of SQL execution attempts made in the current loop.")
+    last_error: str | None = Field(default=None, description="Most recent SQL-stage error message.")
+    trace: list[str] = Field(default_factory=list, description="Compact SQL-stage trace messages.")
 
 
 class SQLStageRuntimeState(BaseModel):
     """Transient state used inside SQL runtime-repair loops."""
 
-    sql_hashlines: str | None = None
-    repair_count: int = 0
+    sql_hashlines: str | None = Field(default=None, description="Hashline view of the current SQL artifact for targeted repair.")
+    repair_count: int = Field(default=0, description="Number of runtime-repair passes already attempted.")
 
 
 class SQLStageState(
-    TaskInput,
+    MessageInput,
     SQLStageContext,
     SQLStageOutput,
     SQLStageRuntimeState,

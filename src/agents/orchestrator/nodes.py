@@ -4,12 +4,13 @@ from pathlib import Path
 from typing import Any
 
 from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import patch_config
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from ..prep_agent import PrepAgent, PrepTaskOutput
+from ..prep_agent import PrepAgent, PrepStageOutput
 from ..prep_agent.payloads import collect_extracted_targets
 from ..prep_agent.prep_agent import collect_prep_trial_result
 from ..prep_agent.state import PrepAgentDecision
@@ -21,7 +22,7 @@ from ..trace_utils import (
     append_trace_messages,
 )
 from ..validation_agent import ValidationAgent
-from .prompts import build_prep_stage_message, build_sql_worker_context
+from .prompts import build_prep_stage_message, build_sql_worker_context, build_user_request_message
 from .runtime import (
     PREP_AGENT_NAME,
     SQL_STAGE_NAME,
@@ -40,6 +41,11 @@ from .sql_stage.nodes import execute_node, make_runtime_repair_node, make_write_
 from .state import OrchestratorState
 
 
+def stage_report_message(name: str, content: str) -> AIMessage:
+    """Build a compact stage report for the shared conversation spine."""
+    return AIMessage(content=content, name=name)
+
+
 class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepAgentDecision]):
     """Collect the prep ReAct graph output into shared orchestrator fields."""
 
@@ -53,7 +59,7 @@ class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepAgentDec
         """Store prep artifacts after the create_agent graph reaches its end."""
         _ = runtime
         state = normalize_orchestrator_state(state)
-        prep_output = build_prep_task_output(state)
+        prep_output = build_prep_stage_output(state)
         prep_artifact = prep_output.model_dump(mode="json")
         agent_artifacts = {
             **state.agent_artifacts,
@@ -70,7 +76,7 @@ class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepAgentDec
         }
 
 
-def build_prep_task_output(state: OrchestratorState | dict[str, Any]) -> PrepTaskOutput:
+def build_prep_stage_output(state: OrchestratorState | dict[str, Any]) -> PrepStageOutput:
     """Collect the visible prep ReAct graph result into orchestrator state."""
     state = normalize_orchestrator_state(state)
 
@@ -99,7 +105,7 @@ def build_prep_task_output(state: OrchestratorState | dict[str, Any]) -> PrepTas
     extraction_ready = trial_error is None and len(database_paths) == 1 and bool(extracted_targets)
     if extraction_ready:
         database_path = next(iter(database_paths))
-        return PrepTaskOutput(
+        return PrepStageOutput(
             status="prepared",
             database_path=database_path,
             extraction_results=trial.extraction_results,
@@ -115,7 +121,7 @@ def build_prep_task_output(state: OrchestratorState | dict[str, Any]) -> PrepTas
     last_error = trial_error
     if decision is not None:
         last_error = decision.last_error or last_error or decision.summary
-    return PrepTaskOutput(
+    return PrepStageOutput(
         status="error",
         extraction_results=trial.extraction_results,
         extracted_targets=extracted_targets,
@@ -142,7 +148,7 @@ def workflow_trace_from_state(
     if state.prep_output is None:
         trace = append_trace_messages(trace, state.trace)
     else:
-        prep_output = PrepTaskOutput.model_validate(state.prep_output)
+        prep_output = PrepStageOutput.model_validate(state.prep_output)
         trace = append_trace_messages(trace, prep_output.trace)
 
     if sql_output is None:
@@ -194,22 +200,25 @@ class OrchestratorNodes:
         state: OrchestratorState,
         config: RunnableConfig | None = None,
     ) -> dict[str, Any]:
-        """Load task-relevant skill context into the parent orchestrator state."""
+        """Load message-relevant skill context into the parent orchestrator state."""
         skill_payload = build_worker_skill_payload(
-            state.task,
+            state.message,
             config=patch_config(config, run_name="skills_context"),
         )
         return {
-            "worker_instructions": skill_payload.worker_instructions,
             "skill_refs": skill_payload.skill_refs,
             "messages": [
+                build_user_request_message(
+                    message=state.message,
+                    source_files=state.source_files,
+                ),
                 build_prep_stage_message(
                     self.prompt,
-                    task=state.task,
+                    message=state.message,
                     source_files=state.source_files,
                     worker_instructions=skill_payload.worker_instructions,
                     skill_refs=skill_payload.skill_refs,
-                )
+                ),
             ],
             "worker_context": build_sql_worker_context(
                 self.prompt,
@@ -228,23 +237,44 @@ class OrchestratorNodes:
 
     def write_sql(self, state: OrchestratorState) -> dict[str, Any]:
         """Write the SQL artifact directly from shared orchestrator state."""
+        update = self.sql_write_node(state)
+        if update.get("status") == "written":
+            content = f"Wrote SQL artifact {update.get('sql_path')} for targets: {', '.join(update.get('selected_targets', [])) or 'none'}."
+        else:
+            content = f"SQL write ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No SQL artifact was written.'}"
         return {
-            **self.sql_write_node(state),
+            **update,
             "active_agent": SQL_STAGE_NAME,
+            "messages": [stage_report_message(SQL_STAGE_NAME, content)],
         }
 
     def execute_sql(self, state: OrchestratorState) -> dict[str, Any]:
         """Execute the current SQL artifact directly from the orchestrator graph."""
+        update = execute_node(state)
+        if update.get("status") == "complete":
+            row_count = (update.get("result") or {}).get("row_count")
+            content = f"Executed SQL successfully on attempt {update.get('attempts')}; row_count={row_count}."
+        elif update.get("status") == "needs_repair":
+            content = f"SQL execution needs runtime repair after attempt {update.get('attempts')}: {update.get('last_error')}"
+        else:
+            content = f"SQL execution ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No executable SQL result.'}"
         return {
-            **execute_node(state),
+            **update,
             "active_agent": SQL_STAGE_NAME,
+            "messages": [stage_report_message(SQL_STAGE_NAME, content)],
         }
 
     def runtime_repair_sql(self, state: OrchestratorState) -> dict[str, Any]:
         """Repair SQLite runtime errors by editing the current SQL artifact."""
+        update = self.sql_runtime_repair_node(state)
+        if update.get("status") == "repaired":
+            content = f"Runtime repair pass {update.get('repair_count')} edited SQL artifact {update.get('sql_path')}."
+        else:
+            content = f"Runtime repair ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No SQL repair was applied.'}"
         return {
-            **self.sql_runtime_repair_node(state),
+            **update,
             "active_agent": SQL_STAGE_NAME,
+            "messages": [stage_report_message(SQL_STAGE_NAME, content)],
         }
 
     def query_stage_graph(self, *, name: str = "query_stage") -> CompiledStateGraph:
@@ -292,10 +322,11 @@ class OrchestratorNodes:
                 },
                 "trace": append_stage_trace(state.trace, VALIDATION_STAGE, "could not find a SQL output"),
                 "active_agent": VALIDATION_AGENT_NAME,
+                "messages": [stage_report_message(VALIDATION_AGENT_NAME, "Validation could not find a SQL output.")],
             }
         sql_artifact = sql_output.model_dump(mode="json")
         validation_output = self.validation_agent.invoke(
-            task=state.task,
+            message=state.message,
             source_files=state.source_files,
             extracted_targets=state.extracted_targets,
             selected_targets=sql_output.selected_targets,
@@ -319,9 +350,10 @@ class OrchestratorNodes:
                 "validation_feedback": None,
                 "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, "accepted the SQL result"),
                 "active_agent": None,
+                "messages": [stage_report_message(VALIDATION_AGENT_NAME, validation_output.summary.strip() or "Validation accepted the SQL result.")],
             }
 
-        summary = validation_output.summary.strip() or "The SQL result does not appear to fully satisfy the task."
+        summary = validation_output.summary.strip() or "The SQL result does not appear to fully satisfy the user message."
         instructions = [instruction.strip() for instruction in validation_output.instructions if instruction.strip()]
         validation_feedback = {
             "retryable": validation_output.retryable,
@@ -336,6 +368,7 @@ class OrchestratorNodes:
             "validation_attempts": state.validation_attempts + 1,
             "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, f"requested another SQL attempt: {validation_feedback['summary']}"),
             "active_agent": VALIDATION_AGENT_NAME,
+            "messages": [stage_report_message(VALIDATION_AGENT_NAME, f"Validation requested another SQL attempt: {validation_feedback['summary']}")],
         }
 
     def save(self, state: OrchestratorState) -> dict[str, Any]:
@@ -356,6 +389,12 @@ class OrchestratorNodes:
             "artifact": artifact,
             "agent_artifacts": state.agent_artifacts,
             "active_agent": None,
+            "messages": [
+                stage_report_message(
+                    "save",
+                    f"Save completed with status={artifact.get('status')} and completion_reason={artifact.get('completion_reason')}.",
+                )
+            ],
         }
 
     def finalize(self, state: OrchestratorState) -> dict[str, Any]:
@@ -366,10 +405,11 @@ class OrchestratorNodes:
                 "artifact": state.artifact,
                 "agent_artifacts": state.agent_artifacts,
                 "active_agent": state.active_agent,
+                "messages": [stage_report_message("finalize", "Finalize reused the existing terminal result.")],
             }
 
         run = orchestrator_run_from_state(state)
-        prep_output = None if state.prep_output is None else PrepTaskOutput.model_validate(state.prep_output)
+        prep_output = None if state.prep_output is None else PrepStageOutput.model_validate(state.prep_output)
         if prep_output is None or prep_output.status != "prepared":
             content, artifact = run.result(
                 status="error",
@@ -390,6 +430,7 @@ class OrchestratorNodes:
                 "artifact": artifact,
                 "agent_artifacts": state.agent_artifacts,
                 "active_agent": PREP_AGENT_NAME,
+                "messages": [stage_report_message("finalize", f"Finalized prep failure: {artifact.get('last_error')}")],
             }
 
         content, artifact = build_sql_failure_result(
@@ -401,12 +442,18 @@ class OrchestratorNodes:
             "artifact": artifact,
             "agent_artifacts": state.agent_artifacts,
             "active_agent": (VALIDATION_AGENT_NAME if state.validation_feedback is not None else SQL_STAGE_NAME),
+            "messages": [
+                stage_report_message(
+                    "finalize",
+                    f"Finalized query-stage result with status={artifact.get('status')} and completion_reason={artifact.get('completion_reason')}.",
+                )
+            ],
         }
 
 
 def route_after_prep_stage(state: OrchestratorState) -> str:
     """Route to SQL only after prep produces a usable database target."""
-    prep_output = None if state.prep_output is None else PrepTaskOutput.model_validate(state.prep_output)
+    prep_output = None if state.prep_output is None else PrepStageOutput.model_validate(state.prep_output)
     return "query_stage" if prep_output is not None and prep_output.status == "prepared" else "finalize"
 
 

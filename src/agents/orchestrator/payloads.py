@@ -99,7 +99,7 @@ def _preview_names(items: list[str], *, max_items: int) -> str:
 
 def build_result_artifact(
     *,
-    task: str,
+    message: str,
     status: str,
     outcome: str,
     completion_reason: str | None,
@@ -119,7 +119,7 @@ def build_result_artifact(
 ) -> dict[str, Any]:
     """Build the compact execution payload for an orchestrator or tool result."""
     return {
-        "task": task,
+        "message": message,
         "status": status,
         "outcome": outcome,
         "completion_reason": completion_reason,
@@ -143,7 +143,7 @@ def build_result_message(artifact: dict[str, Any]) -> str:
     """Render a concise, deterministic summary for an orchestrator caller."""
     outcome = str(artifact.get("outcome", "pending"))
     status = str(artifact.get("status", "pending"))
-    task = str(artifact.get("task", "")).strip()
+    message = str(artifact.get("message") or "").strip()
     source_files = [str(item) for item in artifact.get("source_files", [])]
     selected_targets = [str(item) for item in artifact.get("selected_targets", [])]
     saved_view_name = artifact.get("saved_view_name")
@@ -164,8 +164,8 @@ def build_result_message(artifact: dict[str, Any]) -> str:
         headline = f"Orchestrator finished with status={status}."
 
     lines = [headline]
-    if task:
-        lines.append(f"Task: {task}")
+    if message:
+        lines.append(f"Request: {message}")
     lines.append(f"Source files: {_preview_names(source_files, max_items=MAX_SOURCE_FILE_PREVIEW)}")
 
     extracted_targets = artifact.get("extracted_targets") or {}

@@ -188,7 +188,7 @@ def make_write_node(
             draft.sql,
             state.sql_path,
             run_id=state.run_id,
-            description=state.task,
+            description=state.message,
             filename_hint=draft.filename_hint,
             selected_targets=selected_targets,
         )

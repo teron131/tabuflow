@@ -12,18 +12,18 @@ from .sql_stage import SQLStageOutput
 from .state import OrchestratorState
 
 DEFAULT_VIEW_NAME = "analysis_result"
-MAX_VIEW_TASK_SLUG_CHARS = 48
+MAX_VIEW_REQUEST_SLUG_CHARS = 48
 PREP_AGENT_NAME = "prep_agent"
 SQL_STAGE_NAME = "sql_stage"
 VALIDATION_AGENT_NAME = "validation_agent"
-VIEW_TASK_SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
+VIEW_MESSAGE_SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
 @dataclass
 class OrchestratorRun:
     """Shared orchestrator run state used across prep, SQL, and save stages."""
 
-    task: str
+    message: str
     source_files: list[str]
     run_id: str = field(default_factory=lambda: uuid4().hex[:8])
     trace: list[str] = field(default_factory=list)
@@ -49,7 +49,7 @@ class OrchestratorRun:
     ) -> tuple[str, dict[str, Any]]:
         """Build the caller-facing result from the current run state."""
         artifact = build_result_artifact(
-            task=self.task,
+            message=self.message,
             status=status,
             outcome=outcome,
             completion_reason=completion_reason,
@@ -82,7 +82,7 @@ class SqlLoopResult:
 def orchestrator_run_from_state(state: OrchestratorState) -> OrchestratorRun:
     """Rebuild the result-shaping run object from graph state."""
     return OrchestratorRun(
-        task=state.task,
+        message=state.message,
         source_files=state.source_files,
         run_id=state.run_id,
         trace=state.trace,
@@ -148,16 +148,16 @@ def preferred_sql_targets(extracted_targets: list[dict[str, Any]]) -> list[str]:
     return list(dict.fromkeys(preferred_targets))
 
 
-def task_view_slug(task: str) -> str:
-    """Return a SQLite-safe slug for an orchestrator task."""
-    slug = VIEW_TASK_SLUG_PATTERN.sub("_", task.lower()).strip("_")
-    bounded_slug = slug[:MAX_VIEW_TASK_SLUG_CHARS].strip("_")
+def request_view_slug(message: str) -> str:
+    """Return a SQLite-safe slug for an orchestrator message."""
+    slug = VIEW_MESSAGE_SLUG_PATTERN.sub("_", message.lower()).strip("_")
+    bounded_slug = slug[:MAX_VIEW_REQUEST_SLUG_CHARS].strip("_")
     return bounded_slug or "run"
 
 
 def orchestrator_view_name(run: OrchestratorRun) -> str:
     """Return the per-run saved result view name."""
-    return f"{DEFAULT_VIEW_NAME}_{task_view_slug(run.task)}_{run.run_id}"
+    return f"{DEFAULT_VIEW_NAME}_{request_view_slug(run.message)}_{run.run_id}"
 
 
 def _sql_output_result_fields(

@@ -46,6 +46,36 @@ def patch_prep_recursion_limit(
     return patch_config(config, recursion_limit=required_limit)
 
 
+OrchestratorRequest = str | OrchestratorInput | dict[str, Any]
+
+
+def build_orchestrator_input(
+    message: OrchestratorRequest | None,
+    *,
+    source_files: list[str] | None = None,
+    max_validation_retries: int = 2,
+) -> OrchestratorInput:
+    """Normalize chat-facing input into the orchestrator state schema."""
+    if isinstance(message, OrchestratorInput):
+        return message
+    if isinstance(message, dict):
+        payload = dict(message)
+        if source_files is not None:
+            payload.setdefault("source_files", source_files)
+        else:
+            payload.setdefault("source_files", [])
+        payload.setdefault("max_validation_retries", max_validation_retries)
+        return OrchestratorInput.model_validate(payload)
+
+    if message is None:
+        raise ValueError("Orchestrator.invoke() requires a message.")
+    return OrchestratorInput(
+        message=message,
+        source_files=source_files or [],
+        max_validation_retries=max_validation_retries,
+    )
+
+
 class Orchestrator(ApplicationAgent):
     """Top-level orchestrator whose graph is the staged data-analysis flow."""
 
@@ -87,23 +117,18 @@ class Orchestrator(ApplicationAgent):
 
     def invoke(
         self,
-        task: str | OrchestratorInput | dict[str, Any],
+        message: OrchestratorRequest | None = None,
         *,
         source_files: list[str] | None = None,
         max_validation_retries: int = 2,
         config: RunnableConfig | None = None,
     ) -> dict[str, Any]:
         """Run one orchestrator graph invocation."""
-        if isinstance(task, OrchestratorInput):
-            payload = task
-        elif isinstance(task, dict):
-            payload = OrchestratorInput.model_validate(task)
-        else:
-            payload = OrchestratorInput(
-                task=task,
-                source_files=source_files or [],
-                max_validation_retries=max_validation_retries,
-            )
+        payload = build_orchestrator_input(
+            message,
+            source_files=source_files,
+            max_validation_retries=max_validation_retries,
+        )
         return self.graph.invoke(
             payload,
             config=patch_prep_recursion_limit(config, source_files=payload.source_files),
@@ -111,7 +136,7 @@ class Orchestrator(ApplicationAgent):
 
     def answer(
         self,
-        task: str | OrchestratorInput | dict[str, Any],
+        message: OrchestratorRequest | None = None,
         *,
         source_files: list[str] | None = None,
         max_validation_retries: int = 2,
@@ -119,7 +144,7 @@ class Orchestrator(ApplicationAgent):
     ) -> str:
         """Return the final content for one orchestrator graph invocation."""
         result = self.invoke(
-            task,
+            message,
             source_files=source_files,
             max_validation_retries=max_validation_retries,
             config=config,
@@ -131,7 +156,7 @@ class Orchestrator(ApplicationAgent):
 def trace_orchestrator_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     """Keep LangSmith orchestrator inputs focused on the public request."""
     return {
-        "task": inputs.get("task"),
+        "message": inputs.get("message"),
         "source_files": inputs.get("source_files"),
         "prep_recursion_limit": prep_recursion_limit(inputs.get("source_files") or []),
         "max_validation_retries": inputs.get("max_validation_retries"),
@@ -158,8 +183,8 @@ def trace_orchestrator_outputs(output: OrchestratorExecutionResult) -> dict[str,
 )
 def execute_orchestrator(
     *,
-    task: str,
-    source_files: list[str],
+    message: str | None = None,
+    source_files: list[str] | None = None,
     max_validation_retries: int = 2,
     prompt: str = "",
     root_dir: str | Path | None = None,
@@ -180,7 +205,7 @@ def execute_orchestrator(
         sql_runtime_repairer=sql_runtime_repairer,
         validation_agent=validation_agent,
     ).invoke(
-        task,
+        message,
         source_files=source_files,
         max_validation_retries=max_validation_retries,
         config=config,
@@ -198,6 +223,7 @@ __all__ = [
     "OrchestratorState",
     "SqlLoopResult",
     "build_orchestrator_graph",
+    "build_orchestrator_input",
     "build_query_stage_graph",
     "execute_orchestrator",
     "prep_recursion_limit",

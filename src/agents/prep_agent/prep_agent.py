@@ -14,28 +14,15 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import patch_config
 from langgraph.graph.state import CompiledStateGraph
-from pydantic import BaseModel, Field
 
 from ...tools.tabular import make_tabular_tools
 from ..base import ApplicationAgent
 from ..trace_utils import PREP_STAGE, append_stage_trace, append_trace
 from .payloads import collect_extracted_targets
 from .prompts import PREP_AGENT_SYSTEM_PROMPT, build_prep_request, parse_tool_content
-from .state import PrepAgentDecision
+from .state import PrepAgentDecision, PrepStageOutput
 
 PREP_AGENT_RECURSION_LIMIT = 12
-
-
-class PrepTaskOutput(BaseModel):
-    """Normalized prep result returned to orchestrator-owned workflows."""
-
-    status: str = "pending"
-    database_path: str | None = None
-    extraction_results: list[dict[str, Any]] = Field(default_factory=list)
-    extracted_targets: list[dict[str, Any]] = Field(default_factory=list)
-    last_error: str | None = None
-    prep_attempts: int = 0
-    trace: list[str] = Field(default_factory=list)
 
 
 @dataclass
@@ -154,14 +141,14 @@ class PrepAgent(ApplicationAgent):
 
     def invoke(
         self,
-        task: str,
+        message: str,
         *,
         source_files: list[str],
         worker_instructions: str = "",
         skill_refs: list[dict[str, Any]] | None = None,
         max_prep_trials: int = 2,
         config: RunnableConfig | None = None,
-    ) -> PrepTaskOutput:
+    ) -> PrepStageOutput:
         """Run the prep agent in bounded trials and normalize the final outputs."""
         safe_max_prep_trials = max(1, max_prep_trials)
         trace: list[str] = []
@@ -172,7 +159,7 @@ class PrepAgent(ApplicationAgent):
         for prep_attempt in range(1, safe_max_prep_trials + 1):
             request = build_prep_request(
                 self.prompt,
-                task,
+                message,
                 source_files,
                 prep_attempt=prep_attempt,
                 max_prep_trials=safe_max_prep_trials,
@@ -206,7 +193,7 @@ class PrepAgent(ApplicationAgent):
             if extraction_ready:
                 database_path = next(iter(database_paths))
                 success_message = f"prepared {len(extracted_targets)} target(s) into {database_path}"
-                return PrepTaskOutput(
+                return PrepStageOutput(
                     status="prepared",
                     database_path=database_path,
                     extraction_results=trial.extraction_results,
@@ -221,7 +208,7 @@ class PrepAgent(ApplicationAgent):
 
             if decision is not None and decision.status in {"blocked", "error"}:
                 stop_message = f"stopped after trial {prep_attempt} with status={decision.status}"
-                return PrepTaskOutput(
+                return PrepStageOutput(
                     status="error",
                     extraction_results=trial.extraction_results,
                     extracted_targets=extracted_targets,
@@ -243,7 +230,7 @@ class PrepAgent(ApplicationAgent):
                 )
 
         if last_trial is None:
-            return PrepTaskOutput(
+            return PrepStageOutput(
                 status="error",
                 last_error="Prep agent did not run.",
                 trace=append_stage_trace(trace, PREP_STAGE, "failed before starting"),
@@ -257,7 +244,7 @@ class PrepAgent(ApplicationAgent):
             or (final_decision.summary if final_decision else None)
             or f"Prep agent exhausted {safe_max_prep_trials} trial(s) without a usable extraction."
         )
-        return PrepTaskOutput(
+        return PrepStageOutput(
             status="error",
             extraction_results=last_trial.extraction_results,
             extracted_targets=collect_extracted_targets(last_trial.extraction_results),
