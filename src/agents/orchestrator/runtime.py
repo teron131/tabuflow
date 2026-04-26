@@ -177,13 +177,14 @@ def _sql_output_result_fields(
     }
 
 
-def save_validated_result(
+def save_sql_result(
     run: OrchestratorRun,
     *,
     sql_output: SQLStageOutput,
+    validation_feedback: dict[str, Any] | None,
     validation_attempts: int,
 ) -> tuple[str, dict]:
-    """Persist one validated SQL result as a SQLite view and return the final result."""
+    """Persist one completed SQL result as a SQLite view and return the final result."""
     view_name = orchestrator_view_name(run)
     saved_view = save_view(
         sql_output.candidate_sql,
@@ -202,9 +203,30 @@ def save_validated_result(
                 saved_view=saved_view,
             ),
             last_error=saved_view.get("message", f"Failed to save view {view_name}"),
-            validation_feedback=None,
+            validation_feedback=validation_feedback,
             validation_attempts=validation_attempts,
             trace=append_stage_trace(run.trace, SAVE_STAGE, f"failed for view {view_name}"),
+        )
+
+    if validation_feedback:
+        completion_reason = "validation_attempt_limit_saved_view"
+        outcome = "failed"
+        if not validation_feedback.get("retryable", True):
+            completion_reason = "validation_blocked_saved_view"
+            outcome = "blocked"
+        return run.result(
+            status="saved",
+            outcome=outcome,
+            completion_reason=completion_reason,
+            **_sql_output_result_fields(
+                sql_output,
+                saved_view_name=view_name,
+                saved_view=saved_view,
+            ),
+            last_error=validation_feedback["summary"],
+            validation_feedback=validation_feedback,
+            validation_attempts=validation_attempts,
+            trace=append_stage_trace(run.trace, SAVE_STAGE, f"saved invalid result as view {view_name}"),
         )
 
     return run.result(

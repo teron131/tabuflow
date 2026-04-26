@@ -8,7 +8,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from ..prep_agent import PrepAgent
 from ..validation_agent import ValidationAgent
-from .nodes import OrchestratorNodes, route_after_prep_stage, route_after_query_stage
+from .nodes import OrchestratorNodes, route_after_prep_stage
 from .sql_stage import DraftFn, RuntimeRepairFn
 from .state import OrchestratorInput, OrchestratorOutput, OrchestratorState
 
@@ -43,7 +43,6 @@ def build_orchestrator_graph(
     builder.add_node("skill_context", nodes.skill_context)
     builder.add_node("prep_stage", nodes.prep_stage_graph())
     builder.add_node("query_stage", nodes.query_stage_graph())
-    builder.add_node("save", nodes.save)
     builder.add_node("answer", nodes.answer)
     builder.add_edge(START, "skill_context")
     builder.add_edge("skill_context", "prep_stage")
@@ -55,15 +54,7 @@ def build_orchestrator_graph(
             "answer": "answer",
         },
     )
-    builder.add_conditional_edges(
-        "query_stage",
-        route_after_query_stage,
-        {
-            "save": "save",
-            "answer": "answer",
-        },
-    )
-    builder.add_edge("save", "answer")
+    builder.add_edge("query_stage", "answer")
     builder.add_edge("answer", END)
     return builder.compile(name=name)
 

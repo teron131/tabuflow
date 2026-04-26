@@ -31,7 +31,7 @@ from .runtime import (
     orchestrator_run_from_state,
     preferred_sql_targets,
     reset_sql_attempt_update,
-    save_validated_result,
+    save_sql_result,
     sql_loop_from_state,
     sql_output_from_state,
 )
@@ -284,6 +284,7 @@ class OrchestratorNodes:
         builder.add_node("execute_sql", self.execute_sql)
         builder.add_node("runtime_repair", self.runtime_repair_sql)
         builder.add_node("validate", self.validate)
+        builder.add_node("save_view", self.save_view)
 
         builder.add_edge(START, "write_sql")
         builder.add_edge("write_sql", "execute_sql")
@@ -301,9 +302,10 @@ class OrchestratorNodes:
             route_after_validate,
             {
                 "write_sql": "write_sql",
-                END: END,
+                "save_view": "save_view",
             },
         )
+        builder.add_edge("save_view", END)
         return builder.compile(name=name)
 
     def validate(
@@ -371,17 +373,19 @@ class OrchestratorNodes:
             "messages": [stage_report_message(VALIDATION_AGENT_NAME, f"Validation requested another SQL attempt: {validation_feedback['summary']}")],
         }
 
-    def save(self, state: OrchestratorState) -> dict[str, Any]:
-        """Persist a validated SQL result before the answer node returns it."""
-        if state.sql_output is None:
+    def save_view(self, state: OrchestratorState) -> dict[str, Any]:
+        """Persist a completed SQL result before the answer node returns it."""
+        sql_output = None if state.sql_output is None else SQLStageOutput.model_validate(state.sql_output)
+        if sql_output is None or sql_output.status != "complete":
             content, artifact = build_sql_failure_result(
                 orchestrator_run_from_state(state),
                 loop=sql_loop_from_state(state),
             )
         else:
-            content, artifact = save_validated_result(
+            content, artifact = save_sql_result(
                 orchestrator_run_from_state(state),
-                sql_output=SQLStageOutput.model_validate(state.sql_output),
+                sql_output=sql_output,
+                validation_feedback=state.validation_feedback,
                 validation_attempts=state.validation_attempts,
             )
         return {
@@ -391,8 +395,8 @@ class OrchestratorNodes:
             "active_agent": None,
             "messages": [
                 stage_report_message(
-                    "save",
-                    f"Save completed with status={artifact.get('status')} and completion_reason={artifact.get('completion_reason')}.",
+                    "save_view",
+                    f"Save view completed with status={artifact.get('status')} and completion_reason={artifact.get('completion_reason')}.",
                 )
             ],
         }
@@ -468,19 +472,9 @@ def route_after_execute_sql(state: OrchestratorState) -> str:
 
 
 def route_after_validate(state: OrchestratorState) -> str:
-    """Route validation retry or end the query-stage loop."""
+    """Route validation retry, save-view persistence, or end the query-stage loop."""
     if state.validation_feedback is None:
-        return END
-    if not state.validation_feedback.get("retryable", True):
-        return END
-    if state.validation_attempts <= state.max_validation_retries:
+        return "save_view"
+    if state.validation_feedback.get("retryable", True) and state.validation_attempts <= state.max_validation_retries:
         return "write_sql"
-    return END
-
-
-def route_after_query_stage(state: OrchestratorState) -> str:
-    """Route a completed query stage to save or terminal answering."""
-    sql_output = sql_output_from_state(state)
-    if sql_output is not None and sql_output.status == "complete" and state.validation_feedback is None:
-        return "save"
-    return "answer"
+    return "save_view"
