@@ -8,11 +8,12 @@ graph LR;
 	prep_stage(prep_stage)
 	query_stage(query_stage)
 	save(save)
-	finalize(finalize)
-	prep_stage --> finalize;
+	answer(answer)
+	prep_stage --> answer;
 	prep_stage --> query_stage;
-	query_stage --> finalize;
+	query_stage --> answer;
 	query_stage --> save;
+	save --> answer;
 	skill_context --> prep_stage;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0

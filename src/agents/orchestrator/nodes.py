@@ -372,7 +372,7 @@ class OrchestratorNodes:
         }
 
     def save(self, state: OrchestratorState) -> dict[str, Any]:
-        """Persist a validated SQL result as the terminal orchestrator artifact."""
+        """Persist a validated SQL result before the answer node returns it."""
         if state.sql_output is None:
             content, artifact = build_sql_failure_result(
                 orchestrator_run_from_state(state),
@@ -397,15 +397,15 @@ class OrchestratorNodes:
             ],
         }
 
-    def finalize(self, state: OrchestratorState) -> dict[str, Any]:
-        """Build the terminal orchestrator artifact for blocked or failed runs."""
+    def answer(self, state: OrchestratorState) -> dict[str, Any]:
+        """Build or return the terminal user-facing orchestrator answer."""
         if state.content and state.artifact:
             return {
                 "content": state.content,
                 "artifact": state.artifact,
                 "agent_artifacts": state.agent_artifacts,
                 "active_agent": state.active_agent,
-                "messages": [stage_report_message("finalize", "Finalize reused the existing terminal result.")],
+                "messages": [stage_report_message("answer", "Answer reused the existing terminal result.")],
             }
 
         run = orchestrator_run_from_state(state)
@@ -430,7 +430,7 @@ class OrchestratorNodes:
                 "artifact": artifact,
                 "agent_artifacts": state.agent_artifacts,
                 "active_agent": PREP_AGENT_NAME,
-                "messages": [stage_report_message("finalize", f"Finalized prep failure: {artifact.get('last_error')}")],
+                "messages": [stage_report_message("answer", f"Answered prep failure: {artifact.get('last_error')}")],
             }
 
         content, artifact = build_sql_failure_result(
@@ -444,8 +444,8 @@ class OrchestratorNodes:
             "active_agent": (VALIDATION_AGENT_NAME if state.validation_feedback is not None else SQL_STAGE_NAME),
             "messages": [
                 stage_report_message(
-                    "finalize",
-                    f"Finalized query-stage result with status={artifact.get('status')} and completion_reason={artifact.get('completion_reason')}.",
+                    "answer",
+                    f"Answered query-stage result with status={artifact.get('status')} and completion_reason={artifact.get('completion_reason')}.",
                 )
             ],
         }
@@ -454,7 +454,7 @@ class OrchestratorNodes:
 def route_after_prep_stage(state: OrchestratorState) -> str:
     """Route to SQL only after prep produces a usable database target."""
     prep_output = None if state.prep_output is None else PrepStageOutput.model_validate(state.prep_output)
-    return "query_stage" if prep_output is not None and prep_output.status == "prepared" else "finalize"
+    return "query_stage" if prep_output is not None and prep_output.status == "prepared" else "answer"
 
 
 def route_after_execute_sql(state: OrchestratorState) -> str:
@@ -479,8 +479,8 @@ def route_after_validate(state: OrchestratorState) -> str:
 
 
 def route_after_query_stage(state: OrchestratorState) -> str:
-    """Route a completed query stage to save or terminal finalization."""
+    """Route a completed query stage to save or terminal answering."""
     sql_output = sql_output_from_state(state)
     if sql_output is not None and sql_output.status == "complete" and state.validation_feedback is None:
         return "save"
-    return "finalize"
+    return "answer"

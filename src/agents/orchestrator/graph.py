@@ -44,7 +44,7 @@ def build_orchestrator_graph(
     builder.add_node("prep_stage", nodes.prep_stage_graph())
     builder.add_node("query_stage", nodes.query_stage_graph())
     builder.add_node("save", nodes.save)
-    builder.add_node("finalize", nodes.finalize)
+    builder.add_node("answer", nodes.answer)
     builder.add_edge(START, "skill_context")
     builder.add_edge("skill_context", "prep_stage")
     builder.add_conditional_edges(
@@ -52,7 +52,7 @@ def build_orchestrator_graph(
         route_after_prep_stage,
         {
             "query_stage": "query_stage",
-            "finalize": "finalize",
+            "answer": "answer",
         },
     )
     builder.add_conditional_edges(
@@ -60,11 +60,11 @@ def build_orchestrator_graph(
         route_after_query_stage,
         {
             "save": "save",
-            "finalize": "finalize",
+            "answer": "answer",
         },
     )
-    builder.add_edge("save", END)
-    builder.add_edge("finalize", END)
+    builder.add_edge("save", "answer")
+    builder.add_edge("answer", END)
     return builder.compile(name=name)
 
 
