@@ -82,7 +82,7 @@ def build_prep_task_output(state: OrchestratorState | dict[str, Any]) -> PrepTas
     )
     trace = state.trace
     for message in trial.trace:
-        trace = append_stage_trace(trace, PREP_STAGE, f"trial 1 {message}")
+        trace = append_stage_trace(trace, PREP_STAGE, message)
 
     extracted_targets = collect_extracted_targets(trial.extraction_results)
     database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}

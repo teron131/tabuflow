@@ -143,7 +143,7 @@ Do not remove config propagation unless another trace-parent mechanism replaces 
 
 - `task: str`
 - `source_files: list[str]`
-- `max_prep_trials: int`
+- Prep recursion budget: `max(90, 30 * len(source_files))`
 - `max_validation_retries: int`
 - `prompt: str`
 - `root_dir: str | Path | None`

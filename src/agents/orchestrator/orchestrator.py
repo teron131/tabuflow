@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import patch_config
 from langgraph.graph.state import CompiledStateGraph
 from langsmith import traceable
 
@@ -19,6 +20,30 @@ from .state import (
     OrchestratorOutput,
     OrchestratorState,
 )
+
+PREP_RECURSION_LIMIT_PER_SOURCE_FILE = 30
+MIN_PREP_RECURSION_LIMIT = PREP_RECURSION_LIMIT_PER_SOURCE_FILE * 3
+
+
+def prep_recursion_limit(source_files: list[str]) -> int:
+    """Return the prep-stage recursion budget for declared and runtime-discovered files."""
+    return max(
+        MIN_PREP_RECURSION_LIMIT,
+        PREP_RECURSION_LIMIT_PER_SOURCE_FILE * len(source_files),
+    )
+
+
+def patch_prep_recursion_limit(
+    config: RunnableConfig | None,
+    *,
+    source_files: list[str],
+) -> RunnableConfig:
+    """Ensure graph invocations have enough room for the prep ReAct loop."""
+    required_limit = prep_recursion_limit(source_files)
+    configured_limit = None if config is None else config.get("recursion_limit")
+    if isinstance(configured_limit, int):
+        required_limit = max(required_limit, configured_limit)
+    return patch_config(config, recursion_limit=required_limit)
 
 
 class Orchestrator(ApplicationAgent):
@@ -65,7 +90,6 @@ class Orchestrator(ApplicationAgent):
         task: str | OrchestratorInput | dict[str, Any],
         *,
         source_files: list[str] | None = None,
-        max_prep_trials: int = 2,
         max_validation_retries: int = 2,
         config: RunnableConfig | None = None,
     ) -> dict[str, Any]:
@@ -78,17 +102,18 @@ class Orchestrator(ApplicationAgent):
             payload = OrchestratorInput(
                 task=task,
                 source_files=source_files or [],
-                max_prep_trials=max_prep_trials,
                 max_validation_retries=max_validation_retries,
             )
-        return self.graph.invoke(payload, config=config)
+        return self.graph.invoke(
+            payload,
+            config=patch_prep_recursion_limit(config, source_files=payload.source_files),
+        )
 
     def answer(
         self,
         task: str | OrchestratorInput | dict[str, Any],
         *,
         source_files: list[str] | None = None,
-        max_prep_trials: int = 2,
         max_validation_retries: int = 2,
         config: RunnableConfig | None = None,
     ) -> str:
@@ -96,7 +121,6 @@ class Orchestrator(ApplicationAgent):
         result = self.invoke(
             task,
             source_files=source_files,
-            max_prep_trials=max_prep_trials,
             max_validation_retries=max_validation_retries,
             config=config,
         )
@@ -109,7 +133,7 @@ def trace_orchestrator_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     return {
         "task": inputs.get("task"),
         "source_files": inputs.get("source_files"),
-        "max_prep_trials": inputs.get("max_prep_trials"),
+        "prep_recursion_limit": prep_recursion_limit(inputs.get("source_files") or []),
         "max_validation_retries": inputs.get("max_validation_retries"),
         "prompt_provided": bool(str(inputs.get("prompt") or "").strip()),
         "root_dir": None if inputs.get("root_dir") is None else str(inputs["root_dir"]),
@@ -136,7 +160,6 @@ def execute_orchestrator(
     *,
     task: str,
     source_files: list[str],
-    max_prep_trials: int = 2,
     max_validation_retries: int = 2,
     prompt: str = "",
     root_dir: str | Path | None = None,
@@ -159,7 +182,6 @@ def execute_orchestrator(
     ).invoke(
         task,
         source_files=source_files,
-        max_prep_trials=max_prep_trials,
         max_validation_retries=max_validation_retries,
         config=config,
     )
@@ -178,4 +200,5 @@ __all__ = [
     "build_orchestrator_graph",
     "build_query_stage_graph",
     "execute_orchestrator",
+    "prep_recursion_limit",
 ]

@@ -9,6 +9,7 @@ from .orchestrator import (
     build_orchestrator_graph,
     build_query_stage_graph,
     execute_orchestrator,
+    prep_recursion_limit,
 )
 from .payloads import build_result_artifact, build_result_message
 from .skill_context import (
@@ -32,5 +33,6 @@ __all__ = [
     "format_skill_matches",
     "format_skills_overview",
     "list_skills_context",
+    "prep_recursion_limit",
     "search_skills_context",
 ]

@@ -24,7 +24,6 @@ class OrchestratorInput(TaskInput):
     """Public input schema for the stage-bridged orchestrator graph."""
 
     source_files: list[str]
-    max_prep_trials: int = 2
     max_validation_retries: int = 2
 
 

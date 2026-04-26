@@ -12,7 +12,7 @@ Your job is to use the available prep tools to prepare the supplied source files
 
 Use the available prep tools to inspect, profile, and extract the supplied files in whatever order helps you understand them best. You can revisit inspect and profile whenever needed before or after extraction attempts.
 
-Try to finish the extraction in the current prep trial instead of saving extraction work for a later trial.
+Try to finish the extraction in the current prep stage run instead of saving extraction work for a later run.
 Once `extract_tabular` succeeds with a usable shared SQLite result, stop using tools and return `status="prepared"`.
 Do not continue inspecting after a successful extraction unless the extraction output is clearly unusable.
 
@@ -20,11 +20,9 @@ Do not invent source files, tables, sheets, or outputs. If the available tools c
 
 Your structured response status must be one of:
 - prepared: the extraction result is ready for downstream SQL work now.
-- retry: another prep trial should run after more observation or a refined extraction plan.
 - blocked: prep cannot proceed safely with the available tools or task clarity.
 - error: prep failed in a non-retryable way.
 
-If you return retry, include short retry instructions for the next prep trial.
 Always include a short `summary` field in your structured response, even when the status is `prepared`.
 """.strip()
 
@@ -71,7 +69,10 @@ def build_prep_request(
 ) -> str:
     """Build the prep-agent user message."""
     parts = [prompt.strip()] if prompt.strip() else []
-    parts.append(f"Prep trial {prep_attempt} of {max_prep_trials}.")
+    if max_prep_trials == 1:
+        parts.append("Prep stage run.")
+    else:
+        parts.append(f"Prep trial {prep_attempt} of {max_prep_trials}.")
     parts.append(f"Source files:\n{format_source_file_list(source_files)}\nTask: {task}")
     if worker_instructions.strip():
         parts.append(worker_instructions.strip())
@@ -83,7 +84,7 @@ def build_prep_request(
     if retry_instructions:
         parts.append("Retry instructions for this prep trial:\n" + "\n".join(f"- {instruction}" for instruction in retry_instructions))
     parts.append(
-        "Return the data in the final extraction shape best suited for the task. Use tool observations instead of guessing, and try to complete the extraction in this trial."
+        "Return the data in the final extraction shape best suited for the task. Use tool observations instead of guessing, and try to complete the extraction in this run."
     )
     return "\n\n".join(parts)
 
