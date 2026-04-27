@@ -36,6 +36,15 @@ def _strip_reserved_model_kwargs(kwargs: dict[str, Any]) -> None:
     kwargs.pop("reasoning_effort", None)
 
 
+def _should_use_responses_api(
+    *,
+    model: str,
+    base_url: str,
+) -> bool:
+    """Return whether LangChain should route ChatOpenAI through Responses API."""
+    return "opencode" in base_url.lower() and "gpt" in model.lower()
+
+
 def ChatOpenAI(
     model: str,
     temperature: float = 0.7,
@@ -53,6 +62,13 @@ def ChatOpenAI(
     resolved_api_key = _resolve_api_key()
     resolved_base_url = _resolve_base_url()
     _strip_reserved_model_kwargs(kwargs)
+    kwargs.setdefault(
+        "use_responses_api",
+        _should_use_responses_api(
+            model=model,
+            base_url=resolved_base_url,
+        ),
+    )
 
     client_kwargs: dict[str, Any] = {
         "api_key": resolved_api_key,
