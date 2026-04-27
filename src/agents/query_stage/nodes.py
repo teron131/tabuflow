@@ -1,4 +1,4 @@
-"""LangGraph nodes and routes for the orchestrator-owned SQL stage."""
+"""LangGraph nodes and routes for the SQL stage."""
 
 from __future__ import annotations
 
@@ -9,20 +9,20 @@ from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain_core.language_models import BaseChatModel
 
-from ....file_management import edit_sql_file, read_sql_file, read_sql_hashlines, write_sql_file
-from ....tools.sql.query import run_query, suggest_sql_error_repair
-from ...base import ApplicationAgent
-from ...trace_utils import SQL_STAGE, append_stage_trace
+from ...file_management import edit_sql_file, read_sql_file, read_sql_hashlines, write_sql_file
+from ...tools.sql.query import run_query, suggest_sql_error_repair
+from ..base import ApplicationAgent
+from ..trace_utils import SQL_STAGE, append_stage_trace
 from .prompts import (
     SQL_DRAFT_SYSTEM_PROMPT,
     SQL_RUNTIME_REPAIR_SYSTEM_PROMPT,
     build_draft_messages,
     build_runtime_repair_messages,
 )
-from .state import DraftFn, RuntimeRepairFn, SQLStageState, SQLDraft, SQLRuntimeRepair
+from .state import DraftFn, RuntimeRepairFn, QueryStageState, SQLDraft, SQLRuntimeRepair
 
 
-SQLStageUpdate = dict[str, Any]
+QueryStageUpdate = dict[str, Any]
 
 
 def build_sql_drafter(llm: BaseChatModel) -> DraftFn:
@@ -35,7 +35,7 @@ def build_sql_drafter(llm: BaseChatModel) -> DraftFn:
         name="sql_drafter",
     )
 
-    def drafter(state: SQLStageState) -> SQLDraft:
+    def drafter(state: QueryStageState) -> SQLDraft:
         """Draft the next SQL file contents."""
         result = draft_agent.invoke({"messages": build_draft_messages(state)})
         return ApplicationAgent.get_structured_response(
@@ -57,7 +57,7 @@ def build_sql_runtime_repairer(llm: BaseChatModel) -> RuntimeRepairFn:
         name="sql_runtime_repairer",
     )
 
-    def runtime_repairer(state: SQLStageState) -> SQLRuntimeRepair:
+    def runtime_repairer(state: QueryStageState) -> SQLRuntimeRepair:
         """Repair the current SQL file after a runtime execution error."""
         if not state.sql_path:
             return SQLRuntimeRepair()
@@ -89,18 +89,18 @@ def build_sql_runtime_repairer(llm: BaseChatModel) -> RuntimeRepairFn:
     return runtime_repairer
 
 
-def _append_trace(state: SQLStageState, message: str) -> list[str]:
+def _append_trace(state: QueryStageState, message: str) -> list[str]:
     """Append one trace message."""
     return append_stage_trace(state.trace, SQL_STAGE, message)
 
 
 def _error_update(
-    state: SQLStageState,
+    state: QueryStageState,
     *,
     last_error: str,
     trace_message: str,
     **extra: Any,
-) -> SQLStageUpdate:
+) -> QueryStageUpdate:
     """Return the standard SQL-stage error update."""
     return {
         "status": "error",
@@ -110,7 +110,7 @@ def _error_update(
     }
 
 
-def _preferred_target_names(state: SQLStageState) -> list[str]:
+def _preferred_target_names(state: QueryStageState) -> list[str]:
     """Return orchestrator-provided target names in first-seen order."""
     target_names: list[str] = []
     seen_names: set[str] = set()
@@ -129,7 +129,7 @@ def _preferred_target_names(state: SQLStageState) -> list[str]:
     return target_names
 
 
-def _runtime_repair_hints(state: SQLStageState, error_message: str) -> list[dict[str, Any]]:
+def _runtime_repair_hints(state: QueryStageState, error_message: str) -> list[dict[str, Any]]:
     """Return deterministic hints for SQLite/runtime repair."""
     return suggest_sql_error_repair(
         error_message,
@@ -139,13 +139,13 @@ def _runtime_repair_hints(state: SQLStageState, error_message: str) -> list[dict
 
 
 def _file_error_update(
-    state: SQLStageState,
+    state: QueryStageState,
     result: dict[str, Any],
     *,
     default_message: str,
     trace_prefix: str,
     **extra: Any,
-) -> SQLStageUpdate:
+) -> QueryStageUpdate:
     """Return a SQL-stage error update from a file-management result."""
     message = str(result.get("message") or default_message)
     return _error_update(
@@ -160,12 +160,12 @@ def _file_error_update(
 def make_write_node(
     drafter: DraftFn,
 ) -> Callable[
-    [SQLStageState],
-    SQLStageUpdate,
+    [QueryStageState],
+    QueryStageUpdate,
 ]:
     """Create the node that produces and writes the SQL artifact file."""
 
-    def write_node(state: SQLStageState) -> SQLStageUpdate:
+    def write_node(state: QueryStageState) -> QueryStageUpdate:
         """Draft SQL from shared orchestrator context and persist it."""
         target_names = _preferred_target_names(state)
         if not target_names:
@@ -213,7 +213,7 @@ def make_write_node(
     return write_node
 
 
-def execute_node(state: SQLStageState) -> SQLStageUpdate:
+def execute_node(state: QueryStageState) -> QueryStageUpdate:
     """Execute SQL by reading the current SQL artifact file."""
     if state.status == "error":
         return {
@@ -285,12 +285,12 @@ def execute_node(state: SQLStageState) -> SQLStageUpdate:
 def make_runtime_repair_node(
     repairer: RuntimeRepairFn,
 ) -> Callable[
-    [SQLStageState],
-    SQLStageUpdate,
+    [QueryStageState],
+    QueryStageUpdate,
 ]:
     """Create the runtime-repair node using the supplied repairer."""
 
-    def runtime_repair_node(state: SQLStageState) -> SQLStageUpdate:
+    def runtime_repair_node(state: QueryStageState) -> QueryStageUpdate:
         """Apply hashline edits for SQLite/runtime execution errors."""
         if not state.sql_path:
             return _error_update(

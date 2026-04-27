@@ -12,9 +12,9 @@ from .state import OrchestratorState, SQLArtifactState
 
 DEFAULT_VIEW_NAME = "analysis_result"
 MAX_VIEW_REQUEST_SLUG_CHARS = 48
-PREP_AGENT_NAME = "prep_agent"
-SQL_STAGE_NAME = "sql_stage"
-VALIDATION_AGENT_NAME = "validation_agent"
+PREP_STAGE_NAME = "prep_stage"
+QUERY_STAGE_NAME = "query_stage"
+VALIDATION_STAGE_NAME = "validation_stage"
 VIEW_MESSAGE_SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
 

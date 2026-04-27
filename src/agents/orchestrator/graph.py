@@ -6,10 +6,10 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from ..prep_agent import PrepAgent
-from ..validation_agent import ValidationAgent
+from ..prep_stage import PrepStage
+from ..validation_stage import ValidationStage
 from .nodes import OrchestratorNodes, route_after_prep_stage
-from .sql_stage import DraftFn, RuntimeRepairFn
+from ..query_stage import DraftFn, RuntimeRepairFn
 from .state import OrchestratorInput, OrchestratorOutput, OrchestratorState
 
 
@@ -18,10 +18,10 @@ def build_data_workflow_graph(
     prompt: str = "",
     root_dir: str | Path | None = None,
     llm: Any | None = None,
-    prep_agent: PrepAgent | None = None,
+    prep_stage: PrepStage | None = None,
     sql_drafter: DraftFn | None = None,
     sql_runtime_repairer: RuntimeRepairFn | None = None,
-    validation_agent: ValidationAgent | None = None,
+    validation_stage: ValidationStage | None = None,
     name: str = "data_workflow",
 ) -> CompiledStateGraph:
     """Build the fixed data workflow graph that owns the prep and query stages."""
@@ -29,10 +29,10 @@ def build_data_workflow_graph(
         prompt=prompt,
         root_dir=root_dir,
         llm=llm,
-        prep_agent=prep_agent,
+        prep_stage=prep_stage,
         sql_drafter=sql_drafter,
         sql_runtime_repairer=sql_runtime_repairer,
-        validation_agent=validation_agent,
+        validation_stage=validation_stage,
     )
 
     builder = StateGraph(
@@ -66,7 +66,7 @@ def build_query_stage_graph(
     llm: Any | None = None,
     sql_drafter: DraftFn | None = None,
     sql_runtime_repairer: RuntimeRepairFn | None = None,
-    validation_agent: ValidationAgent | None = None,
+    validation_stage: ValidationStage | None = None,
     name: str = "query",
 ) -> CompiledStateGraph:
     """Build the query-stage graph as a first-class LangGraph Studio graph."""
@@ -74,9 +74,9 @@ def build_query_stage_graph(
         prompt=prompt,
         root_dir=root_dir,
         llm=llm,
-        prep_agent=None,
+        prep_stage=None,
         sql_drafter=sql_drafter,
         sql_runtime_repairer=sql_runtime_repairer,
-        validation_agent=validation_agent,
+        validation_stage=validation_stage,
     )
     return nodes.query_stage_graph(name=name)

@@ -1,12 +1,12 @@
-"""Prompt helpers for the prep agent."""
+"""Prompt helpers for the prep stage."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-PREP_AGENT_SYSTEM_PROMPT = """
-You are the prep agent for local data analysis.
+PREP_STAGE_SYSTEM_PROMPT = """
+You are the prep stage for local data analysis.
 
 Your job is to use the available prep tools to prepare the supplied source files into a shared SQLite database that downstream SQL analysis can use.
 
@@ -67,7 +67,7 @@ def build_prep_request(
     previous_attempts: list[str],
     retry_instructions: list[str],
 ) -> str:
-    """Build the prep-agent user message."""
+    """Build the prep-stage user message."""
     parts = [prompt.strip()] if prompt.strip() else []
     if max_prep_trials == 1:
         parts.append("Prep stage run.")

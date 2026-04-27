@@ -1,4 +1,4 @@
-"""Structured response schema for the prep agent."""
+"""Structured response schema for the prep stage."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-PrepAgentStatus = Literal["prepared", "retry", "blocked", "error"]
+PrepStageDecisionStatus = Literal["prepared", "retry", "blocked", "error"]
 PrepStageStatus = Literal["pending", "prepared", "error"]
 
 
-class PrepAgentDecision(BaseModel):
-    """Structured summary returned after the prep agent finishes."""
+class PrepStageDecision(BaseModel):
+    """Structured summary returned after the prep stage finishes."""
 
-    status: PrepAgentStatus = Field(description="Prep-stage decision after the tool-using loop finishes.")
+    status: PrepStageDecisionStatus = Field(description="Prep-stage decision after the tool-using loop finishes.")
     summary: str = Field(default="", description="Brief human-readable summary of the prep-stage outcome.")
     retry_instructions: list[str] = Field(default_factory=list, description="Instructions for another prep attempt when retrying is useful.")
     last_error: str | None = Field(default=None, description="Most relevant prep-stage error, when one occurred.")

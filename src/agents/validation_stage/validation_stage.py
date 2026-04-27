@@ -13,7 +13,7 @@ from .prompts import VALIDATION_SYSTEM_PROMPT
 from .state import ValidationInput, ValidationOutput
 
 
-class ValidationAgent(ApplicationAgent):
+class ValidationStage(ApplicationAgent):
     """Run one lightweight validation pass over a SQL result."""
 
     def __init__(self, *, llm: BaseChatModel | None = None):
@@ -21,7 +21,7 @@ class ValidationAgent(ApplicationAgent):
         self.validator = self.build_structured_agent(
             ValidationOutput,
             system_prompt=VALIDATION_SYSTEM_PROMPT,
-            name="validation_agent",
+            name="validation_stage",
         )
 
     def validate(
@@ -42,7 +42,7 @@ class ValidationAgent(ApplicationAgent):
         return self.get_structured_response(
             result,
             ValidationOutput,
-            agent_name="validation_agent",
+            agent_name="validation_stage",
         )
 
     def invoke(

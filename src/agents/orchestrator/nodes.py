@@ -10,10 +10,10 @@ from langchain_core.runnables.config import patch_config
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from ..prep_agent import PrepAgent, PrepStageOutput
-from ..prep_agent.payloads import collect_extracted_targets
-from ..prep_agent.prep_agent import collect_prep_trial_result
-from ..prep_agent.state import PrepAgentDecision
+from ..prep_stage import PrepStage, PrepStageOutput
+from ..prep_stage.payloads import collect_extracted_targets
+from ..prep_stage.prep_stage import collect_prep_trial_result
+from ..prep_stage.state import PrepStageDecision
 from ..trace_utils import (
     PREP_STAGE,
     SKILL_CONTEXT_STAGE,
@@ -21,12 +21,12 @@ from ..trace_utils import (
     append_stage_trace,
     append_trace_messages,
 )
-from ..validation_agent import ValidationAgent
+from ..validation_stage import ValidationStage
 from .prompts import build_prep_stage_message, build_sql_worker_context, build_user_request_message
 from .runtime import (
-    PREP_AGENT_NAME,
-    SQL_STAGE_NAME,
-    VALIDATION_AGENT_NAME,
+    PREP_STAGE_NAME,
+    QUERY_STAGE_NAME,
+    VALIDATION_STAGE_NAME,
     build_sql_failure_result,
     orchestrator_run_from_state,
     preferred_sql_targets,
@@ -36,8 +36,8 @@ from .runtime import (
     sql_output_from_state,
 )
 from .skill_context import build_worker_skill_payload
-from .sql_stage import DraftFn, RuntimeRepairFn, build_sql_drafter, build_sql_runtime_repairer
-from .sql_stage.nodes import execute_node, make_runtime_repair_node, make_write_node
+from ..query_stage import DraftFn, RuntimeRepairFn, build_sql_drafter, build_sql_runtime_repairer
+from ..query_stage.nodes import execute_node, make_runtime_repair_node, make_write_node
 from .state import OrchestratorState, SQLArtifactState
 
 
@@ -46,7 +46,7 @@ def stage_report_message(name: str, content: str) -> AIMessage:
     return AIMessage(content=content, name=name)
 
 
-class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepAgentDecision]):
+class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepStageDecision]):
     """Collect the prep ReAct graph output into shared orchestrator fields."""
 
     state_schema = OrchestratorState
@@ -63,7 +63,7 @@ class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepAgentDec
         prep_artifact = prep_output.model_dump(mode="json")
         agent_artifacts = {
             **state.agent_artifacts,
-            PREP_AGENT_NAME: prep_artifact,
+            PREP_STAGE_NAME: prep_artifact,
         }
         return {
             "prep_output": prep_artifact,
@@ -72,7 +72,7 @@ class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepAgentDec
             "extracted_targets": prep_output.extracted_targets,
             "preferred_targets": preferred_sql_targets(prep_output.extracted_targets),
             "trace": prep_output.trace,
-            "active_agent": PREP_AGENT_NAME,
+            "active_agent": PREP_STAGE_NAME,
         }
 
 
@@ -167,33 +167,33 @@ class OrchestratorNodes:
         prompt: str,
         root_dir: str | Path | None,
         llm: Any | None,
-        prep_agent: PrepAgent | None,
+        prep_stage: PrepStage | None,
         sql_drafter: DraftFn | None,
         sql_runtime_repairer: RuntimeRepairFn | None,
-        validation_agent: ValidationAgent | None,
+        validation_stage: ValidationStage | None,
     ):
         self.prompt = prompt
         self.root_dir = root_dir
         self.llm = llm
-        self._prep_agent = prep_agent
+        self._prep_stage = prep_stage
         if llm is None and (sql_drafter is None or sql_runtime_repairer is None):
             raise ValueError("SQL stage model functions require the orchestrator's shared llm.")
         self.sql_drafter = sql_drafter or build_sql_drafter(llm)
         self.sql_runtime_repairer = sql_runtime_repairer or build_sql_runtime_repairer(llm)
         self.sql_write_node = make_write_node(self.sql_drafter)
         self.sql_runtime_repair_node = make_runtime_repair_node(self.sql_runtime_repairer)
-        self.validation_agent = validation_agent or (ValidationAgent(llm=llm) if llm is not None else ValidationAgent())
+        self.validation_stage = validation_stage or (ValidationStage(llm=llm) if llm is not None else ValidationStage())
 
     @property
-    def prep_agent(self) -> PrepAgent:
-        """Return the prep agent, building it only when the prep stage is used."""
-        if self._prep_agent is None:
-            self._prep_agent = PrepAgent(
+    def prep_stage(self) -> PrepStage:
+        """Return the prep stage, building it only when the prep stage is used."""
+        if self._prep_stage is None:
+            self._prep_stage = PrepStage(
                 llm=self.llm,
                 prompt=self.prompt,
                 root_dir=self.root_dir,
             )
-        return self._prep_agent
+        return self._prep_stage
 
     def skill_context(
         self,
@@ -230,7 +230,7 @@ class OrchestratorNodes:
 
     def prep_stage_graph(self) -> CompiledStateGraph:
         """Build the prep stage as the visible prep ReAct graph."""
-        return self.prep_agent.build_graph(
+        return self.prep_stage.build_graph(
             state_schema=OrchestratorState,
             middleware=[PrepResultMiddleware()],
         )
@@ -244,8 +244,8 @@ class OrchestratorNodes:
             content = f"SQL write ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No SQL artifact was written.'}"
         return {
             **update,
-            "active_agent": SQL_STAGE_NAME,
-            "messages": [stage_report_message(SQL_STAGE_NAME, content)],
+            "active_agent": QUERY_STAGE_NAME,
+            "messages": [stage_report_message(QUERY_STAGE_NAME, content)],
         }
 
     def execute_sql(self, state: OrchestratorState) -> dict[str, Any]:
@@ -260,8 +260,8 @@ class OrchestratorNodes:
             content = f"SQL execution ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No executable SQL result.'}"
         return {
             **update,
-            "active_agent": SQL_STAGE_NAME,
-            "messages": [stage_report_message(SQL_STAGE_NAME, content)],
+            "active_agent": QUERY_STAGE_NAME,
+            "messages": [stage_report_message(QUERY_STAGE_NAME, content)],
         }
 
     def runtime_repair_sql(self, state: OrchestratorState) -> dict[str, Any]:
@@ -273,8 +273,8 @@ class OrchestratorNodes:
             content = f"Runtime repair ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No SQL repair was applied.'}"
         return {
             **update,
-            "active_agent": SQL_STAGE_NAME,
-            "messages": [stage_report_message(SQL_STAGE_NAME, content)],
+            "active_agent": QUERY_STAGE_NAME,
+            "messages": [stage_report_message(QUERY_STAGE_NAME, content)],
         }
 
     def query_stage_graph(self, *, name: str = "query_stage") -> CompiledStateGraph:
@@ -323,11 +323,11 @@ class OrchestratorNodes:
                     "instructions": ["Run the SQL stage before validation."],
                 },
                 "trace": append_stage_trace(state.trace, VALIDATION_STAGE, "could not find a SQL output"),
-                "active_agent": VALIDATION_AGENT_NAME,
-                "messages": [stage_report_message(VALIDATION_AGENT_NAME, "Validation could not find a SQL output.")],
+                "active_agent": VALIDATION_STAGE_NAME,
+                "messages": [stage_report_message(VALIDATION_STAGE_NAME, "Validation could not find a SQL output.")],
             }
         sql_artifact = sql_output.model_dump(mode="json")
-        validation_output = self.validation_agent.invoke(
+        validation_output = self.validation_stage.invoke(
             message=state.message,
             source_files=state.source_files,
             extracted_targets=state.extracted_targets,
@@ -336,14 +336,14 @@ class OrchestratorNodes:
             sql_result=sql_output.result,
             previous_feedback=state.validation_feedback,
             validation_attempts=state.validation_attempts,
-            config=patch_config(config, run_name=f"validation_agent_attempt_{state.validation_attempts + 1}"),
+            config=patch_config(config, run_name=f"validation_stage_attempt_{state.validation_attempts + 1}"),
         )
         validation_artifact = validation_output.model_dump(mode="json")
         workflow_trace = workflow_trace_from_state(state, sql_output=sql_output)
         agent_artifacts = {
             **state.agent_artifacts,
-            SQL_STAGE_NAME: sql_artifact,
-            VALIDATION_AGENT_NAME: validation_artifact,
+            QUERY_STAGE_NAME: sql_artifact,
+            VALIDATION_STAGE_NAME: validation_artifact,
         }
         if validation_output.valid:
             return {
@@ -352,7 +352,7 @@ class OrchestratorNodes:
                 "validation_feedback": None,
                 "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, "accepted the SQL result"),
                 "active_agent": None,
-                "messages": [stage_report_message(VALIDATION_AGENT_NAME, validation_output.summary.strip() or "Validation accepted the SQL result.")],
+                "messages": [stage_report_message(VALIDATION_STAGE_NAME, validation_output.summary.strip() or "Validation accepted the SQL result.")],
             }
 
         summary = validation_output.summary.strip() or "The SQL result does not appear to fully satisfy the user message."
@@ -369,8 +369,8 @@ class OrchestratorNodes:
             "validation_feedback": validation_feedback,
             "validation_attempts": state.validation_attempts + 1,
             "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, f"requested another SQL attempt: {validation_feedback['summary']}"),
-            "active_agent": VALIDATION_AGENT_NAME,
-            "messages": [stage_report_message(VALIDATION_AGENT_NAME, f"Validation requested another SQL attempt: {validation_feedback['summary']}")],
+            "active_agent": VALIDATION_STAGE_NAME,
+            "messages": [stage_report_message(VALIDATION_STAGE_NAME, f"Validation requested another SQL attempt: {validation_feedback['summary']}")],
         }
 
     def save_view(self, state: OrchestratorState) -> dict[str, Any]:
@@ -433,7 +433,7 @@ class OrchestratorNodes:
                 "content": content,
                 "artifact": artifact,
                 "agent_artifacts": state.agent_artifacts,
-                "active_agent": PREP_AGENT_NAME,
+                "active_agent": PREP_STAGE_NAME,
                 "messages": [stage_report_message("answer", f"Answered prep failure: {artifact.get('last_error')}")],
             }
 
@@ -445,7 +445,7 @@ class OrchestratorNodes:
             "content": content,
             "artifact": artifact,
             "agent_artifacts": state.agent_artifacts,
-            "active_agent": (VALIDATION_AGENT_NAME if state.validation_feedback is not None else SQL_STAGE_NAME),
+            "active_agent": (VALIDATION_STAGE_NAME if state.validation_feedback is not None else QUERY_STAGE_NAME),
             "messages": [
                 stage_report_message(
                     "answer",

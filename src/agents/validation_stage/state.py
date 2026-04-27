@@ -1,4 +1,4 @@
-"""State models for the validation agent."""
+"""State models for the validation stage."""
 
 from __future__ import annotations
 

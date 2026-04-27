@@ -1,4 +1,4 @@
-"""Compact payload helpers for the prep agent."""
+"""Compact payload helpers for the prep stage."""
 
 from __future__ import annotations
 

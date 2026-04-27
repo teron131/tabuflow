@@ -2,7 +2,7 @@
 
 from langchain_core.messages import HumanMessage
 
-from ..prep_agent.prompts import build_prep_request
+from ..prep_stage.prompts import build_prep_request
 from .skill_context import format_skill_sql_references, summarize_skill_refs
 
 

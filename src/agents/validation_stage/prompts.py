@@ -1,4 +1,4 @@
-"""Prompts for validating SQL-agent outputs."""
+"""Prompts for validating SQL-stage outputs."""
 
 VALIDATION_SYSTEM_PROMPT = """Review whether a SQL result appears to satisfy the message.
 

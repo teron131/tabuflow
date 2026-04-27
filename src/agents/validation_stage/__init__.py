@@ -1,12 +1,12 @@
-"""Simple structured-output validation agent package."""
+"""Validation-stage public exports."""
 
 from .prompts import VALIDATION_SYSTEM_PROMPT
 from .state import ValidationInput, ValidationOutput
-from .validation import ValidationAgent
+from .validation_stage import ValidationStage
 
 __all__ = [
     "VALIDATION_SYSTEM_PROMPT",
-    "ValidationAgent",
     "ValidationInput",
     "ValidationOutput",
+    "ValidationStage",
 ]

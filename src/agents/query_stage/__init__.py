@@ -1,4 +1,4 @@
-"""Orchestrator-owned SQL stage components."""
+"""Query stage components."""
 
 from .nodes import build_sql_drafter, build_sql_runtime_repairer
 from .state import (
@@ -6,15 +6,15 @@ from .state import (
     RuntimeRepairFn,
     SQLDraft,
     SQLRuntimeRepair,
-    SQLStageState,
+    QueryStageState,
 )
 
 __all__ = [
     "DraftFn",
+    "QueryStageState",
     "RuntimeRepairFn",
     "SQLDraft",
     "SQLRuntimeRepair",
-    "SQLStageState",
     "build_sql_drafter",
     "build_sql_runtime_repairer",
 ]

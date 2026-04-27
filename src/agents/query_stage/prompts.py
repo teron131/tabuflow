@@ -7,7 +7,7 @@ from typing import Any
 
 from langchain.messages import HumanMessage
 
-from .state import SQLStageState
+from .state import QueryStageState
 
 MAX_AGENT_SKILL_REF_PREVIEW = 8
 
@@ -60,7 +60,7 @@ def _compact_skill_refs(skill_refs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _target_context(state: SQLStageState) -> list[dict[str, Any]]:
+def _target_context(state: QueryStageState) -> list[dict[str, Any]]:
     """Return the best target context already carried by the orchestrator state."""
     return [
         {
@@ -73,7 +73,7 @@ def _target_context(state: SQLStageState) -> list[dict[str, Any]]:
     ]
 
 
-def _allowed_targets(state: SQLStageState) -> list[str]:
+def _allowed_targets(state: QueryStageState) -> list[str]:
     """Return allowed SQL targets from shared orchestrator state."""
     if state.preferred_targets:
         return state.preferred_targets
@@ -89,7 +89,7 @@ def _message_from_payload(payload: dict[str, Any]) -> list[HumanMessage]:
     ]
 
 
-def build_draft_messages(state: SQLStageState) -> list[HumanMessage]:
+def build_draft_messages(state: QueryStageState) -> list[HumanMessage]:
     """Build draft messages for the structured SQL stage model."""
     payload = {
         "message": state.message,
@@ -106,7 +106,7 @@ def build_draft_messages(state: SQLStageState) -> list[HumanMessage]:
 
 
 def build_runtime_repair_messages(
-    state: SQLStageState,
+    state: QueryStageState,
     *,
     sql_hashlines: str,
 ) -> list[HumanMessage]:

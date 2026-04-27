@@ -1,4 +1,4 @@
-"""Tool-using prep agent for iterative local data extraction."""
+"""Tool-using prep stage for iterative local data extraction."""
 
 from __future__ import annotations
 
@@ -19,24 +19,24 @@ from ...tools.tabular import make_tabular_tools
 from ..base import ApplicationAgent
 from ..trace_utils import PREP_STAGE, append_stage_trace, append_trace
 from .payloads import collect_extracted_targets
-from .prompts import PREP_AGENT_SYSTEM_PROMPT, build_prep_request, parse_tool_content
-from .state import PrepAgentDecision, PrepStageOutput
+from .prompts import PREP_STAGE_SYSTEM_PROMPT, build_prep_request, parse_tool_content
+from .state import PrepStageDecision, PrepStageOutput
 
-PREP_AGENT_RECURSION_LIMIT = 12
+PREP_STAGE_RECURSION_LIMIT = 12
 
 
 @dataclass
 class PrepTrialResult:
     """One prep-trial result gathered from the tool-using agent loop."""
 
-    decision: PrepAgentDecision | None
+    decision: PrepStageDecision | None
     extraction_results: list[dict[str, Any]]
     last_error: str | None
     trace: list[str]
 
 
 def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
-    """Collect structured decisions and tool artifacts from one prep-agent run."""
+    """Collect structured decisions and tool artifacts from one prep-stage run."""
     trace: list[str] = []
     extraction_results: list[dict[str, Any]] = []
     last_error: str | None = None
@@ -76,7 +76,7 @@ def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
     decision = None
     structured_response = result.get("structured_response")
     if structured_response is not None:
-        decision = PrepAgentDecision.model_validate(structured_response)
+        decision = PrepStageDecision.model_validate(structured_response)
         if decision.last_error:
             last_error = decision.last_error
         if decision.summary:
@@ -90,7 +90,7 @@ def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
     )
 
 
-class PrepAgent(ApplicationAgent):
+class PrepStage(ApplicationAgent):
     """Use prep tools iteratively to decide the final extraction shape."""
 
     def __init__(
@@ -115,15 +115,15 @@ class PrepAgent(ApplicationAgent):
         state_schema: type[Any] | None = None,
         middleware: Sequence[Any] | None = None,
     ) -> CompiledStateGraph:
-        """Build the compiled prep-agent graph."""
+        """Build the compiled prep-stage graph."""
         return create_agent(
             model=self.llm,
             tools=make_tabular_tools(root_dir=self.root_dir),
-            system_prompt=PREP_AGENT_SYSTEM_PROMPT,
-            response_format=ToolStrategy(PrepAgentDecision),
+            system_prompt=PREP_STAGE_SYSTEM_PROMPT,
+            response_format=ToolStrategy(PrepStageDecision),
             state_schema=state_schema or self.state_schema,
             middleware=self.middleware if middleware is None else middleware,
-            name="prep_agent",
+            name="prep_stage",
         )
 
     def run_trial(
@@ -132,10 +132,10 @@ class PrepAgent(ApplicationAgent):
         *,
         config: RunnableConfig | None = None,
     ) -> PrepTrialResult:
-        """Run one prep-agent trial and collect the resulting tool outputs."""
+        """Run one prep-stage trial and collect the resulting tool outputs."""
         result = self.graph.invoke(
             {"messages": [HumanMessage(content=request)]},
-            config=patch_config(config, recursion_limit=PREP_AGENT_RECURSION_LIMIT),
+            config=patch_config(config, recursion_limit=PREP_STAGE_RECURSION_LIMIT),
         )
         return collect_prep_trial_result(result)
 
@@ -149,7 +149,7 @@ class PrepAgent(ApplicationAgent):
         max_prep_trials: int = 2,
         config: RunnableConfig | None = None,
     ) -> PrepStageOutput:
-        """Run the prep agent in bounded trials and normalize the final outputs."""
+        """Run the prep stage in bounded trials and normalize the final outputs."""
         safe_max_prep_trials = max(1, max_prep_trials)
         trace: list[str] = []
         previous_attempts: list[str] = []

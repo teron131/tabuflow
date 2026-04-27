@@ -11,10 +11,10 @@ from langgraph.graph.state import CompiledStateGraph
 from langsmith import traceable
 
 from ..base import ApplicationAgent
-from ..prep_agent import PrepAgent
-from ..validation_agent import ValidationAgent
+from ..prep_stage import PrepStage
+from ..validation_stage import ValidationStage
 from .graph import build_data_workflow_graph
-from .sql_stage import DraftFn, RuntimeRepairFn
+from ..query_stage import DraftFn, RuntimeRepairFn
 from .stage_tools import make_orchestrator_stages
 from .state import (
     OrchestratorExecutionResult,
@@ -94,18 +94,18 @@ class Orchestrator(ApplicationAgent):
         prompt: str = "",
         root_dir: str | Path | None = None,
         llm: Any | None = None,
-        prep_agent: PrepAgent | None = None,
+        prep_stage: PrepStage | None = None,
         sql_drafter: DraftFn | None = None,
         sql_runtime_repairer: RuntimeRepairFn | None = None,
-        validation_agent: ValidationAgent | None = None,
+        validation_stage: ValidationStage | None = None,
     ):
         super().__init__(llm=llm)
         self.prompt = prompt
         self.root_dir = root_dir
-        self.prep_agent = prep_agent
+        self.prep_stage = prep_stage
         self.sql_drafter = sql_drafter
         self.sql_runtime_repairer = sql_runtime_repairer
-        self.validation_agent = validation_agent
+        self.validation_stage = validation_stage
         self.data_workflow_graph = self.build_data_workflow_graph()
         self.graph = self.data_workflow_graph
         self.graph_artifacts = self.write_graph_artifacts(
@@ -119,10 +119,10 @@ class Orchestrator(ApplicationAgent):
             prompt=self.prompt,
             root_dir=self.root_dir,
             llm=self.llm,
-            prep_agent=self.prep_agent,
+            prep_stage=self.prep_stage,
             sql_drafter=self.sql_drafter,
             sql_runtime_repairer=self.sql_runtime_repairer,
-            validation_agent=self.validation_agent,
+            validation_stage=self.validation_stage,
         )
 
     def build_graph(self) -> CompiledStateGraph:
@@ -135,10 +135,10 @@ class Orchestrator(ApplicationAgent):
             prompt=self.prompt,
             root_dir=self.root_dir,
             llm=self.llm,
-            prep_agent=self.prep_agent,
+            prep_stage=self.prep_stage,
             sql_drafter=self.sql_drafter,
             sql_runtime_repairer=self.sql_runtime_repairer,
-            validation_agent=self.validation_agent,
+            validation_stage=self.validation_stage,
         )
 
     def build_orchestrator_agent(self) -> CompiledStateGraph:
@@ -224,10 +224,10 @@ def execute_data_workflow(
     prompt: str = "",
     root_dir: str | Path | None = None,
     llm: Any | None = None,
-    prep_agent: PrepAgent | None = None,
+    prep_stage: PrepStage | None = None,
     sql_drafter: DraftFn | None = None,
     sql_runtime_repairer: RuntimeRepairFn | None = None,
-    validation_agent: ValidationAgent | None = None,
+    validation_stage: ValidationStage | None = None,
     config: RunnableConfig | None = None,
 ) -> OrchestratorExecutionResult:
     """Run the fixed data workflow once and return its normalized result."""
@@ -235,10 +235,10 @@ def execute_data_workflow(
         prompt=prompt,
         root_dir=root_dir,
         llm=llm,
-        prep_agent=prep_agent,
+        prep_stage=prep_stage,
         sql_drafter=sql_drafter,
         sql_runtime_repairer=sql_runtime_repairer,
-        validation_agent=validation_agent,
+        validation_stage=validation_stage,
     ).invoke(
         message,
         source_files=source_files,

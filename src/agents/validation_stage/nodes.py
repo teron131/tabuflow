@@ -1,4 +1,4 @@
-"""Validation graph helpers for SQL-agent output review."""
+"""Validation graph helpers for SQL-stage output review."""
 
 from __future__ import annotations
 

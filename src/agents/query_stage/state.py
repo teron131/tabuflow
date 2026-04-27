@@ -1,4 +1,4 @@
-"""State models for the orchestrator-owned SQL stage."""
+"""State models for the query stage."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ from collections.abc import Callable
 
 from pydantic import BaseModel, Field
 
-from ....tools.fs import HashlineEdit
-from ..state import (
+from ...tools.fs import HashlineEdit
+from ..orchestrator.state import (
     MessageState,
     OrchestratorInput,
     PreparedDataState,
@@ -30,15 +30,15 @@ class SQLRuntimeRepair(BaseModel):
     edits: list[HashlineEdit] = Field(default_factory=list, description="Hashline edits to apply to the current SQL file.")
 
 
-class SQLStageState(
+class QueryStageState(
     OrchestratorInput,
     MessageState,
     PreparedDataState,
     SQLArtifactState,
     SQLRuntimeState,
 ):
-    """Internal graph state for the file-backed SQL stage."""
+    """Internal graph state for the file-backed query stage."""
 
 
-DraftFn = Callable[[SQLStageState], SQLDraft]
-RuntimeRepairFn = Callable[[SQLStageState], SQLRuntimeRepair]
+DraftFn = Callable[[QueryStageState], SQLDraft]
+RuntimeRepairFn = Callable[[QueryStageState], SQLRuntimeRepair]

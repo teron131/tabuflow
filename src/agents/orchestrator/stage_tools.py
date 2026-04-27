@@ -9,10 +9,10 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
-from ..prep_agent import PrepAgent
-from ..validation_agent import ValidationAgent
+from ..prep_stage import PrepStage
+from ..validation_stage import ValidationStage
 from .nodes import OrchestratorNodes
-from .sql_stage import DraftFn, RuntimeRepairFn
+from ..query_stage import DraftFn, RuntimeRepairFn
 from .state import OrchestratorState
 
 PREP_RECURSION_LIMIT_PER_SOURCE_FILE = 30
@@ -88,20 +88,20 @@ def make_orchestrator_stages(
     prompt: str = "",
     root_dir: str | Path | None = None,
     llm: BaseChatModel | None = None,
-    prep_agent: PrepAgent | None = None,
+    prep_stage: PrepStage | None = None,
     sql_drafter: DraftFn | None = None,
     sql_runtime_repairer: RuntimeRepairFn | None = None,
-    validation_agent: ValidationAgent | None = None,
+    validation_stage: ValidationStage | None = None,
 ) -> list[BaseTool]:
     """Build callable orchestrator stages for the user-facing agent."""
     nodes = OrchestratorNodes(
         prompt=prompt,
         root_dir=root_dir,
         llm=llm,
-        prep_agent=prep_agent,
+        prep_stage=prep_stage,
         sql_drafter=sql_drafter,
         sql_runtime_repairer=sql_runtime_repairer,
-        validation_agent=validation_agent,
+        validation_stage=validation_stage,
     )
     prep_graph = nodes.prep_stage_graph()
     query_graph = nodes.query_stage_graph()
