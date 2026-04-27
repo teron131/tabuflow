@@ -282,15 +282,15 @@ def execute_node(state: QueryStageState) -> QueryStageUpdate:
     }
 
 
-def make_runtime_repair_node(
+def make_repair_sql_node(
     repairer: RuntimeRepairFn,
 ) -> Callable[
     [QueryStageState],
     QueryStageUpdate,
 ]:
-    """Create the runtime-repair node using the supplied repairer."""
+    """Create the repair_sql node using the supplied repairer."""
 
-    def runtime_repair_node(state: QueryStageState) -> QueryStageUpdate:
+    def repair_sql_node(state: QueryStageState) -> QueryStageUpdate:
         """Apply hashline edits for SQLite/runtime execution errors."""
         if not state.sql_path:
             return _error_update(
@@ -348,4 +348,4 @@ def make_runtime_repair_node(
             "trace": _append_trace(state, f"runtime repair pass {repair_state.repair_count} edited SQL file"),
         }
 
-    return runtime_repair_node
+    return repair_sql_node

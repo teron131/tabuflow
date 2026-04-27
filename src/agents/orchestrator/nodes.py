@@ -14,6 +14,8 @@ from ..prep_stage import PrepStage, PrepStageOutput
 from ..prep_stage.payloads import collect_extracted_targets
 from ..prep_stage.prep_stage import collect_prep_trial_result
 from ..prep_stage.state import PrepStageDecision
+from ..query_stage import DraftFn, RuntimeRepairFn, build_sql_drafter, build_sql_runtime_repairer
+from ..query_stage.nodes import execute_node, make_repair_sql_node, make_write_node
 from ..trace_utils import (
     PREP_STAGE,
     SKILL_CONTEXT_STAGE,
@@ -36,8 +38,6 @@ from .runtime import (
     sql_output_from_state,
 )
 from .skill_context import build_worker_skill_payload
-from ..query_stage import DraftFn, RuntimeRepairFn, build_sql_drafter, build_sql_runtime_repairer
-from ..query_stage.nodes import execute_node, make_runtime_repair_node, make_write_node
 from .state import OrchestratorState, SQLArtifactState
 
 
@@ -180,7 +180,7 @@ class OrchestratorNodes:
         self.sql_drafter = sql_drafter or build_sql_drafter(llm)
         self.sql_runtime_repairer = sql_runtime_repairer or build_sql_runtime_repairer(llm)
         self.sql_write_node = make_write_node(self.sql_drafter)
-        self.sql_runtime_repair_node = make_runtime_repair_node(self.sql_runtime_repairer)
+        self.repair_sql_node = make_repair_sql_node(self.sql_runtime_repairer)
         self.validation_stage = validation_stage or (ValidationStage(llm=llm) if llm is not None else ValidationStage())
 
     @property
@@ -261,13 +261,13 @@ class OrchestratorNodes:
             "messages": [stage_report_message(QUERY_STAGE_NAME, content)],
         }
 
-    def runtime_repair_sql(self, state: OrchestratorState) -> dict[str, Any]:
+    def repair_sql(self, state: OrchestratorState) -> dict[str, Any]:
         """Repair SQLite runtime errors by editing the current SQL artifact."""
-        update = self.sql_runtime_repair_node(state)
+        update = self.repair_sql_node(state)
         if update.get("status") == "repaired":
-            content = f"Runtime repair pass {update.get('repair_count')} edited SQL artifact {update.get('sql_path')}."
+            content = f"SQL repair pass {update.get('repair_count')} edited SQL artifact {update.get('sql_path')}."
         else:
-            content = f"Runtime repair ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No SQL repair was applied.'}"
+            content = f"SQL repair ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No SQL repair was applied.'}"
         return {
             **update,
             "messages": [stage_report_message(QUERY_STAGE_NAME, content)],
@@ -278,7 +278,7 @@ class OrchestratorNodes:
         builder = StateGraph(OrchestratorState)
         builder.add_node("write_sql", self.write_sql)
         builder.add_node("execute_sql", self.execute_sql)
-        builder.add_node("runtime_repair", self.runtime_repair_sql)
+        builder.add_node("repair_sql", self.repair_sql)
         builder.add_node("validate", self.validate)
         builder.add_node("save_view", self.save_view)
 
@@ -289,10 +289,10 @@ class OrchestratorNodes:
             route_after_execute_sql,
             {
                 "validate": "validate",
-                "runtime_repair": "runtime_repair",
+                "repair_sql": "repair_sql",
             },
         )
-        builder.add_edge("runtime_repair", "execute_sql")
+        builder.add_edge("repair_sql", "execute_sql")
         builder.add_conditional_edges(
             "validate",
             route_after_validate,
@@ -456,7 +456,7 @@ def route_after_execute_sql(state: OrchestratorState) -> str:
     if sql_output is not None and sql_output.status == "complete":
         return "validate"
     if state.status == "needs_repair" and state.repair_count < state.max_repairs:
-        return "runtime_repair"
+        return "repair_sql"
     return "validate"
 
 
