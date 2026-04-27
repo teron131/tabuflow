@@ -3,9 +3,9 @@
 from typing import Annotated, Any
 from uuid import uuid4
 
-from langchain_core.messages import AnyMessage
+from langchain_core.messages import AnyMessage, BaseMessage, HumanMessage
 from langgraph.graph.message import add_messages
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 class PreparedDataState(BaseModel):
@@ -46,18 +46,9 @@ class SQLRuntimeState(BaseModel):
 class OrchestratorInput(BaseModel):
     """Public input schema for the orchestrator workflow."""
 
-    message: str = Field(description="Raw user chat message that started the turn.")
+    messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list, description="Conversation spine for graph runs.")
     source_files: list[str] = Field(default_factory=list, description="Declared source files provided with the message.")
     max_validation_retries: int = Field(default=2, description="Maximum semantic validation retry count for the SQL stage.")
-
-    @field_validator("message")
-    @classmethod
-    def require_message(cls, value: str) -> str:
-        """Reject blank chat messages."""
-        message = value.strip()
-        if not message:
-            raise ValueError("message must not be blank.")
-        return message
 
 
 class OrchestratorOutput(BaseModel):
@@ -77,6 +68,25 @@ class OrchestratorState(
 ):
     """Parent graph state shared by the orchestrator-owned workflow stages."""
 
-    messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list, description="Conversation spine and stage-report log for graph runs.")
+    skills_overview: str = Field(default="", description="Listed workspace skills available to the public chat orchestrator.")
     structured_response: Any | None = Field(default=None, description="Structured response produced by a create_agent subgraph.")
     prep_output: dict[str, Any] | None = Field(default=None, description="Serialized prep-stage output artifact.")
+
+
+def message_text(message: BaseMessage | dict[str, Any]) -> str:
+    """Return compact readable text for one chat message."""
+    if isinstance(message, BaseMessage):
+        if isinstance(message.content, str):
+            return message.content.strip()
+        return str(message.content).strip()
+    return str(message.get("content") or "").strip()
+
+
+def latest_user_message(messages: list[AnyMessage]) -> str:
+    """Return the latest user-authored message text from chat state."""
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage):
+            return message_text(message)
+        if isinstance(message, dict) and message.get("role") in {"user", "human"}:
+            return message_text(message)
+    return ""

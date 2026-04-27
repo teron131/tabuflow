@@ -12,6 +12,7 @@ from langchain_core.language_models import BaseChatModel
 from ...file_management import edit_sql_file, read_sql_file, read_sql_hashlines, write_sql_file
 from ...tools.sql.query import run_query, suggest_sql_error_repair
 from ..base import ApplicationAgent
+from ..orchestrator.state import latest_user_message
 from ..trace_utils import SQL_STAGE, append_stage_trace
 from .prompts import (
     SQL_DRAFT_SYSTEM_PROMPT,
@@ -188,7 +189,7 @@ def make_write_node(
             draft.sql,
             state.sql_path,
             run_id=state.run_id,
-            description=state.message,
+            description=latest_user_message(state.messages),
             filename_hint=draft.filename_hint,
             selected_targets=selected_targets,
         )

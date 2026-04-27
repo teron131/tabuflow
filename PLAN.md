@@ -8,7 +8,7 @@ The architecture is now a chat-facing orchestrator with explicit data stages:
 
 The orchestrator is the only assistant-speaking layer. For normal chat, it answers directly. For data work, it decides when to call stage tools. The fixed `data_workflow` graph remains available for deterministic prep/query/save execution, but the public graph is the user-facing orchestrator agent.
 
-Skill handling is orchestrator-owned in both paths. The public chat agent always lists available skill descriptions through `SkillsMiddleware`, then may choose `search_skills` or `load_skills` tools. The fixed `data_workflow` keeps the explicit `skill_context` node for deterministic worker context.
+Skill handling is orchestrator-owned in both paths. The public chat agent starts with a `skills` node that lists available skill descriptions, then may choose `search_skills` or `load_skills` tools. Tool-using chat turns pass through a simple `summarize` node before ending. The fixed `data_workflow` keeps the explicit `skill_context` node for deterministic worker context.
 
 The near-term goal is to keep this shape small, typed, traceable, and easy to inspect. Do not reintroduce a separate router shell or old `*_agent` vocabulary for stage code.
 
@@ -46,7 +46,7 @@ LangGraph entrypoints in `langgraph.json`:
 
 Keep these public schemas:
 
-- `OrchestratorInput`: chat message, source files, validation retry budget.
+- `OrchestratorInput`: chat `messages`, source files, validation retry budget.
 - `OrchestratorOutput`: final content, result artifact, `stage_artifacts`.
 - `OrchestratorState`: the full graph state, including LangGraph `messages`, prep output bridge fields, prepared data, SQL/query fields, validation feedback, and runtime repair counters.
 

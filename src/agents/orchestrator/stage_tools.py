@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import HumanMessage
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
@@ -112,7 +113,7 @@ def make_orchestrator_stages(
         """Prepare source files and return compact state for later query_stage calls."""
         safe_source_files = source_files or []
         state = OrchestratorState(
-            message=message,
+            messages=[HumanMessage(content=message)],
             source_files=safe_source_files,
             max_validation_retries=max_validation_retries,
         )
@@ -130,7 +131,7 @@ def make_orchestrator_stages(
     ) -> dict[str, Any]:
         """Query prepared data, validate the result, save a view, and return compact state."""
         payload = _reset_query_fields(dict(prepared_state))
-        payload["message"] = message
+        payload["messages"] = [HumanMessage(content=message)]
         payload.setdefault("source_files", [])
         if max_validation_retries is not None:
             payload["max_validation_retries"] = max_validation_retries

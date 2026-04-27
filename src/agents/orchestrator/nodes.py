@@ -1,12 +1,10 @@
 """Nodes, routes, and middleware for the orchestrator graph."""
 
-import asyncio
-from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict
+from typing import Any
 
-from langchain.agents.middleware import AgentMiddleware, ModelRequest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import patch_config
 from langgraph.graph import END, START, StateGraph
@@ -39,49 +37,13 @@ from .runtime import (
     sql_loop_from_state,
     sql_output_from_state,
 )
-from .skill_context import build_worker_skill_payload, format_skills_overview, list_skills_context
-from .state import OrchestratorState, SQLArtifactState
-
-
-class OrchestratorAgentSkillState(TypedDict):
-    """Optional skill-context fields carried by the public orchestrator agent."""
-
-    message: NotRequired[str]
-    source_files: NotRequired[list[str]]
-    skills_overview: NotRequired[str]
-    trace: NotRequired[list[str]]
+from .skill_context import build_worker_skill_payload
+from .state import OrchestratorState, SQLArtifactState, latest_user_message
 
 
 def stage_report_message(name: str, content: str) -> AIMessage:
     """Build a compact stage report for the shared conversation spine."""
     return AIMessage(content=content, name=name)
-
-
-def _message_content_text(content: Any) -> str:
-    """Return plain text from a LangChain message content payload."""
-    if isinstance(content, str):
-        return content.strip()
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict):
-                text = item.get("text")
-                if isinstance(text, str):
-                    parts.append(text)
-            elif isinstance(item, str):
-                parts.append(item)
-        return "\n".join(part.strip() for part in parts if part.strip())
-    return str(content).strip()
-
-
-def _latest_human_message(state: dict[str, Any]) -> str:
-    """Return the latest human message text from create_agent state."""
-    for message in reversed(state.get("messages") or []):
-        if isinstance(message, HumanMessage):
-            return _message_content_text(message.content)
-        if isinstance(message, dict) and message.get("role") in {"user", "human"}:
-            return _message_content_text(message.get("content"))
-    return ""
 
 
 def build_skill_context_update(
@@ -92,7 +54,7 @@ def build_skill_context_update(
     trace: list[str],
     config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
-    """Build the skill-context update shared by data_workflow and chat middleware."""
+    """Build the deterministic skill-context update for data_workflow."""
     skill_payload = build_worker_skill_payload(
         message,
         config=patch_config(config, run_name="skills_context"),
@@ -119,87 +81,6 @@ def build_skill_context_update(
         ),
         "trace": append_stage_trace(trace, SKILL_CONTEXT_STAGE, f"loaded {len(skill_payload.skill_refs)} skill ref(s)"),
     }
-
-
-class SkillsMiddleware(
-    AgentMiddleware[
-        OrchestratorAgentSkillState,
-        None,
-    ]
-):
-    """List workspace skills before the chat model chooses skill tools."""
-
-    name = "skills"
-    state_schema = OrchestratorAgentSkillState
-
-    def __init__(self, *, prompt: str = ""):
-        self.prompt = prompt
-
-    def before_agent(
-        self,
-        state: OrchestratorAgentSkillState,
-        runtime: Any,
-    ) -> dict[str, Any] | None:
-        """List available skills into orchestrator state for this turn."""
-        _ = runtime
-        return self._list_skills(dict(state))
-
-    async def abefore_agent(
-        self,
-        state: OrchestratorAgentSkillState,
-        runtime: Any,
-    ) -> dict[str, Any] | None:
-        """Async-safe skill listing for langgraph dev and streaming."""
-        _ = runtime
-        return await asyncio.to_thread(self._list_skills, dict(state))
-
-    def wrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], Any],
-    ) -> Any:
-        """Inject the skills overview into the chat model request."""
-        return handler(self._request_with_skills_overview(request))
-
-    async def awrap_model_call(
-        self,
-        request: ModelRequest,
-        handler: Callable[[ModelRequest], Awaitable[Any]],
-    ) -> Any:
-        """Async-safe model wrapper for the same skills overview."""
-        return await handler(self._request_with_skills_overview(request))
-
-    def _list_skills(self, state: dict[str, Any]) -> dict[str, Any] | None:
-        message = str(state.get("message") or "").strip() or _latest_human_message(state)
-        if not message:
-            return None
-
-        source_files = list(state.get("source_files") or [])
-        skills_overview = format_skills_overview(list_skills_context())
-        return {
-            "message": message,
-            "source_files": source_files,
-            "skills_overview": skills_overview,
-            "trace": append_stage_trace(list(state.get("trace") or []), SKILL_CONTEXT_STAGE, "listed available skill descriptions"),
-        }
-
-    def _request_with_skills_overview(self, request: ModelRequest) -> ModelRequest:
-        state = dict(request.state or {})
-        skills_overview = str(state.get("skills_overview") or "").strip()
-        if not skills_overview:
-            return request
-
-        skill_tool_instructions = "\n".join(
-            [
-                skills_overview,
-                "",
-                "Use `search_skills` when the list is not enough to identify the right skill.",
-                "Use `load_skills` to load one selected skill before applying its instructions.",
-                "Do not call skill tools for ordinary conversation that does not need a workspace skill.",
-            ]
-        )
-        existing_system = "" if request.system_message is None else _message_content_text(request.system_message.content)
-        return request.override(system_message=SystemMessage(content="\n\n".join(part for part in [existing_system, skill_tool_instructions] if part.strip())))
 
 
 class PrepResultMiddleware(
@@ -362,9 +243,10 @@ class OrchestratorNodes:
         config: RunnableConfig | None = None,
     ) -> dict[str, Any]:
         """Load message-relevant skill context into the parent orchestrator state."""
+        message = latest_user_message(state.messages)
         return build_skill_context_update(
             self.prompt,
-            message=state.message,
+            message=message,
             source_files=state.source_files,
             trace=state.trace,
             config=config,
@@ -466,7 +348,7 @@ class OrchestratorNodes:
             }
         sql_artifact = sql_output.model_dump(mode="json")
         validation_output = self.validation_stage.invoke(
-            message=state.message,
+            message=latest_user_message(state.messages),
             source_files=state.source_files,
             extracted_targets=state.extracted_targets,
             selected_targets=sql_output.selected_targets,

@@ -7,6 +7,7 @@ from typing import Any
 
 from langchain.messages import HumanMessage
 
+from ..orchestrator.state import latest_user_message
 from .state import QueryStageState
 
 MAX_AGENT_SKILL_REF_PREVIEW = 8
@@ -92,7 +93,7 @@ def _message_from_payload(payload: dict[str, Any]) -> list[HumanMessage]:
 def build_draft_messages(state: QueryStageState) -> list[HumanMessage]:
     """Build draft messages for the structured SQL stage model."""
     payload = {
-        "message": state.message,
+        "message": latest_user_message(state.messages),
         "source_files": state.source_files,
         "worker_context": state.worker_context,
         "skill_refs": _compact_skill_refs(state.skill_refs),
@@ -112,7 +113,7 @@ def build_runtime_repair_messages(
 ) -> list[HumanMessage]:
     """Build runtime-repair messages for SQLite execution errors."""
     payload = {
-        "message": state.message,
+        "message": latest_user_message(state.messages),
         "allowed_targets": _allowed_targets(state),
         "target_context": _target_context(state),
         "sql_path": state.sql_path,

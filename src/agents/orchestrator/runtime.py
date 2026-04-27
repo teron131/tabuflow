@@ -8,7 +8,7 @@ from uuid import uuid4
 from ...tools.sql.query import save_view
 from ..trace_utils import SAVE_STAGE, append_stage_trace
 from .payloads import build_result_artifact, build_result_message
-from .state import OrchestratorState, SQLArtifactState
+from .state import OrchestratorState, SQLArtifactState, latest_user_message
 
 DEFAULT_VIEW_NAME = "analysis_result"
 MAX_VIEW_REQUEST_SLUG_CHARS = 48
@@ -81,7 +81,7 @@ class SqlLoopResult:
 def orchestrator_run_from_state(state: OrchestratorState) -> OrchestratorRun:
     """Rebuild the result-shaping run object from graph state."""
     return OrchestratorRun(
-        message=state.message,
+        message=latest_user_message(state.messages),
         source_files=state.source_files,
         run_id=state.run_id,
         trace=state.trace,
