@@ -10,12 +10,13 @@ from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langsmith import traceable
 
+from ...tools import load_skills, search_skills
 from ..base import ApplicationAgent
 from ..prep_stage import PrepStage
+from ..query_stage import DraftFn, RuntimeRepairFn
 from ..validation_stage import ValidationStage
 from .graph import build_data_workflow_graph
 from .nodes import SkillsMiddleware
-from ..query_stage import DraftFn, RuntimeRepairFn
 from .stage_tools import make_orchestrator_stages
 from .state import (
     OrchestratorInput,
@@ -27,6 +28,7 @@ MIN_PREP_RECURSION_LIMIT = PREP_RECURSION_LIMIT_PER_SOURCE_FILE * 3
 ORCHESTRATOR_SYSTEM_PROMPT = """You are the user-facing data assistant.
 
 Answer normal conversational messages directly.
+You always receive a brief list of available workspace skills. Use search_skills or load_skills only when a skill would help with the user's request.
 When the user wants to inspect, prepare, analyze, query, compute, compare, or summarize source data, use the stage tools.
 Use prep_stage before query_stage when source files need preparation.
 Use query_stage with the compact state returned by prep_stage when querying already prepared data.
@@ -145,7 +147,11 @@ class Orchestrator(ApplicationAgent):
         """Build the user-facing orchestrator agent that can call stage tools."""
         return create_agent(
             model=self.llm,
-            tools=self.build_stages(),
+            tools=[
+                *self.build_stages(),
+                load_skills,
+                search_skills,
+            ],
             system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
             middleware=[SkillsMiddleware(prompt=self.prompt)],
             name="orchestrator",
