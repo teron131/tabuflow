@@ -61,18 +61,17 @@ class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepStageDec
         state = normalize_orchestrator_state(state)
         prep_output = build_prep_stage_output(state)
         prep_artifact = prep_output.model_dump(mode="json")
-        agent_artifacts = {
-            **state.agent_artifacts,
+        stage_artifacts = {
+            **state.stage_artifacts,
             PREP_STAGE_NAME: prep_artifact,
         }
         return {
             "prep_output": prep_artifact,
-            "agent_artifacts": agent_artifacts,
+            "stage_artifacts": stage_artifacts,
             "database_path": prep_output.database_path,
             "extracted_targets": prep_output.extracted_targets,
             "preferred_targets": preferred_sql_targets(prep_output.extracted_targets),
             "trace": prep_output.trace,
-            "active_agent": PREP_STAGE_NAME,
         }
 
 
@@ -244,7 +243,6 @@ class OrchestratorNodes:
             content = f"SQL write ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No SQL artifact was written.'}"
         return {
             **update,
-            "active_agent": QUERY_STAGE_NAME,
             "messages": [stage_report_message(QUERY_STAGE_NAME, content)],
         }
 
@@ -260,7 +258,6 @@ class OrchestratorNodes:
             content = f"SQL execution ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No executable SQL result.'}"
         return {
             **update,
-            "active_agent": QUERY_STAGE_NAME,
             "messages": [stage_report_message(QUERY_STAGE_NAME, content)],
         }
 
@@ -273,7 +270,6 @@ class OrchestratorNodes:
             content = f"Runtime repair ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No SQL repair was applied.'}"
         return {
             **update,
-            "active_agent": QUERY_STAGE_NAME,
             "messages": [stage_report_message(QUERY_STAGE_NAME, content)],
         }
 
@@ -323,7 +319,6 @@ class OrchestratorNodes:
                     "instructions": ["Run the SQL stage before validation."],
                 },
                 "trace": append_stage_trace(state.trace, VALIDATION_STAGE, "could not find a SQL output"),
-                "active_agent": VALIDATION_STAGE_NAME,
                 "messages": [stage_report_message(VALIDATION_STAGE_NAME, "Validation could not find a SQL output.")],
             }
         sql_artifact = sql_output.model_dump(mode="json")
@@ -340,18 +335,16 @@ class OrchestratorNodes:
         )
         validation_artifact = validation_output.model_dump(mode="json")
         workflow_trace = workflow_trace_from_state(state, sql_output=sql_output)
-        agent_artifacts = {
-            **state.agent_artifacts,
+        stage_artifacts = {
+            **state.stage_artifacts,
             QUERY_STAGE_NAME: sql_artifact,
             VALIDATION_STAGE_NAME: validation_artifact,
         }
         if validation_output.valid:
             return {
-                "sql_output": sql_artifact,
-                "agent_artifacts": agent_artifacts,
+                "stage_artifacts": stage_artifacts,
                 "validation_feedback": None,
                 "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, "accepted the SQL result"),
-                "active_agent": None,
                 "messages": [stage_report_message(VALIDATION_STAGE_NAME, validation_output.summary.strip() or "Validation accepted the SQL result.")],
             }
 
@@ -362,20 +355,20 @@ class OrchestratorNodes:
             "summary": summary,
             "instructions": instructions or [summary],
         }
+        next_validation_attempts = state.validation_attempts + 1
+        retry_update = reset_sql_attempt_update() if validation_output.retryable and next_validation_attempts <= state.max_validation_retries else {}
         return {
-            **reset_sql_attempt_update(),
-            "sql_output": sql_artifact,
-            "agent_artifacts": agent_artifacts,
+            **retry_update,
+            "stage_artifacts": stage_artifacts,
             "validation_feedback": validation_feedback,
-            "validation_attempts": state.validation_attempts + 1,
+            "validation_attempts": next_validation_attempts,
             "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, f"requested another SQL attempt: {validation_feedback['summary']}"),
-            "active_agent": VALIDATION_STAGE_NAME,
             "messages": [stage_report_message(VALIDATION_STAGE_NAME, f"Validation requested another SQL attempt: {validation_feedback['summary']}")],
         }
 
     def save_view(self, state: OrchestratorState) -> dict[str, Any]:
         """Persist a completed SQL result before the answer node returns it."""
-        sql_output = None if state.sql_output is None else SQLArtifactState.model_validate(state.sql_output)
+        sql_output = sql_output_from_state(state)
         if sql_output is None or sql_output.status != "complete":
             content, artifact = build_sql_failure_result(
                 orchestrator_run_from_state(state),
@@ -391,8 +384,7 @@ class OrchestratorNodes:
         return {
             "content": content,
             "artifact": artifact,
-            "agent_artifacts": state.agent_artifacts,
-            "active_agent": None,
+            "stage_artifacts": state.stage_artifacts,
             "messages": [
                 stage_report_message(
                     "save_view",
@@ -407,8 +399,7 @@ class OrchestratorNodes:
             return {
                 "content": state.content,
                 "artifact": state.artifact,
-                "agent_artifacts": state.agent_artifacts,
-                "active_agent": state.active_agent,
+                "stage_artifacts": state.stage_artifacts,
                 "messages": [stage_report_message("answer", "Answer reused the existing terminal result.")],
             }
 
@@ -432,8 +423,7 @@ class OrchestratorNodes:
             return {
                 "content": content,
                 "artifact": artifact,
-                "agent_artifacts": state.agent_artifacts,
-                "active_agent": PREP_STAGE_NAME,
+                "stage_artifacts": state.stage_artifacts,
                 "messages": [stage_report_message("answer", f"Answered prep failure: {artifact.get('last_error')}")],
             }
 
@@ -444,8 +434,7 @@ class OrchestratorNodes:
         return {
             "content": content,
             "artifact": artifact,
-            "agent_artifacts": state.agent_artifacts,
-            "active_agent": (VALIDATION_STAGE_NAME if state.validation_feedback is not None else QUERY_STAGE_NAME),
+            "stage_artifacts": state.stage_artifacts,
             "messages": [
                 stage_report_message(
                     "answer",

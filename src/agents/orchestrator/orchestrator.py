@@ -17,7 +17,6 @@ from .graph import build_data_workflow_graph
 from ..query_stage import DraftFn, RuntimeRepairFn
 from .stage_tools import make_orchestrator_stages
 from .state import (
-    OrchestratorExecutionResult,
     OrchestratorInput,
     OrchestratorOutput,
 )
@@ -200,13 +199,12 @@ def trace_data_workflow_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def trace_data_workflow_outputs(output: OrchestratorExecutionResult) -> dict[str, Any]:
+def trace_data_workflow_outputs(output: OrchestratorOutput) -> dict[str, Any]:
     """Keep LangSmith data workflow outputs compact and reviewable."""
     return {
         "content": output.content,
         "artifact": output.artifact,
-        "agent_artifacts": output.agent_artifacts,
-        "active_agent": output.active_agent,
+        "stage_artifacts": output.stage_artifacts,
     }
 
 
@@ -229,7 +227,7 @@ def execute_data_workflow(
     sql_runtime_repairer: RuntimeRepairFn | None = None,
     validation_stage: ValidationStage | None = None,
     config: RunnableConfig | None = None,
-) -> OrchestratorExecutionResult:
+) -> OrchestratorOutput:
     """Run the fixed data workflow once and return its normalized result."""
     result = Orchestrator(
         prompt=prompt,
@@ -245,5 +243,4 @@ def execute_data_workflow(
         max_validation_retries=max_validation_retries,
         config=config,
     )
-    output = OrchestratorOutput.model_validate(result)
-    return OrchestratorExecutionResult(**output.model_dump(mode="python"))
+    return OrchestratorOutput.model_validate(result)

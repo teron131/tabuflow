@@ -102,21 +102,19 @@ def sql_loop_from_state(state: OrchestratorState) -> SqlLoopResult:
 def sql_output_from_state(state: OrchestratorState) -> SQLArtifactState | None:
     """Rebuild the SQL stage output from direct orchestrator state fields."""
     has_direct_sql_output = state.status != "pending" or state.attempts > 0 or state.result is not None or state.candidate_sql is not None
-    if has_direct_sql_output:
-        return SQLArtifactState(
-            status=state.status,
-            sql_path=state.sql_path,
-            selected_targets=state.selected_targets,
-            candidate_sql=state.candidate_sql,
-            repair_hints=state.repair_hints,
-            result=state.result,
-            attempts=state.attempts,
-            last_error=state.last_error,
-            trace=state.trace,
-        )
-    if state.sql_output is not None:
-        return SQLArtifactState.model_validate(state.sql_output)
-    return None
+    if not has_direct_sql_output:
+        return None
+    return SQLArtifactState(
+        status=state.status,
+        sql_path=state.sql_path,
+        selected_targets=state.selected_targets,
+        candidate_sql=state.candidate_sql,
+        repair_hints=state.repair_hints,
+        result=state.result,
+        attempts=state.attempts,
+        last_error=state.last_error,
+        trace=state.trace,
+    )
 
 
 def reset_sql_attempt_update() -> dict[str, Any]:

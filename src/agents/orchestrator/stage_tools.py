@@ -66,8 +66,6 @@ def _reset_query_fields(payload: dict[str, Any]) -> dict[str, Any]:
         **payload,
         "content": "",
         "artifact": {},
-        "active_agent": None,
-        "sql_output": None,
         "validation_feedback": None,
         "validation_attempts": 0,
         "status": "pending",

@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field
 
 from ...tools.fs import HashlineEdit
 from ..orchestrator.state import (
-    MessageState,
     OrchestratorInput,
     PreparedDataState,
     SQLArtifactState,
@@ -32,7 +31,6 @@ class SQLRuntimeRepair(BaseModel):
 
 class QueryStageState(
     OrchestratorInput,
-    MessageState,
     PreparedDataState,
     SQLArtifactState,
     SQLRuntimeState,
