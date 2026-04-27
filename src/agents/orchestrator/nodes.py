@@ -1,10 +1,11 @@
 """Nodes, routes, and middleware for the orchestrator graph."""
 
+import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import patch_config
 from langgraph.graph import END, START, StateGraph
@@ -41,12 +42,142 @@ from .skill_context import build_worker_skill_payload
 from .state import OrchestratorState, SQLArtifactState
 
 
+class OrchestratorAgentSkillState(TypedDict):
+    """Optional skill-context fields carried by the public orchestrator agent."""
+
+    message: NotRequired[str]
+    source_files: NotRequired[list[str]]
+    worker_context: NotRequired[str]
+    skill_refs: NotRequired[list[dict[str, Any]]]
+    trace: NotRequired[list[str]]
+
+
 def stage_report_message(name: str, content: str) -> AIMessage:
     """Build a compact stage report for the shared conversation spine."""
     return AIMessage(content=content, name=name)
 
 
-class PrepResultMiddleware(AgentMiddleware[OrchestratorState, None, PrepStageDecision]):
+def _message_content_text(content: Any) -> str:
+    """Return plain text from a LangChain message content payload."""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+            elif isinstance(item, str):
+                parts.append(item)
+        return "\n".join(part.strip() for part in parts if part.strip())
+    return str(content).strip()
+
+
+def _latest_human_message(state: dict[str, Any]) -> str:
+    """Return the latest human message text from create_agent state."""
+    for message in reversed(state.get("messages") or []):
+        if isinstance(message, HumanMessage):
+            return _message_content_text(message.content)
+        if isinstance(message, dict) and message.get("role") in {"user", "human"}:
+            return _message_content_text(message.get("content"))
+    return ""
+
+
+def build_skill_context_update(
+    prompt: str,
+    *,
+    message: str,
+    source_files: list[str],
+    trace: list[str],
+    config: RunnableConfig | None = None,
+) -> dict[str, Any]:
+    """Build the skill-context update shared by data_workflow and chat middleware."""
+    skill_payload = build_worker_skill_payload(
+        message,
+        config=patch_config(config, run_name="skills_context"),
+    )
+    return {
+        "skill_refs": skill_payload.skill_refs,
+        "messages": [
+            build_user_request_message(
+                message=message,
+                source_files=source_files,
+            ),
+            build_prep_stage_message(
+                prompt,
+                message=message,
+                source_files=source_files,
+                worker_instructions=skill_payload.worker_instructions,
+                skill_refs=skill_payload.skill_refs,
+            ),
+        ],
+        "worker_context": build_sql_worker_context(
+            prompt,
+            worker_instructions=skill_payload.worker_instructions,
+            skill_refs=skill_payload.skill_refs,
+        ),
+        "trace": append_stage_trace(trace, SKILL_CONTEXT_STAGE, f"loaded {len(skill_payload.skill_refs)} skill ref(s)"),
+    }
+
+
+class SkillsMiddleware(
+    AgentMiddleware[
+        OrchestratorAgentSkillState,
+        None,
+    ]
+):
+    """Run the data_workflow skill-context update before the chat model runs."""
+
+    name = "skill_context"
+    state_schema = OrchestratorAgentSkillState
+
+    def __init__(self, *, prompt: str = ""):
+        self.prompt = prompt
+
+    def before_agent(
+        self,
+        state: OrchestratorAgentSkillState,
+        runtime: Any,
+    ) -> dict[str, Any] | None:
+        """Load matched skills into orchestrator state for this turn."""
+        _ = runtime
+        return self._load_skill_context(dict(state))
+
+    async def abefore_agent(
+        self,
+        state: OrchestratorAgentSkillState,
+        runtime: Any,
+    ) -> dict[str, Any] | None:
+        """Async-safe skill-context loading for langgraph dev and streaming."""
+        _ = runtime
+        return await asyncio.to_thread(self._load_skill_context, dict(state))
+
+    def _load_skill_context(self, state: dict[str, Any]) -> dict[str, Any] | None:
+        message = str(state.get("message") or "").strip() or _latest_human_message(state)
+        if not message:
+            return None
+
+        source_files = list(state.get("source_files") or [])
+        return {
+            **build_skill_context_update(
+                self.prompt,
+                message=message,
+                source_files=source_files,
+                trace=list(state.get("trace") or []),
+            ),
+            "message": message,
+            "source_files": source_files,
+        }
+
+
+class PrepResultMiddleware(
+    AgentMiddleware[
+        OrchestratorState,
+        None,
+        PrepStageDecision,
+    ]
+):
     """Collect the prep ReAct graph output into shared orchestrator fields."""
 
     state_schema = OrchestratorState
@@ -200,32 +331,13 @@ class OrchestratorNodes:
         config: RunnableConfig | None = None,
     ) -> dict[str, Any]:
         """Load message-relevant skill context into the parent orchestrator state."""
-        skill_payload = build_worker_skill_payload(
-            state.message,
-            config=patch_config(config, run_name="skills_context"),
+        return build_skill_context_update(
+            self.prompt,
+            message=state.message,
+            source_files=state.source_files,
+            trace=state.trace,
+            config=config,
         )
-        return {
-            "skill_refs": skill_payload.skill_refs,
-            "messages": [
-                build_user_request_message(
-                    message=state.message,
-                    source_files=state.source_files,
-                ),
-                build_prep_stage_message(
-                    self.prompt,
-                    message=state.message,
-                    source_files=state.source_files,
-                    worker_instructions=skill_payload.worker_instructions,
-                    skill_refs=skill_payload.skill_refs,
-                ),
-            ],
-            "worker_context": build_sql_worker_context(
-                self.prompt,
-                worker_instructions=skill_payload.worker_instructions,
-                skill_refs=skill_payload.skill_refs,
-            ),
-            "trace": append_stage_trace(state.trace, SKILL_CONTEXT_STAGE, f"loaded {len(skill_payload.skill_refs)} skill ref(s)"),
-        }
 
     def prep_stage_graph(self) -> CompiledStateGraph:
         """Build the prep stage as the visible prep ReAct graph."""

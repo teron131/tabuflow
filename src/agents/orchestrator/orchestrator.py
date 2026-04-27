@@ -14,6 +14,7 @@ from ..base import ApplicationAgent
 from ..prep_stage import PrepStage
 from ..validation_stage import ValidationStage
 from .graph import build_data_workflow_graph
+from .nodes import SkillsMiddleware
 from ..query_stage import DraftFn, RuntimeRepairFn
 from .stage_tools import make_orchestrator_stages
 from .state import (
@@ -146,6 +147,7 @@ class Orchestrator(ApplicationAgent):
             model=self.llm,
             tools=self.build_stages(),
             system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
+            middleware=[SkillsMiddleware(prompt=self.prompt)],
             name="orchestrator",
         )
 

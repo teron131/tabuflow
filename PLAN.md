@@ -8,6 +8,8 @@ The architecture is now a chat-facing orchestrator with explicit data stages:
 
 The orchestrator is the only assistant-speaking layer. For normal chat, it answers directly. For data work, it decides when to call stage tools. The fixed `data_workflow` graph remains available for deterministic prep/query/save execution, but the public graph is the user-facing orchestrator agent.
 
+Skill context is orchestrator-owned in both paths: the public chat agent loads the same skill-context state update with middleware, while `data_workflow` loads it through the explicit `skill_context` node.
+
 The near-term goal is to keep this shape small, typed, traceable, and easy to inspect. Do not reintroduce a separate router shell or old `*_agent` vocabulary for stage code.
 
 ## Runtime Shape
