@@ -2,181 +2,165 @@
 
 ## Summary
 
-The current implementation is a stacked-agent workflow for local tabular analysis:
+The architecture is now a chat-facing orchestrator with explicit data stages:
 
-`orchestrator graph -> prep_agent -> sql_agent -> validation_agent -> save(view) -> package`
+`orchestrator -> prep_stage -> query_stage -> save_view -> answer`
 
-The orchestrator is the only user-facing graph. It owns skill context, staged worker execution, validation, saving, tracing, and final response packaging. The worker agents do bounded execution work and return typed artifacts.
+The orchestrator is the only assistant-speaking layer. For normal chat, it answers directly. For data work, it decides when to call stage tools. The fixed `data_workflow` graph remains available for deterministic prep/query/save execution, but the public graph is the user-facing orchestrator agent.
 
-The near-term goal is not to invent a broader architecture. The goal is to keep this stack coherent, typed, traceable, and easy to debug end to end.
+The near-term goal is to keep this shape small, typed, traceable, and easy to inspect. Do not reintroduce a separate router shell or old `*_agent` vocabulary for stage code.
 
-## Current Runtime Shape
+## Runtime Shape
 
-1. A task enters `Orchestrator`.
-2. The orchestrator graph loads task-relevant workspace-skill context.
-3. The prep subgraph runs `PrepAgent` trials to prepare source files into the shared SQLite database and target metadata.
-4. The SQL subgraph runs `SQLAgent` to suggest targets, inspect context, ask for a typed `SQLPlan`, execute SQL, and repair when needed.
-5. `ValidationAgent` deterministically rejects obviously invalid SQL results, otherwise asks for a typed `ValidationOutput`.
-6. A validated SQL result is saved as a SQLite view.
-7. The orchestrator packages a compact artifact and final response.
+1. The user-facing `orchestrator` receives chat messages.
+2. For ordinary messages such as "hello", it answers directly without tools.
+3. For data work, it calls `prep_stage` to prepare source files into a shared SQLite database and target metadata.
+4. It calls `query_stage` with the prepared state to draft SQL, execute it, repair runtime errors, validate the result, and save a view.
+5. `answer` returns the final user-facing content and compact artifact.
 
-## Implemented Architecture
+The fixed `data_workflow` graph runs the same stage sequence directly:
 
-### Shared Agent Base
+`skill_context -> prep_stage -> query_stage -> answer`
 
-`src/agents/base.py` centralizes shared agent behavior:
+## Package Shape
 
-- model resolution
-- LLM construction
-- graph artifact writing
-- structured `create_agent` construction with `ToolStrategy(schema)`
-- typed structured-response extraction
+Current stage packages:
 
-Structured outputs should stay schema-first. Do not add prompt-only JSON fallback paths.
+- `src/agents/orchestrator/`: user-facing agent, data-workflow graph, stage tool wrappers, payload shaping, skill context, runtime helpers, shared state.
+- `src/agents/prep_stage/`: ReAct-style prep stage for inspect/profile/extract tabular data.
+- `src/agents/query_stage/`: SQL drafting, execution, runtime repair, and query-stage state.
+- `src/agents/validation_stage/`: deterministic and model-backed validation for query results.
 
-### Orchestrator
+LangGraph entrypoints in `langgraph.json`:
 
-Primary files:
+- `orchestrator`: user-facing chat agent with stage tools.
+- `data_workflow`: fixed prep/query/save/answer workflow.
+- `prep`: visible prep ReAct graph.
+- `query`: visible query-stage graph.
 
-- `src/agents/orchestrator/orchestrator.py`
-- `src/agents/orchestrator/skill_context.py`
-- `src/agents/orchestrator/payloads.py`
+## State Model
 
-Current responsibilities:
+`src/agents/orchestrator/state.py` is the shared state source.
 
-- `orchestrator.py`: owns the stage-bridged orchestrator graph and direct execution API.
-- `skill_context.py`: lists, searches, loads, formats, and summarizes workspace skills.
-- `payloads.py`: builds compact artifacts and user-facing result messages.
+Keep these public schemas:
 
-The key cleanup already done is making the stage graph the orchestrator, instead of keeping a separate router/tool shell around it.
+- `OrchestratorInput`: chat message, source files, validation retry budget.
+- `OrchestratorOutput`: final content, result artifact, `stage_artifacts`.
+- `OrchestratorState`: the full graph state, including LangGraph `messages`, prep output bridge fields, prepared data, SQL/query fields, validation feedback, and runtime repair counters.
 
-### Prep Agent
+Keep these reusable slices only because `QueryStageState` also uses them:
 
-Primary files:
+- `PreparedDataState`
+- `SQLArtifactState`
+- `SQLRuntimeState`
 
-- `src/agents/prep_agent/prep_agent.py`
-- `src/agents/prep_agent/prompts.py`
-- `src/agents/prep_agent/payloads.py`
-- `src/agents/prep_agent/state.py`
+Avoid adding wrapper schemas that only group one or two orchestrator-only fields. The following have intentionally been removed:
 
-Current responsibilities:
+- `TaskInput`
+- `ChatInput`
+- `MessageState`
+- `ArtifactState`
+- `ValidationRetryConfig`
+- `StageBridgeState`
+- serialized `sql_output`
+- `agent_artifacts`
+- `active_agent`
+- `OrchestratorExecutionResult`
 
-- use tabular tools to inspect/profile/extract files
-- produce a normalized `PrepTaskOutput`
-- collect extracted target metadata for SQL
-- pass orchestrator-provided worker instructions and skill refs into prep requests
-- accept runnable config so nested runs stay inside the parent LangSmith trace
+## Stage Contracts
 
-Prep should not search skills on its own.
-
-### SQL Agent
-
-Primary files:
-
-- `src/agents/sql_agent/sql_agent.py`
-- `src/agents/sql_agent/nodes.py`
-- `src/agents/sql_agent/payloads.py`
-- `src/agents/sql_agent/prompts.py`
-- `src/agents/sql_agent/state.py`
-
-Current responsibilities:
-
-- target suggestion
-- target inspection
-- typed SQL planning through `SQLPlan`
-- SQL execution
-- SQL error repair routing
-- compact planner payload construction
-
-Important rules:
-
-- Keep `SQLAgent` as orchestration only: planner construction, graph construction, invoke wrapper.
-- Keep graph nodes and routes in `nodes.py`.
-- Keep planner message/payload shaping in `payloads.py`.
-- Do not reintroduce raw JSON parsing fallback for planner output.
-
-### Validation Agent
+### Prep Stage
 
 Primary files:
 
-- `src/agents/validation_agent/validation.py`
-- `src/agents/validation_agent/nodes.py`
-- `src/agents/validation_agent/prompts.py`
-- `src/agents/validation_agent/state.py`
+- `src/agents/prep_stage/prep_stage.py`
+- `src/agents/prep_stage/prompts.py`
+- `src/agents/prep_stage/payloads.py`
+- `src/agents/prep_stage/state.py`
 
-Current responsibilities:
+Responsibilities:
 
-- deterministic failure checks for missing, failed, or empty SQL results
-- typed validation through `ValidationOutput`
-- concise retry guidance for the next SQL attempt
+- inspect/profile/extract supplied source files with tabular tools
+- produce `PrepStageOutput`
+- expose extracted target metadata for query drafting
+- receive orchestrator-owned worker context and skill refs
 
-Validation remains model-backed, but the interface is typed. Do not make it prompt-only JSON.
+Prep does not search skills on its own.
 
-### LangSmith Tracing
+### Query Stage
 
-The intended trace shape is one root run per orchestrator invocation:
+Primary files:
 
-`execute_orchestrator`
+- `src/agents/query_stage/nodes.py`
+- `src/agents/query_stage/prompts.py`
+- `src/agents/query_stage/state.py`
 
-Nested beneath it:
+Responsibilities:
 
-- skill context calls
-- `prep_agent`
-- `sql_agent_attempt_N`
-- `validation_agent_attempt_N`
-- lower-level graph nodes and model calls
+- draft SQL with `SQLDraft`
+- write SQL artifacts to disk
+- execute SQL against the prepared SQLite database
+- repair SQLite/runtime failures with `SQLRuntimeRepair`
+- keep SQL-specific names for SQL mechanics, while the package and graph node remain `query_stage`
 
-Implementation notes:
+The query stage does not own validation or final answering. The orchestrator query subgraph wires validation and save around it.
 
-- `execute_orchestrator` is decorated with `@traceable`.
-- Tool functions accept injected `RunnableConfig`.
-- Nested graph and tool invocations pass or patch the parent config.
-- `InjectedToolArg` keeps `config` out of model-visible tool schemas.
+### Validation Stage
 
-Do not remove config propagation unless another trace-parent mechanism replaces it.
+Primary files:
 
-## Runtime Contracts
+- `src/agents/validation_stage/validation_stage.py`
+- `src/agents/validation_stage/nodes.py`
+- `src/agents/validation_stage/prompts.py`
+- `src/agents/validation_stage/state.py`
 
-### Orchestrator Input
+Responsibilities:
 
-`execute_orchestrator` accepts:
+- reject missing, failed, or empty SQL results deterministically
+- run typed `ValidationOutput` for semantic checks
+- return retry guidance for the next query attempt
 
-- `task: str`
-- `source_files: list[str]`
-- Prep recursion budget: `max(90, 30 * len(source_files))`
-- `max_validation_retries: int`
-- `prompt: str`
-- `root_dir: str | Path | None`
-- optional injected/cached agent instances
-- optional `RunnableConfig`
+Validation success is not terminal. The result must still be saved.
 
-### Orchestrator Output
+### Save View
 
-`OrchestratorExecutionResult` contains:
-
-- `content: str`
-- `artifact: dict[str, Any]`
-- `agent_artifacts: dict[str, dict[str, Any]]`
-- `active_agent: str | None`
-
-The artifact should remain sufficient for:
-
-- explaining success, blocked, or failed outcomes
-- naming the saved view
-- showing result size and target preview
-- surfacing validation or save failure reasons
-- debugging via compact trace events
-
-### Save Semantics
-
-Validation success is not terminal until save succeeds.
+Save is mandatory after a completed query result.
 
 Rules:
 
-- save validated SQL as a SQLite view
-- derive the view name from task slug plus run id
-- save failure after validation is a failed orchestrator run
+- save SQL as a SQLite view
+- derive the view name from message slug plus run id
+- report save failure as a failed run
 - do not silently downgrade save failures to warnings
+
+## Tracing
+
+The root traced function is now:
+
+`execute_data_workflow`
+
+Expected children include:
+
+- skill context
+- prep stage
+- query SQL draft/execute/repair nodes
+- validation attempts
+- save view
+
+Keep config propagation through nested graph/model calls so traces stay connected.
+
+## Verification
+
+Primary checks:
+
+- `uv run ruff check src/agents test_sql_files.py test_agent.py`
+- `uv run pytest test_sql_files.py`
+- `LLM_API_KEY=test LLM_BASE_URL=http://localhost:1 uv run langgraph validate`
+
+Smoke checks:
+
+- user-facing orchestrator with `hello` should answer directly and produce no tool messages
+- `data_workflow` should still run the fixed prep/query/save path
 
 ## Remaining Work
 
@@ -184,91 +168,55 @@ Rules:
 
 Add tests for:
 
-- `build_worker_skill_payload` with lexical skill fallback behavior
+- `build_worker_skill_payload` lexical fallback behavior
 - `build_result_artifact` and `build_result_message`
-- SQL graph blocked / planned / repair routes with fake planner outputs
-- validation deterministic failures
-- `execute_orchestrator` with mocked agents for success, prep failure, SQL failure, validation retry, and save failure paths
+- prep failure path
+- query runtime repair path
+- validation retry and validation blocked paths
+- save failure path
+- direct-chat orchestrator path with no stage tool calls
 
-Avoid relying only on `test_agent.py` because it is an integration smoke script with live model/provider behavior.
+Avoid relying only on `test_agent.py`; it is a live smoke script.
 
-### 2. Tighten Orchestrator Module Internals
+### 2. Tighten Query/Validation Naming In Artifacts
 
-`src/agents/orchestrator/orchestrator.py` is now the right owner for the lifecycle, but it can still be cleaned further.
-
-Possible improvements:
-
-- extract small result builders for prep failure, save failure, and validation failure if repeated logic grows
-- keep retry state in `SqlLoopResult`
-- keep final outcome decisions in one place
-- avoid moving a router/tool shell back around this module
+Review user-facing artifact keys and trace strings for old SQL-stage wording. SQL-specific fields such as `sql_path`, `candidate_sql`, and `sql_result` should stay; stage labels should say `query_stage`.
 
 ### 3. Keep Structured Output Pure
 
 Current policy:
 
 - `create_agent` paths use `ToolStrategy(schema)`
-- LangGraph paths invoke compiled graphs and validate outputs with Pydantic
+- graph outputs validate with Pydantic
 - no prompt-only "return JSON" fallback
-- no broad `cast()` plumbing for structured-response extraction
+- no broad text JSON parsing for structured responses
 
-If a provider breaks structured tool output, fix the provider/model strategy rather than adding text JSON parsing in agent code.
+If a provider breaks structured tool output, fix the provider/model strategy instead of adding fallback parsing.
 
-### 4. Keep Skill Search Simple
-
-The current skills search fallback is intentionally simple.
+### 4. Keep Skill Context Orchestrator-Owned
 
 Policy:
 
-- use semantic search when embeddings are available
-- otherwise use lexical search without an env-var switch
-- keep this fallback deterministic and visible in diagnostics
-
-### 5. Review Data Correctness, Not Just Harness Success
-
-For the GCP cost example, acceptable output may vary in row count and breakdown shape because the SQL planner can choose different useful summaries.
-
-What matters:
-
-- the prepared target is from the current source file
-- SQL uses the current run target
-- results contain meaningful totals and/or notable patterns
-- validation follows the task instructions
-- final artifact names the saved view
-- LangSmith has one root trace for the run
-
-## Verification Commands
-
-Primary checks:
-
-- `uv run ruff check .`
-- `uv run ruff format --check .`
-- `uv run python -m compileall -q src/agents`
-- `uv run python test_agent.py`
-
-If pytest is added later:
-
-- `uv run pytest`
-
-LangSmith sanity check:
-
-- latest root run should be `execute_orchestrator`
-- root count within that trace should be `1`
-- trace should include prep, SQL, and validation child runs
+- orchestrator owns skill search and worker context
+- stages receive only the prepared worker context and skill refs they need
+- semantic search may be used when embeddings are available
+- lexical fallback should stay deterministic and visible
 
 ## Non-Goals For Now
 
 - export to CSV/JSON/XLSX
 - deduplication of saved views
-- multi-turn worker steering
-- replacing the SQL planner architecture
+- multi-turn worker steering beyond passing prepared state to `query_stage`
+- replacing the SQL drafting/repair architecture
+- adding compatibility aliases for old `*_agent` package names
 - adding feature flags or dual old/new paths
 
 ## Design Guardrails
 
 - The orchestrator is the only assistant-speaking layer.
-- Worker agents are tool-style execution runtimes.
+- Stages are callable execution units, not separate user-facing assistants.
+- `query_stage` is the workflow stage; SQL names are for SQL mechanics inside it.
 - Skills routing is orchestrator-owned.
 - Save is mandatory after validation success.
 - Structured output is Pydantic-first.
-- LangSmith traces should stay unified under `execute_orchestrator`.
+- Keep state schemas few and real; inline one-off fields on `OrchestratorState`.
