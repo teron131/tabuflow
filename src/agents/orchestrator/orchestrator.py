@@ -3,26 +3,35 @@
 from pathlib import Path
 from typing import Any
 
+from langchain.agents import create_agent
 from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import patch_config
+from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 from langsmith import traceable
 
 from ..base import ApplicationAgent
 from ..prep_agent import PrepAgent
 from ..validation_agent import ValidationAgent
-from .graph import build_orchestrator_graph, build_query_stage_graph
-from .runtime import OrchestratorRun, SqlLoopResult
+from .graph import build_data_workflow_graph
 from .sql_stage import DraftFn, RuntimeRepairFn
+from .stage_tools import make_orchestrator_stages
 from .state import (
     OrchestratorExecutionResult,
     OrchestratorInput,
     OrchestratorOutput,
-    OrchestratorState,
 )
 
 PREP_RECURSION_LIMIT_PER_SOURCE_FILE = 30
 MIN_PREP_RECURSION_LIMIT = PREP_RECURSION_LIMIT_PER_SOURCE_FILE * 3
+ORCHESTRATOR_SYSTEM_PROMPT = """You are the user-facing data assistant.
+
+Answer normal conversational messages directly.
+When the user wants to inspect, prepare, analyze, query, compute, compare, or summarize source data, use the stage tools.
+Use prep_stage before query_stage when source files need preparation.
+Use query_stage with the compact state returned by prep_stage when querying already prepared data.
+Do not invent saved view names, SQL paths, row counts, or artifact details; use tool results for those facts.
+"""
 
 
 def prep_recursion_limit(source_files: list[str]) -> int:
@@ -77,7 +86,7 @@ def build_orchestrator_input(
 
 
 class Orchestrator(ApplicationAgent):
-    """Top-level orchestrator whose graph is the staged data-analysis flow."""
+    """Composition root for the user-facing orchestrator and data workflow."""
 
     def __init__(
         self,
@@ -97,15 +106,16 @@ class Orchestrator(ApplicationAgent):
         self.sql_drafter = sql_drafter
         self.sql_runtime_repairer = sql_runtime_repairer
         self.validation_agent = validation_agent
-        self.graph = self.build_graph()
+        self.data_workflow_graph = self.build_data_workflow_graph()
+        self.graph = self.data_workflow_graph
         self.graph_artifacts = self.write_graph_artifacts(
-            self.graph,
-            filename_stem="orchestrator-graph",
+            self.data_workflow_graph,
+            filename_stem="data-workflow-graph",
         )
 
-    def build_graph(self) -> CompiledStateGraph:
-        """Build the compiled orchestrator graph."""
-        return build_orchestrator_graph(
+    def build_data_workflow_graph(self) -> CompiledStateGraph:
+        """Build the compiled data workflow graph."""
+        return build_data_workflow_graph(
             prompt=self.prompt,
             root_dir=self.root_dir,
             llm=self.llm,
@@ -113,6 +123,31 @@ class Orchestrator(ApplicationAgent):
             sql_drafter=self.sql_drafter,
             sql_runtime_repairer=self.sql_runtime_repairer,
             validation_agent=self.validation_agent,
+        )
+
+    def build_graph(self) -> CompiledStateGraph:
+        """Build the compiled data workflow graph."""
+        return self.build_data_workflow_graph()
+
+    def build_stages(self) -> list[BaseTool]:
+        """Build callable stage handles around the current stage subgraphs."""
+        return make_orchestrator_stages(
+            prompt=self.prompt,
+            root_dir=self.root_dir,
+            llm=self.llm,
+            prep_agent=self.prep_agent,
+            sql_drafter=self.sql_drafter,
+            sql_runtime_repairer=self.sql_runtime_repairer,
+            validation_agent=self.validation_agent,
+        )
+
+    def build_orchestrator_agent(self) -> CompiledStateGraph:
+        """Build the user-facing orchestrator agent that can call stage tools."""
+        return create_agent(
+            model=self.llm,
+            tools=self.build_stages(),
+            system_prompt=ORCHESTRATOR_SYSTEM_PROMPT,
+            name="orchestrator",
         )
 
     def invoke(
@@ -123,13 +158,13 @@ class Orchestrator(ApplicationAgent):
         max_validation_retries: int = 2,
         config: RunnableConfig | None = None,
     ) -> dict[str, Any]:
-        """Run one orchestrator graph invocation."""
+        """Run one data workflow invocation."""
         payload = build_orchestrator_input(
             message,
             source_files=source_files,
             max_validation_retries=max_validation_retries,
         )
-        return self.graph.invoke(
+        return self.data_workflow_graph.invoke(
             payload,
             config=patch_prep_recursion_limit(config, source_files=payload.source_files),
         )
@@ -142,7 +177,7 @@ class Orchestrator(ApplicationAgent):
         max_validation_retries: int = 2,
         config: RunnableConfig | None = None,
     ) -> str:
-        """Return the final content for one orchestrator graph invocation."""
+        """Return the final content for one data workflow invocation."""
         result = self.invoke(
             message,
             source_files=source_files,
@@ -153,8 +188,8 @@ class Orchestrator(ApplicationAgent):
         return output.content
 
 
-def trace_orchestrator_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
-    """Keep LangSmith orchestrator inputs focused on the public request."""
+def trace_data_workflow_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Keep LangSmith data workflow inputs focused on the public request."""
     return {
         "message": inputs.get("message"),
         "source_files": inputs.get("source_files"),
@@ -165,8 +200,8 @@ def trace_orchestrator_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def trace_orchestrator_outputs(output: OrchestratorExecutionResult) -> dict[str, Any]:
-    """Keep LangSmith orchestrator outputs compact and reviewable."""
+def trace_data_workflow_outputs(output: OrchestratorExecutionResult) -> dict[str, Any]:
+    """Keep LangSmith data workflow outputs compact and reviewable."""
     return {
         "content": output.content,
         "artifact": output.artifact,
@@ -176,12 +211,12 @@ def trace_orchestrator_outputs(output: OrchestratorExecutionResult) -> dict[str,
 
 
 @traceable(
-    name="execute_orchestrator",
+    name="execute_data_workflow",
     run_type="chain",
-    process_inputs=trace_orchestrator_inputs,
-    process_outputs=trace_orchestrator_outputs,
+    process_inputs=trace_data_workflow_inputs,
+    process_outputs=trace_data_workflow_outputs,
 )
-def execute_orchestrator(
+def execute_data_workflow(
     *,
     message: str | None = None,
     source_files: list[str] | None = None,
@@ -195,7 +230,7 @@ def execute_orchestrator(
     validation_agent: ValidationAgent | None = None,
     config: RunnableConfig | None = None,
 ) -> OrchestratorExecutionResult:
-    """Run the full orchestrator once and return its normalized result."""
+    """Run the fixed data workflow once and return its normalized result."""
     result = Orchestrator(
         prompt=prompt,
         root_dir=root_dir,
@@ -212,19 +247,3 @@ def execute_orchestrator(
     )
     output = OrchestratorOutput.model_validate(result)
     return OrchestratorExecutionResult(**output.model_dump(mode="python"))
-
-
-__all__ = [
-    "Orchestrator",
-    "OrchestratorExecutionResult",
-    "OrchestratorInput",
-    "OrchestratorOutput",
-    "OrchestratorRun",
-    "OrchestratorState",
-    "SqlLoopResult",
-    "build_orchestrator_graph",
-    "build_orchestrator_input",
-    "build_query_stage_graph",
-    "execute_orchestrator",
-    "prep_recursion_limit",
-]

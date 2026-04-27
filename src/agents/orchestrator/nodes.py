@@ -36,9 +36,9 @@ from .runtime import (
     sql_output_from_state,
 )
 from .skill_context import build_worker_skill_payload
-from .sql_stage import DraftFn, RuntimeRepairFn, SQLStageOutput, build_sql_drafter, build_sql_runtime_repairer
+from .sql_stage import DraftFn, RuntimeRepairFn, build_sql_drafter, build_sql_runtime_repairer
 from .sql_stage.nodes import execute_node, make_runtime_repair_node, make_write_node
-from .state import OrchestratorState
+from .state import OrchestratorState, SQLArtifactState
 
 
 def stage_report_message(name: str, content: str) -> AIMessage:
@@ -141,7 +141,7 @@ def normalize_orchestrator_state(state: OrchestratorState | dict[str, Any]) -> O
 def workflow_trace_from_state(
     state: OrchestratorState,
     *,
-    sql_output: SQLStageOutput | None = None,
+    sql_output: SQLArtifactState | None = None,
 ) -> list[str]:
     """Merge parent and worker traces into one caller-facing workflow log."""
     trace: list[str] = []
@@ -375,7 +375,7 @@ class OrchestratorNodes:
 
     def save_view(self, state: OrchestratorState) -> dict[str, Any]:
         """Persist a completed SQL result before the answer node returns it."""
-        sql_output = None if state.sql_output is None else SQLStageOutput.model_validate(state.sql_output)
+        sql_output = None if state.sql_output is None else SQLArtifactState.model_validate(state.sql_output)
         if sql_output is None or sql_output.status != "complete":
             content, artifact = build_sql_failure_result(
                 orchestrator_run_from_state(state),

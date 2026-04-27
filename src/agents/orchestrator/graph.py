@@ -13,7 +13,7 @@ from .sql_stage import DraftFn, RuntimeRepairFn
 from .state import OrchestratorInput, OrchestratorOutput, OrchestratorState
 
 
-def build_orchestrator_graph(
+def build_data_workflow_graph(
     *,
     prompt: str = "",
     root_dir: str | Path | None = None,
@@ -22,9 +22,9 @@ def build_orchestrator_graph(
     sql_drafter: DraftFn | None = None,
     sql_runtime_repairer: RuntimeRepairFn | None = None,
     validation_agent: ValidationAgent | None = None,
-    name: str = "orchestrator",
+    name: str = "data_workflow",
 ) -> CompiledStateGraph:
-    """Build the parent orchestrator graph that owns the workflow stages."""
+    """Build the fixed data workflow graph that owns the prep and query stages."""
     nodes = OrchestratorNodes(
         prompt=prompt,
         root_dir=root_dir,

@@ -89,6 +89,3 @@ class ApplicationAgent:
         if structured_response is None:
             raise RuntimeError(f"{agent_name} completed without a structured response.")
         return schema.model_validate(structured_response)
-
-
-__all__ = ["ApplicationAgent"]

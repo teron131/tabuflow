@@ -5,13 +5,7 @@ from src.agents.orchestrator.orchestrator import Orchestrator
 from src.agents.prep_agent import PrepAgent
 
 orchestrator = Orchestrator()
-graph = orchestrator.graph
+graph = orchestrator.build_orchestrator_agent()
+data_workflow_graph = orchestrator.data_workflow_graph
 prep_graph = PrepAgent().graph
 query_graph = build_query_stage_graph(llm=orchestrator.llm)
-
-__all__ = [
-    "graph",
-    "orchestrator",
-    "prep_graph",
-    "query_graph",
-]
