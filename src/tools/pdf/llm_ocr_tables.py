@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import suppress
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from itertools import pairwise
 import json
@@ -17,6 +18,8 @@ from typing import Any
 
 import httpx
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
+from langsmith import traceable
 from openai import APIConnectionError, BadRequestError
 from pydantic import BaseModel, ConfigDict, Field
 import pymupdf
@@ -153,6 +156,44 @@ class PdfTableOcrResult:
     table_count: int
     row_count: int
     usage: OcrUsage = field(default_factory=OcrUsage)
+
+
+def _trace_pdf_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Keep LangSmith PDF OCR pipeline inputs compact."""
+    pdf_path = Path(inputs.get("pdf_path", ""))
+    output_dir = inputs.get("output_dir")
+    return {
+        "pdf_path": str(pdf_path.expanduser()),
+        "output_dir": None if output_dir is None else str(output_dir),
+        "model": inputs.get("model"),
+        "pages_per_chunk": inputs.get("pages_per_chunk"),
+        "max_concurrency": inputs.get("max_concurrency"),
+        "dpi": inputs.get("dpi"),
+        "max_chunks": inputs.get("max_chunks"),
+        "fix_bridges": inputs.get("fix_bridges"),
+        "fix_overall": inputs.get("fix_overall"),
+        "write_markdown": inputs.get("write_markdown"),
+    }
+
+
+def _trace_pdf_outputs(output: PdfTableOcrResult | None) -> dict[str, Any]:
+    """Keep LangSmith PDF OCR pipeline outputs compact."""
+    if output is None:
+        return {}
+    return {
+        "pdf_path": str(output.pdf_path),
+        "output_dir": str(output.output_dir),
+        "sqlite_path": str(output.sqlite_path),
+        "json_path": str(output.json_path),
+        "markdown_path": None if output.markdown_path is None else str(output.markdown_path),
+        "table_count": output.table_count,
+        "row_count": output.row_count,
+        "usage": {
+            "input_tokens": output.usage.input_tokens,
+            "output_tokens": output.usage.output_tokens,
+            "cost": output.usage.cost,
+        },
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -358,6 +399,7 @@ def _run_chunk_ocr(
     chunk: PdfChunk,
     *,
     model: str,
+    config: RunnableConfig | None = None,
 ) -> tuple[TableOcrPayload, OcrUsage]:
     """Invoke the OCR model for one PDF chunk with retries."""
     llm = ChatOpenAI(
@@ -369,7 +411,10 @@ def _run_chunk_ocr(
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = llm.invoke(messages)
+            response = llm.invoke(
+                messages,
+                config=config,
+            )
             return _parse_structured_response(response)
         except (APIConnectionError, httpx.ReadError, httpx.RemoteProtocolError):
             if attempt == MAX_RETRIES:
@@ -389,6 +434,7 @@ def _run_bridge_ocr_fix(
     left_tables: list[dict[str, Any]],
     right_tables: list[dict[str, Any]],
     model: str,
+    config: RunnableConfig | None = None,
 ) -> tuple[TableOcrPayload, OcrUsage]:
     """Invoke the OCR model for one cropped chunk-boundary repair."""
     llm = ChatOpenAI(
@@ -406,7 +452,7 @@ def _run_bridge_ocr_fix(
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            response = llm.invoke(messages)
+            response = llm.invoke(messages, config=config)
             return _parse_structured_response(response)
         except (APIConnectionError, httpx.ReadError, httpx.RemoteProtocolError):
             if attempt == MAX_RETRIES:
@@ -618,6 +664,7 @@ def _run_bridge_text_fix(
     right_tables: list[dict[str, Any]],
     visual_boundary_tables: list[dict[str, Any]],
     model: str,
+    config: RunnableConfig | None = None,
 ) -> tuple[TableOcrPayload, OcrUsage]:
     """Repair one adjacent chunk boundary using seam OCR as evidence."""
     bridge_text = json.dumps(
@@ -639,6 +686,7 @@ def _run_bridge_text_fix(
             fixer_model=model,
             fixer_context=TABLE_BRIDGE_TEXT_FIX_SYSTEM_PROMPT,
             max_iterations=2,
+            config=config,
         )
         payload = json.loads(bridge_path.read_text(encoding="utf-8"))
     return TableOcrPayload.model_validate(payload), _usage_from_fixer_result(fixer_result)
@@ -648,6 +696,7 @@ def _run_overall_fix(
     tables: list[dict[str, Any]],
     *,
     model: str,
+    config: RunnableConfig | None = None,
 ) -> tuple[TableOcrPayload, OcrUsage]:
     """Repair full-document table artifacts using the generic file fixer."""
     overall_text = json.dumps(_build_overall_payload(tables), indent=2, ensure_ascii=False)
@@ -659,6 +708,7 @@ def _run_overall_fix(
             fixer_model=model,
             fixer_context=TABLE_OVERALL_FIX_SYSTEM_PROMPT,
             max_iterations=2,
+            config=config,
         )
         payload = json.loads(overall_path.read_text(encoding="utf-8"))
     return TableOcrPayload.model_validate(payload), _usage_from_fixer_result(fixer_result)
@@ -691,6 +741,7 @@ def _repair_bridge_window(
     window: BridgeTableWindow,
     model: str,
     dpi: int,
+    config: RunnableConfig | None = None,
 ) -> tuple[list[dict[str, Any]], OcrUsage]:
     """Repair one adjacent chunk edge-table window."""
     bridge_images = _render_bridge_images(
@@ -706,6 +757,7 @@ def _repair_bridge_window(
         left_tables=window.left_window,
         right_tables=window.right_window,
         model=model,
+        config=config,
     )
     visual_boundary_tables = [table.model_dump(exclude_none=True) if isinstance(table, BaseModel) else table for table in visual_payload.tables]
     payload, text_usage = _run_bridge_text_fix(
@@ -715,6 +767,7 @@ def _repair_bridge_window(
         right_tables=window.right_window,
         visual_boundary_tables=visual_boundary_tables,
         model=model,
+        config=config,
     )
     replacement = _normalize_bridge_tables(payload, left_chunk=left_chunk, right_chunk=right_chunk)
     if not replacement:
@@ -730,6 +783,7 @@ def _fix_table_bridges(
     model: str,
     dpi: int,
     edge_table_count: int = BRIDGE_EDGE_TABLE_COUNT,
+    config: RunnableConfig | None = None,
 ) -> tuple[list[dict[str, Any]], OcrUsage]:
     """Run local visual table bridge fixes across adjacent chunk boundaries."""
     if len(chunks) < 2:
@@ -750,12 +804,13 @@ def _fix_table_bridges(
             continue
 
         replacement, usage = _repair_bridge_window(
-            pdf_path,
+            pdf_path=pdf_path,
             left_chunk=left_chunk,
             right_chunk=right_chunk,
             window=window,
             model=model,
             dpi=dpi,
+            config=config,
         )
         usages.append(usage)
         ordered_tables = window.left_prefix + replacement + window.right_suffix
@@ -767,12 +822,13 @@ def _fix_overall_tables(
     tables: list[dict[str, Any]],
     *,
     model: str,
+    config: RunnableConfig | None = None,
 ) -> tuple[list[dict[str, Any]], OcrUsage]:
     """Run a final full-document table cleanup pass."""
     if not tables:
         return tables, OcrUsage()
 
-    payload, usage = _run_overall_fix(tables, model=model)
+    payload, usage = _run_overall_fix(tables, model=model, config=config)
     replacement = _normalize_overall_tables(payload)
     if not replacement:
         return tables, usage
@@ -1001,12 +1057,22 @@ def _run_chunk_ocr_batch(
     *,
     model: str,
     max_concurrency: int,
+    config: RunnableConfig | None = None,
 ) -> tuple[dict[int, list[dict[str, Any]]], OcrUsage]:
     """Run chunk OCR concurrently and return normalized tables by chunk."""
     tables_by_chunk: dict[int, list[dict[str, Any]]] = {}
     usages: list[OcrUsage] = []
     with ThreadPoolExecutor(max_workers=min(max_concurrency, max(1, len(chunks)))) as executor:
-        futures = {executor.submit(_run_chunk_ocr, chunk, model=model): chunk for chunk in chunks}
+        futures = {
+            executor.submit(
+                copy_context().run,
+                _run_chunk_ocr,
+                chunk,
+                model=model,
+                config=config,
+            ): chunk
+            for chunk in chunks
+        }
         for future in as_completed(futures):
             chunk = futures[future]
             payload, usage = future.result()
@@ -1028,6 +1094,11 @@ def _write_outputs(
         _write_markdown(paths.markdown_path, pdf_path=pdf_path, tables=tables)
 
 
+@traceable(
+    run_type="chain",
+    process_inputs=_trace_pdf_inputs,
+    process_outputs=_trace_pdf_outputs,
+)
 def extract_pdf_tables_to_csv(
     pdf_path: str | Path,
     *,
@@ -1040,6 +1111,7 @@ def extract_pdf_tables_to_csv(
     fix_bridges: bool = True,
     fix_overall: bool = True,
     write_markdown: bool = True,
+    config: RunnableConfig | None = None,
 ) -> PdfTableOcrResult:
     """Extract visually detected PDF tables with chunked LLM OCR, fixer cleanup, and CSV/Markdown output."""
     source_path = Path(pdf_path).expanduser().resolve()
@@ -1053,7 +1125,12 @@ def extract_pdf_tables_to_csv(
 
     ranges = _chunk_ranges_for_pdf(source_path, pages_per_chunk=pages_per_chunk, max_chunks=max_chunks)
     chunks = _render_chunks(source_path, ranges=ranges, dpi=dpi)
-    tables_by_chunk, usage = _run_chunk_ocr_batch(chunks, model=resolved_model, max_concurrency=max_concurrency)
+    tables_by_chunk, usage = _run_chunk_ocr_batch(
+        chunks,
+        model=resolved_model,
+        max_concurrency=max_concurrency,
+        config=config,
+    )
 
     if fix_bridges:
         tables, bridge_usage = _fix_table_bridges(
@@ -1062,13 +1139,18 @@ def extract_pdf_tables_to_csv(
             tables_by_chunk,
             model=resolved_model,
             dpi=dpi,
+            config=config,
         )
         usage = _merge_usage([usage, bridge_usage])
     else:
         tables = _ordered_tables_from_chunks(chunks, tables_by_chunk)
 
     if fix_overall:
-        tables, overall_usage = _fix_overall_tables(tables, model=resolved_model)
+        tables, overall_usage = _fix_overall_tables(
+            tables,
+            model=resolved_model,
+            config=config,
+        )
         usage = _merge_usage([usage, overall_usage])
 
     _write_outputs(paths=paths, pdf_path=source_path, tables=tables)

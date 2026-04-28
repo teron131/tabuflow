@@ -6,7 +6,6 @@ from typing import Any
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import RunnableConfig
-from langchain_core.runnables.config import patch_config
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -57,7 +56,7 @@ def build_skill_context_update(
     """Build the deterministic skill-context update for data_workflow."""
     skill_payload = build_worker_skill_payload(
         message,
-        config=patch_config(config, run_name="skills_context"),
+        config=config,
     )
     return {
         "skill_refs": skill_payload.skill_refs,
@@ -356,7 +355,7 @@ class OrchestratorNodes:
             sql_result=sql_output.result,
             previous_feedback=state.validation_feedback,
             validation_attempts=state.validation_attempts,
-            config=patch_config(config, run_name=f"validation_stage_attempt_{state.validation_attempts + 1}"),
+            config=config,
         )
         validation_artifact = validation_output.model_dump(mode="json")
         workflow_trace = workflow_trace_from_state(state, sql_output=sql_output)

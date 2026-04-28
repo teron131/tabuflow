@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from langchain_core.runnables import RunnableConfig
+
 from src.agents.config import resolve_agent_model
 from src.tools.fixer.graph import create_fixer_graph
 from src.tools.fixer.prompts import DEFAULT_FIXER_SYSTEM_PROMPT
@@ -44,6 +46,7 @@ def fix_file(
     fixer_system_prompt: str | None = None,
     max_iterations: int = DEFAULT_FIXER_MAX_ITERATIONS,
     restore_best_on_failure: bool = True,
+    config: RunnableConfig | None = None,
 ) -> dict[str, object]:
     """Run the fixer graph on a target UTF-8 text file."""
     target_path, resolved_root_dir, target_file = _resolve_target(path=path, root_dir=root_dir)
@@ -64,7 +67,7 @@ def fix_file(
         fixer_input.fixer_model,
         fixer_input.root_dir,
     )
-    result = create_fixer_graph().invoke(fixer_input.model_dump())
+    result = create_fixer_graph().invoke(fixer_input.model_dump(), config=config)
     logger.info(
         "[FIXER] Done ok=%s turns=%s fixer_tokens=(%s,%s) cost=%s",
         result.get("fixer_completed", False),
@@ -87,6 +90,7 @@ def fix_text(
     max_iterations: int = DEFAULT_FIXER_MAX_ITERATIONS,
     restore_best_on_failure: bool = True,
     sandbox_file_name: str = "input.txt",
+    config: RunnableConfig | None = None,
 ) -> str:
     """Run the fixer graph on in-memory text via a temporary sandbox file."""
     with TemporaryDirectory(prefix="data-agentics-fixer-") as temp_dir:
@@ -101,5 +105,6 @@ def fix_text(
             fixer_system_prompt=fixer_system_prompt,
             max_iterations=max_iterations,
             restore_best_on_failure=restore_best_on_failure,
+            config=config,
         )
         return fs.read_text(sandbox_path)

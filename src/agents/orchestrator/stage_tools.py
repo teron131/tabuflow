@@ -7,13 +7,15 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
+from langchain_core.runnables.config import patch_config
 from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, Field
 
 from ..prep_stage import PrepStage
+from ..query_stage import DraftFn, RuntimeRepairFn
 from ..validation_stage import ValidationStage
 from .nodes import OrchestratorNodes
-from ..query_stage import DraftFn, RuntimeRepairFn
 from .state import OrchestratorState
 
 PREP_RECURSION_LIMIT_PER_SOURCE_FILE = 30
@@ -109,6 +111,7 @@ def make_orchestrator_stages(
         message: str,
         source_files: list[str] | None = None,
         max_validation_retries: int = 2,
+        config: RunnableConfig | None = None,
     ) -> dict[str, Any]:
         """Prepare source files and return compact state for later query_stage calls."""
         safe_source_files = source_files or []
@@ -117,10 +120,16 @@ def make_orchestrator_stages(
             source_files=safe_source_files,
             max_validation_retries=max_validation_retries,
         )
-        state = _merge_state_update(state, nodes.skill_context(state))
+        state = _merge_state_update(
+            state,
+            nodes.skill_context(state, config=config),
+        )
         result = prep_graph.invoke(
             state.model_dump(mode="python"),
-            config={"recursion_limit": _prep_recursion_limit(safe_source_files)},
+            config=patch_config(
+                config,
+                recursion_limit=_prep_recursion_limit(safe_source_files),
+            ),
         )
         return _compact_state(result)
 
@@ -128,6 +137,7 @@ def make_orchestrator_stages(
         message: str,
         prepared_state: dict[str, Any],
         max_validation_retries: int | None = None,
+        config: RunnableConfig | None = None,
     ) -> dict[str, Any]:
         """Query prepared data, validate the result, save a view, and return compact state."""
         payload = _reset_query_fields(dict(prepared_state))
@@ -135,7 +145,10 @@ def make_orchestrator_stages(
         payload.setdefault("source_files", [])
         if max_validation_retries is not None:
             payload["max_validation_retries"] = max_validation_retries
-        result = query_graph.invoke(OrchestratorState.model_validate(payload).model_dump(mode="python"))
+        result = query_graph.invoke(
+            OrchestratorState.model_validate(payload).model_dump(mode="python"),
+            config=config,
+        )
         return _compact_state(result)
 
     return [

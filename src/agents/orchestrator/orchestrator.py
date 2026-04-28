@@ -134,13 +134,18 @@ def _state_messages(state: OrchestratorState | dict[str, Any]) -> list[BaseMessa
     return list(state.get("messages") or [])
 
 
-def skills_node(state: OrchestratorState | dict[str, Any]) -> dict[str, Any]:
+def skills_node(
+    state: OrchestratorState | dict[str, Any],
+    config: RunnableConfig | None = None,
+) -> dict[str, Any]:
     """List available workspace skill descriptions before the model runs."""
     messages = _state_messages(state)
     if not latest_user_message(messages):
         return {}
 
-    skills_overview = format_skills_overview(list_skills_context())
+    skills_overview = format_skills_overview(
+        list_skills_context(config=config),
+    )
     source_files = state.source_files if isinstance(state, OrchestratorState) else list(state.get("source_files") or [])
     trace = state.trace if isinstance(state, OrchestratorState) else list(state.get("trace") or [])
     return {
