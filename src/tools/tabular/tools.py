@@ -232,7 +232,11 @@ def make_tabular_tools(*, root_dir: str | Path | None = None):
         )
 
     @tool(parse_docstring=True)
-    def profile_tabular(path: str, max_sample_rows: int = MAX_SAMPLE_ROWS, sheet: str | None = None) -> dict[str, Any]:
+    def profile_tabular(
+        path: str,
+        max_sample_rows: int = MAX_SAMPLE_ROWS,
+        sheet: str | None = None,
+    ) -> dict[str, Any]:
         """Profile a CSV or XLSX file with read-only structural hints.
 
         Args:
