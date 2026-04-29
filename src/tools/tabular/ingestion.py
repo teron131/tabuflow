@@ -22,7 +22,10 @@ def tabular_dimensions(rows: list[list[str]]) -> tuple[int, int]:
     return len(rows), max((len(row) for row in rows), default=0)
 
 
-def tabular_summary(rows: list[list[str]], format_info: dict[str, Any]) -> dict[str, Any]:
+def tabular_summary(
+    rows: list[list[str]],
+    format_info: dict[str, Any],
+) -> dict[str, Any]:
     """Build the common file summary shared by all tabular tools."""
     row_count, column_count = tabular_dimensions(rows)
     return tabular_summary_from_counts(
@@ -75,7 +78,11 @@ def _normalize_cell(value: object) -> str:
     return str(value)
 
 
-def _read_file_sample(path: Path, *, sample_bytes: int) -> bytes:
+def _read_file_sample(
+    path: Path,
+    *,
+    sample_bytes: int,
+) -> bytes:
     """Read at most ``sample_bytes`` from the start of a file."""
     with path.open("rb") as handle:
         return handle.read(sample_bytes)
@@ -93,7 +100,11 @@ def _csv_encoding(path: Path) -> str:
     return "latin-1"
 
 
-def _csv_dialect(path: Path, *, encoding: str) -> csv.Dialect:
+def _csv_dialect(
+    path: Path,
+    *,
+    encoding: str,
+) -> csv.Dialect:
     """Detect a CSV dialect from a decoded sample."""
     with path.open("r", encoding=encoding, newline="") as handle:
         sample = handle.read(MAX_SAMPLE_CHARS)
@@ -103,7 +114,13 @@ def _csv_dialect(path: Path, *, encoding: str) -> csv.Dialect:
         return csv.get_dialect("excel")
 
 
-def _csv_stream_info(path: Path) -> tuple[str, csv.Dialect, dict[str, Any]]:
+def _csv_stream_info(
+    path: Path,
+) -> tuple[
+    str,
+    csv.Dialect,
+    dict[str, Any],
+]:
     """Return the encoding, dialect, and common CSV format metadata."""
     encoding = _csv_encoding(path)
     dialect = _csv_dialect(path, encoding=encoding)
@@ -120,7 +137,10 @@ def _csv_stream_info(path: Path) -> tuple[str, csv.Dialect, dict[str, Any]]:
     )
 
 
-def _median_from_frequencies(frequencies: Counter[int], total_count: int) -> float:
+def _median_from_frequencies(
+    frequencies: Counter[int],
+    total_count: int,
+) -> float:
     """Compute the median from a frequency map of integer values."""
     if total_count <= 0:
         return 0
@@ -170,7 +190,11 @@ def stream_csv_window(
     }
 
 
-def stream_csv_profile(path: Path, *, max_sample_rows: int) -> dict[str, Any]:
+def stream_csv_profile(
+    path: Path,
+    *,
+    max_sample_rows: int,
+) -> dict[str, Any]:
     """Build a bounded CSV profile without materializing the full file."""
     encoding, dialect, format_info = _csv_stream_info(path)
     top_rows: list[list[str]] = []
@@ -217,7 +241,12 @@ def stream_csv_profile(path: Path, *, max_sample_rows: int) -> dict[str, Any]:
     }
 
 
-def _load_csv_rows(path: Path) -> tuple[list[list[str]], dict[str, str]]:
+def _load_csv_rows(
+    path: Path,
+) -> tuple[
+    list[list[str]],
+    dict[str, str],
+]:
     """Load CSV rows and detected dialect metadata."""
     encoding, dialect, format_info = _csv_stream_info(path)
     with path.open("r", encoding=encoding, newline="") as handle:
@@ -225,7 +254,14 @@ def _load_csv_rows(path: Path) -> tuple[list[list[str]], dict[str, str]]:
     return rows, {key: value for key, value in format_info.items() if key != "format"}
 
 
-def _load_xlsx_rows(path: Path, *, sheet: str | None = None) -> tuple[list[list[str]], dict[str, Any]]:
+def _load_xlsx_rows(
+    path: Path,
+    *,
+    sheet: str | None = None,
+) -> tuple[
+    list[list[str]],
+    dict[str, Any],
+]:
     """Load worksheet rows and propagate merged-cell values."""
     workbook = load_workbook(path, read_only=False, data_only=True)
     try:
@@ -246,7 +282,14 @@ def _load_xlsx_rows(path: Path, *, sheet: str | None = None) -> tuple[list[list[
         workbook.close()
 
 
-def load_rows(path: Path, *, sheet: str | None = None) -> tuple[list[list[str]], dict[str, Any]]:
+def load_rows(
+    path: Path,
+    *,
+    sheet: str | None = None,
+) -> tuple[
+    list[list[str]],
+    dict[str, Any],
+]:
     """Load tabular rows from a supported file type."""
     suffix = path.suffix.lower()
     if suffix == ".csv":

@@ -109,7 +109,10 @@ def _has_stronger_header_ahead(
     return False
 
 
-def _data_row_threshold(rows: list[list[str]], header_index: int) -> int:
+def _data_row_threshold(
+    rows: list[list[str]],
+    header_index: int,
+) -> int:
     """Estimate a minimum non-empty-cell threshold for follower rows."""
     followers = _collect_followers(rows, header_index, limit=5)
     non_empty_counts = [count_non_empty(row) for row in followers if count_non_empty(row) > 0]

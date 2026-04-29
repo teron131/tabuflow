@@ -175,7 +175,11 @@ def _db_column_names(columns: list[str]) -> list[str]:
     return normalized
 
 
-def _create_sqlite_sources_table(connection: sqlite3.Connection, *, table_name: str = SQLITE_SOURCES_TABLE) -> None:
+def _create_sqlite_sources_table(
+    connection: sqlite3.Connection,
+    *,
+    table_name: str = SQLITE_SOURCES_TABLE,
+) -> None:
     """Create the source-linkage table for extracted content."""
     connection.execute(
         f"""
@@ -192,12 +196,18 @@ def _create_sqlite_sources_table(connection: sqlite3.Connection, *, table_name: 
     )
 
 
-def _sqlite_table_columns(connection: sqlite3.Connection, table_name: str) -> list[str]:
+def _sqlite_table_columns(
+    connection: sqlite3.Connection,
+    table_name: str,
+) -> list[str]:
     """Return the current column names for a SQLite table."""
     return [cast(str, row[1]) for row in connection.execute(f"PRAGMA table_info({quote_identifier(table_name)})").fetchall()]
 
 
-def _sqlite_unique_indexes(connection: sqlite3.Connection, table_name: str) -> list[tuple[str, ...]]:
+def _sqlite_unique_indexes(
+    connection: sqlite3.Connection,
+    table_name: str,
+) -> list[tuple[str, ...]]:
     """Return unique-index column tuples for a SQLite table."""
     unique_indexes: list[tuple[str, ...]] = []
     for _, index_name, is_unique, *_ in connection.execute(f"PRAGMA index_list({quote_identifier(table_name)})").fetchall():
@@ -257,7 +267,10 @@ def _is_real_value(value: str) -> bool:
     return "." in normalized and bool(REAL_PATTERN.fullmatch(normalized))
 
 
-def _matches_datetime_patterns(value: str, patterns: tuple[str, ...]) -> bool:
+def _matches_datetime_patterns(
+    value: str,
+    patterns: tuple[str, ...],
+) -> bool:
     """Return whether a string matches one of the accepted datetime patterns."""
     for pattern in patterns:
         try:
