@@ -1,45 +1,52 @@
-import { PanelLeft } from "lucide-react";
-import { explorerItems } from "./constants";
-import type { ExplorerKey } from "./types";
+import { Files, Settings2 } from "lucide-react";
+import type { ExplorerKey, SidePanel } from "./types";
 
 type ActivityBarProps = {
 	activeExplorer: ExplorerKey;
 	isExplorerCollapsed: boolean;
-	onToggleExplorer: () => void;
-	onSelectExplorer: (key: ExplorerKey) => void;
+	sidePanel: SidePanel;
+	onToggleFiles: () => void;
+	onOpenSettings: () => void;
 };
 
 export function ActivityBar({
 	activeExplorer,
 	isExplorerCollapsed,
-	onToggleExplorer,
-	onSelectExplorer,
+	sidePanel,
+	onToggleFiles,
+	onOpenSettings,
 }: ActivityBarProps) {
 	return (
-		<nav className="activity-bar" aria-label="Explorer modes">
+		<nav className="activity-bar" aria-label="Side panel controls">
 			<button
-				className="activity-panel-toggle"
-				onClick={onToggleExplorer}
+				className={
+					sidePanel === "explorer" && activeExplorer === "files"
+						? "activity-panel-toggle active"
+						: "activity-panel-toggle"
+				}
+				onClick={onToggleFiles}
 				type="button"
-				aria-label={isExplorerCollapsed ? "Expand explorer" : "Collapse explorer"}
+				aria-label={
+					isExplorerCollapsed || sidePanel !== "explorer"
+						? "Show files"
+						: "Toggle files"
+				}
 				aria-expanded={!isExplorerCollapsed}
 			>
-				<PanelLeft size={17} />
+				<Files size={17} />
 			</button>
-			{explorerItems.map((item) => {
-				const Icon = item.icon;
-				return (
-					<button
-						key={item.key}
-						className={activeExplorer === item.key ? "active" : ""}
-						onClick={() => onSelectExplorer(item.key)}
-						type="button"
-						aria-label={item.label}
-					>
-						<Icon size={17} />
-					</button>
-				);
-			})}
+			<button
+				className={
+					sidePanel === "settings"
+						? "activity-settings-button active"
+						: "activity-settings-button"
+				}
+				onClick={onOpenSettings}
+				type="button"
+				aria-label="Open frontend settings"
+			>
+				<Settings2 size={17} />
+			</button>
 		</nav>
 	);
 }

@@ -6,7 +6,17 @@ import { ActivityBar } from "@/components/workbench/activity-bar";
 import { BrandMark } from "@/components/workbench/brand-mark";
 import { modelOptions } from "@/components/workbench/constants";
 import { ExplorerPanel } from "@/components/workbench/explorer-panel";
-import type { CenterTab, ExplorerKey } from "@/components/workbench/types";
+import { SettingsPanel } from "@/components/workbench/settings-panel";
+import { isTargetView } from "@/components/workbench/targets";
+import type {
+	CenterTab,
+	ExplorerKey,
+	SidePanel,
+} from "@/components/workbench/types";
+import {
+	workbenchScale,
+	workbenchScaleStyle,
+} from "@/components/workbench/ui-scale";
 import { usePaneLayout } from "@/components/workbench/use-pane-layout";
 import { WorkspacePanel } from "@/components/workbench/workspace-panel";
 import {
@@ -25,7 +35,9 @@ export function Workbench() {
 	const shellRef = useRef<HTMLElement | null>(null);
 	const centerRef = useRef<HTMLElement | null>(null);
 	const [activeExplorer, setActiveExplorer] = useState<ExplorerKey>("sql");
+	const [sidePanel, setSidePanel] = useState<SidePanel>("explorer");
 	const [activeTab, setActiveTab] = useState<CenterTab>("sql");
+	const [uiScale, setUiScale] = useState(workbenchScale.default);
 	const [selectedModel, setSelectedModel] = useState("gpt-5.4-nano");
 	const [bootstrap, setBootstrap] = useState<BootstrapPayload>(emptyBootstrap);
 	const [sql, setSql] = useState(emptyBootstrap.sample_sql);
@@ -95,24 +107,45 @@ export function Workbench() {
 		}
 	}
 
-	function selectExplorer(key: ExplorerKey) {
-		setActiveExplorer(key);
+	function toggleFiles() {
+		if (
+			!isExplorerCollapsed &&
+			sidePanel === "explorer" &&
+			activeExplorer === "files"
+		) {
+			setIsExplorerCollapsed(true);
+			return;
+		}
+		setActiveExplorer("files");
+		setSidePanel("explorer");
 		setIsExplorerCollapsed(false);
+	}
+
+	function openSettings() {
+		setSidePanel("settings");
+		setIsExplorerCollapsed(false);
+	}
+
+	function toggleSidePanel() {
+		setIsExplorerCollapsed((collapsed) => !collapsed);
 	}
 
 	function selectTarget(target: Target) {
 		setSelectedTarget(target);
+		setActiveExplorer(isTargetView(target) ? "views" : "sql");
 		setActiveTab("target");
 	}
 
 	function selectSource(source: SourceFile) {
 		setSelectedSource(source);
+		setActiveExplorer("files");
 		setActiveTab("source");
 	}
 
 	function selectSkill(skill: SkillEntry) {
 		setSelectedSkill(skill);
 		setSkillDraft(skillContent(skill));
+		setActiveExplorer("skills");
 		setActiveTab("skill");
 	}
 
@@ -124,7 +157,10 @@ export function Workbench() {
 					? "workbench-shell explorer-collapsed"
 					: "workbench-shell"
 			}
-			style={shellStyle}
+			style={{
+				...shellStyle,
+				...workbenchScaleStyle(uiScale),
+			}}
 		>
 			<header className="top-bar">
 				<div className="brand-lockup">
@@ -139,25 +175,33 @@ export function Workbench() {
 			<ActivityBar
 				activeExplorer={activeExplorer}
 				isExplorerCollapsed={isExplorerCollapsed}
-				onSelectExplorer={selectExplorer}
-				onToggleExplorer={() =>
-					setIsExplorerCollapsed((collapsed) => !collapsed)
-				}
+				sidePanel={sidePanel}
+				onToggleFiles={toggleFiles}
+				onOpenSettings={openSettings}
 			/>
 
-			<ExplorerPanel
-				activeExplorer={activeExplorer}
-				bootstrap={bootstrap}
-				isCollapsed={isExplorerCollapsed}
-				selectedSkill={selectedSkill}
-				selectedSource={selectedSource}
-				selectedTarget={selectedTarget}
-				skills={skills}
-				onSelectSkill={selectSkill}
-				onSelectSource={selectSource}
-				onSelectTarget={selectTarget}
-				onToggle={() => setIsExplorerCollapsed((collapsed) => !collapsed)}
-			/>
+			{sidePanel === "settings" ? (
+				<SettingsPanel
+					isCollapsed={isExplorerCollapsed}
+					uiScale={uiScale}
+					onUiScaleChange={setUiScale}
+					onToggle={toggleSidePanel}
+				/>
+			) : (
+				<ExplorerPanel
+					activeExplorer={activeExplorer}
+					bootstrap={bootstrap}
+					isCollapsed={isExplorerCollapsed}
+					selectedSkill={selectedSkill}
+					selectedSource={selectedSource}
+					selectedTarget={selectedTarget}
+					skills={skills}
+					onSelectSkill={selectSkill}
+					onSelectSource={selectSource}
+					onSelectTarget={selectTarget}
+					onToggle={toggleSidePanel}
+				/>
+			)}
 
 			<button
 				className="resize-handle explorer-handle"

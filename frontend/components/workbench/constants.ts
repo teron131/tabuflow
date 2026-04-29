@@ -1,26 +1,11 @@
-import {
-	Braces,
-	Database,
-	FileCode2,
-	Files,
-	ScrollText,
-	Settings2,
-	Table2,
-} from "lucide-react";
-import type { CenterTab, ExplorerKey, NavigationItem } from "./types";
+import { Braces, Database, FileCode2, ScrollText, Table2 } from "lucide-react";
+import type { CenterTab, NavigationItem } from "./types";
 
 export const modelOptions = [
 	"gpt-5.4-nano",
 	"gpt-5.4-mini",
 	"gpt-5.4",
 	"gpt-5.5",
-];
-
-export const explorerItems: Array<NavigationItem<ExplorerKey>> = [
-	{ key: "files", label: "Files", icon: Files },
-	{ key: "sql", label: "SQL", icon: FileCode2 },
-	{ key: "views", label: "Views", icon: Table2 },
-	{ key: "skills", label: "Skills", icon: Settings2 },
 ];
 
 export const workspaceTabs: Array<NavigationItem<CenterTab>> = [

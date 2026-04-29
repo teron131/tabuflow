@@ -1,8 +1,5 @@
 import { Download, Play, Save } from "lucide-react";
-import {
-	type PointerEvent as ReactPointerEvent,
-	type RefObject,
-} from "react";
+import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
 import type {
 	BootstrapPayload,
 	SkillEntry,
@@ -178,6 +175,16 @@ export function WorkspacePanel({
 										? `${selectedSource.kind} source is ${selectedSource.status}.`
 										: "Pick a source in Explorer."}
 								</p>
+								<dl>
+									<dt>type</dt>
+									<dd>{selectedSource?.kind || "-"}</dd>
+									<dt>source</dt>
+									<dd>{selectedSource?.source_path || "-"}</dd>
+									<dt>destination</dt>
+									<dd>{selectedSource?.destination_path || "-"}</dd>
+									<dt>table</dt>
+									<dd>{selectedSource?.table_name || "-"}</dd>
+								</dl>
 							</div>
 						)}
 					</div>
