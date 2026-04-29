@@ -75,6 +75,7 @@ button:disabled {
 .workbench-shell {
 	--workbench-ui-scale: 1;
 	--workbench-font-size: 12px;
+	--activity-width: 38px;
 	--font-size-2xs: max(9px, calc(var(--workbench-font-size) - 3px));
 	--font-size-xs: max(10px, calc(var(--workbench-font-size) - 2px));
 	--font-size-sm: max(11px, calc(var(--workbench-font-size) - 1px));
@@ -87,7 +88,7 @@ button:disabled {
 		calc(var(--workbench-font-size) + 32px)
 	);
 	display: grid;
-	grid-template-columns: 50px minmax(220px, var(--explorer-width)) 5px minmax(0, 1fr) 5px minmax(360px, var(--chat-width));
+	grid-template-columns: var(--activity-width) minmax(220px, var(--explorer-width)) 5px minmax(0, 1fr) 5px minmax(360px, var(--chat-width));
 	grid-template-rows: 48px minmax(0, 1fr);
 	width: 100vw;
 	height: 100dvh;
@@ -102,7 +103,7 @@ button:disabled {
 }
 
 .workbench-shell.explorer-collapsed {
-	grid-template-columns: 50px 0 0 minmax(0, 1fr) 5px minmax(360px, var(--chat-width));
+	grid-template-columns: var(--activity-width) 0 0 minmax(0, 1fr) 5px minmax(360px, var(--chat-width));
 }
 
 .top-bar,
@@ -192,14 +193,14 @@ h1 {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
-	gap: 5px;
-	padding: 8px 5px;
+	gap: 4px;
+	padding: 6px 4px;
 }
 
 .activity-bar button {
 	display: grid;
-	width: 38px;
-	height: 36px;
+	width: 30px;
+	height: 32px;
 	place-items: center;
 	border: 1px solid transparent;
 	background: transparent;
@@ -1269,7 +1270,8 @@ td {
 	}
 
 	.workbench-shell {
-		grid-template-columns: 44px minmax(0, 1fr);
+		--activity-width: 34px;
+		grid-template-columns: var(--activity-width) minmax(0, 1fr);
 		grid-template-rows: 48px 44px minmax(420px, 50dvh) minmax(420px, 50dvh);
 		height: auto;
 		min-height: 100dvh;
