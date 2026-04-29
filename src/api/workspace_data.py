@@ -35,27 +35,29 @@ def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
             continue
         seen_paths.add(source_path_text)
         kind = str(source_format or "file").upper()
+        display_path = _source_display_path(source_path_text)
         files.append(
             {
                 "id": _stable_source_id(source_path_text),
                 "name": _source_name(source_path_text),
                 "kind": kind,
                 "status": "prepared",
-                "source_path": _source_display_path(source_path_text),
+                "source_path": display_path,
                 "destination_path": str(database_path),
                 "sheet_name": str(source_sheet_name or ""),
                 "table_name": str(source_table_name or ""),
             }
         )
     if database_path.exists():
+        database_path_text = str(database_path)
         files.append(
             {
-                "id": _stable_source_id(str(database_path)),
+                "id": _stable_source_id(database_path_text),
                 "name": database_path.name,
                 "kind": "SQLITE",
                 "status": "prepared",
-                "source_path": str(database_path),
-                "destination_path": str(database_path),
+                "source_path": database_path_text,
+                "destination_path": database_path_text,
                 "sheet_name": "",
                 "table_name": "",
             }
