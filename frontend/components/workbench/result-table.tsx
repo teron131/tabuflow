@@ -243,6 +243,7 @@ function ResultGrid({
 					rowMarkers="clickable-number"
 					rowSelect="multi"
 					rows={rows.length}
+					smoothScrollX
 					theme={gridTheme}
 					verticalBorder
 					width="100%"
