@@ -52,7 +52,7 @@ export function Workbench() {
 		isExplorerCollapsed,
 		setIsExplorerCollapsed,
 		shellStyle,
-		startHorizontalResize,
+		startPanelResize,
 		startVerticalResize,
 	} = usePaneLayout({ centerRef, sql });
 
@@ -205,7 +205,7 @@ export function Workbench() {
 
 			<button
 				className="resize-handle explorer-handle"
-				onPointerDown={(event) => startHorizontalResize("explorer", event)}
+				onPointerDown={(event) => startPanelResize("explorer", event)}
 				type="button"
 				aria-label="Resize explorer"
 			/>
@@ -230,7 +230,7 @@ export function Workbench() {
 
 			<button
 				className="resize-handle chat-handle"
-				onPointerDown={(event) => startHorizontalResize("chat", event)}
+				onPointerDown={(event) => startPanelResize("chat", event)}
 				type="button"
 				aria-label="Resize chat"
 			/>

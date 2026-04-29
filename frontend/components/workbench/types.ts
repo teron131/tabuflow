@@ -14,6 +14,7 @@ export type NavigationItem<Key extends string> = {
 export type ShellStyle = CSSProperties & {
 	"--explorer-width": string;
 	"--chat-width": string;
+	"--chat-dock-height": string;
 	"--query-height": string;
 	"--query-min-height": string;
 	"--workbench-ui-scale"?: string;
