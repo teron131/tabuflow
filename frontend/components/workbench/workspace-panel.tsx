@@ -31,7 +31,7 @@ import { downloadResult } from "./download";
 import { ResultTable } from "./result-table";
 import { renderHighlightedSql } from "./sql";
 import { isTargetView } from "./targets";
-import type { InspectorView } from "./types";
+import type { InspectorView, RoundingSettings } from "./types";
 
 type CollapsiblePane = "query" | "output";
 
@@ -42,6 +42,7 @@ type WorkspacePanelProps = {
 	isPreviewingTarget: boolean;
 	isRunningSql: boolean;
 	isSkillSaved: boolean;
+	rounding: RoundingSettings;
 	selectedSkill: SkillEntry | null;
 	selectedSource: SourceFile | null;
 	selectedTarget: Target | null;
@@ -66,6 +67,7 @@ export function WorkspacePanel({
 	isPreviewingTarget,
 	isRunningSql,
 	isSkillSaved,
+	rounding,
 	selectedSkill,
 	selectedSource,
 	selectedTarget,
@@ -230,7 +232,7 @@ export function WorkspacePanel({
 								</div>
 							)}
 							{inspectorView === "results" && (
-								<ResultTable result={sqlResult} />
+								<ResultTable result={sqlResult} rounding={rounding} />
 							)}
 							{inspectorView === "target" && (
 								<div className="target-viewer">
@@ -238,7 +240,10 @@ export function WorkspacePanel({
 										{isPreviewingTarget ? (
 											<div className="empty-state">Loading preview</div>
 										) : targetPreviewResult ? (
-											<ResultTable result={targetPreviewResult} />
+											<ResultTable
+												result={targetPreviewResult}
+												rounding={rounding}
+											/>
 										) : (
 											<div className="empty-state">
 												Select a table or view to preview rows.

@@ -1,14 +1,18 @@
 import {
+	CompactSelection,
 	DataEditor,
 	type GridCell,
 	GridCellKind,
 	type GridColumn,
 	GridColumnIcon,
+	type GridSelection,
 	type Item,
+	type Rectangle,
 	type Theme,
 } from "@glideapps/glide-data-grid";
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { SqlResult } from "@/lib/api";
+import type { RoundingSettings } from "./types";
 
 type ColumnKind = "boolean" | "number" | "uri" | "text";
 
@@ -16,6 +20,24 @@ type ColumnProfile = {
 	name: string;
 	kind: ColumnKind;
 	width: number;
+};
+
+type SelectionStats = {
+	label: string;
+	numericCount: number;
+	totalCells: number;
+	sum: number;
+	average: number;
+	min: number;
+	max: number;
+};
+
+const rawNumberMaximumFractionDigits = 20;
+
+const emptyGridSelection: GridSelection = {
+	columns: CompactSelection.empty(),
+	rows: CompactSelection.empty(),
+	current: undefined,
 };
 
 const gridTheme: Partial<Theme> = {
@@ -69,6 +91,28 @@ function toDisplayValue(value: unknown): string {
 	}
 }
 
+function toNumericValue(value: unknown): number | null {
+	if (isFiniteNumber(value)) return value;
+	if (typeof value !== "string") return null;
+	const normalized = value.trim().replaceAll(",", "");
+	if (
+		!normalized ||
+		!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)
+	) {
+		return null;
+	}
+	const parsed = Number(normalized);
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatNumberValue(value: number, rounding: RoundingSettings) {
+	return new Intl.NumberFormat("en-US", {
+		maximumFractionDigits: rounding.enabled
+			? rounding.digits
+			: rawNumberMaximumFractionDigits,
+	}).format(value);
+}
+
 function inferColumnKind(
 	column: string,
 	rows: Array<Record<string, unknown>>,
@@ -117,7 +161,75 @@ function columnProfiles(
 	});
 }
 
-export function ResultTable({ result }: { result: SqlResult | null }) {
+function selectedRectangles(selection: GridSelection): Rectangle[] {
+	const current = selection.current;
+	if (!current) return [];
+	const rectangles = [...current.rangeStack, current.range];
+	return rectangles.filter((range) => range.width > 0 && range.height > 0);
+}
+
+function selectionLabel(rectangles: Rectangle[], totalCells: number) {
+	const activeRange = rectangles.at(-1) ?? rectangles[0];
+	if (rectangles.length === 1) {
+		return `${activeRange.height.toLocaleString()} x ${activeRange.width.toLocaleString()}`;
+	}
+	return `${totalCells.toLocaleString()} cells`;
+}
+
+function selectionStats(
+	selection: GridSelection,
+	columns: string[],
+	rows: Array<Record<string, unknown>>,
+): SelectionStats | null {
+	const rectangles = selectedRectangles(selection);
+	if (!rectangles.length) return null;
+
+	let totalCells = 0;
+	let numericCount = 0;
+	let sum = 0;
+	let min = Number.POSITIVE_INFINITY;
+	let max = Number.NEGATIVE_INFINITY;
+
+	for (const range of rectangles) {
+		const endRow = Math.min(rows.length, range.y + range.height);
+		const endColumn = Math.min(columns.length, range.x + range.width);
+		for (let rowIndex = range.y; rowIndex < endRow; rowIndex += 1) {
+			const row = rows[rowIndex];
+			for (
+				let columnIndex = range.x;
+				columnIndex < endColumn;
+				columnIndex += 1
+			) {
+				totalCells += 1;
+				const value = toNumericValue(row?.[columns[columnIndex]]);
+				if (value == null) continue;
+				numericCount += 1;
+				sum += value;
+				min = Math.min(min, value);
+				max = Math.max(max, value);
+			}
+		}
+	}
+
+	if (!totalCells) return null;
+	return {
+		label: selectionLabel(rectangles, totalCells),
+		numericCount,
+		totalCells,
+		sum,
+		average: numericCount ? sum / numericCount : 0,
+		min,
+		max,
+	};
+}
+
+export function ResultTable({
+	result,
+	rounding,
+}: {
+	result: SqlResult | null;
+	rounding: RoundingSettings;
+}) {
 	if (!result) {
 		return (
 			<div className="empty-state">Run SQL to populate the result grid.</div>
@@ -139,6 +251,7 @@ export function ResultTable({ result }: { result: SqlResult | null }) {
 		<ResultGrid
 			columns={columns}
 			resultRowCount={result.row_count}
+			rounding={rounding}
 			rows={rows}
 			truncated={result.truncated}
 		/>
@@ -148,17 +261,25 @@ export function ResultTable({ result }: { result: SqlResult | null }) {
 function ResultGrid({
 	columns,
 	resultRowCount,
+	rounding,
 	rows,
 	truncated,
 }: {
 	columns: string[];
 	resultRowCount?: number;
+	rounding: RoundingSettings;
 	rows: Array<Record<string, unknown>>;
 	truncated?: boolean;
 }) {
 	const profiles = useMemo(
 		() => columnProfiles(columns, rows),
 		[columns, rows],
+	);
+	const [gridSelection, setGridSelection] =
+		useState<GridSelection>(emptyGridSelection);
+	const stats = useMemo(
+		() => selectionStats(gridSelection, columns, rows),
+		[columns, gridSelection, rows],
 	);
 	const gridColumns = useMemo<readonly GridColumn[]>(
 		() =>
@@ -177,14 +298,15 @@ function ResultGrid({
 			const column = profile?.name;
 			const value = rows[row]?.[column];
 			if (profile?.kind === "number" && isFiniteNumber(value)) {
+				const displayData = formatNumberValue(value, rounding);
 				return {
 					kind: GridCellKind.Number,
 					allowOverlay: false,
 					readonly: true,
 					data: value,
-					displayData: String(value),
+					displayData,
 					contentAlign: "right",
-					copyData: String(value),
+					copyData: displayData,
 				};
 			}
 			if (profile?.kind === "boolean" && isBoolean(value)) {
@@ -218,7 +340,7 @@ function ResultGrid({
 				copyData: displayData,
 			};
 		},
-		[profiles, rows],
+		[profiles, rounding, rows],
 	);
 	const visibleRows = resultRowCount ?? rows.length;
 	const statusText = `${visibleRows.toLocaleString()} row${visibleRows === 1 ? "" : "s"} x ${columns.length.toLocaleString()} column${columns.length === 1 ? "" : "s"}`;
@@ -233,11 +355,13 @@ function ResultGrid({
 					freezeColumns={columns.length > 1 ? 1 : 0}
 					getCellContent={getCellContent}
 					getCellsForSelection
+					gridSelection={gridSelection}
 					headerHeight={34}
 					height="100%"
 					maxColumnWidth={420}
 					minColumnWidth={96}
 					onPaste={false}
+					onGridSelectionChange={setGridSelection}
 					rangeSelect="multi-rect"
 					rowHeight={30}
 					rowMarkers="clickable-number"
@@ -250,8 +374,36 @@ function ResultGrid({
 				/>
 			</div>
 			<footer className="result-grid-status">
-				<span>{statusText}</span>
-				{truncated ? <span>truncated</span> : null}
+				<span className="result-status-main">{statusText}</span>
+				<div className="selection-stats" aria-live="polite">
+					{stats ? (
+						<span className="selection-stat selection-shape">
+							{stats.label}
+						</span>
+					) : null}
+					{stats && stats.numericCount > 0 ? (
+						<>
+							<span className="selection-stat">
+								sum {formatNumberValue(stats.sum, rounding)}
+							</span>
+							<span className="selection-stat">
+								avg {formatNumberValue(stats.average, rounding)}
+							</span>
+							<span className="selection-stat">
+								min {formatNumberValue(stats.min, rounding)}
+							</span>
+							<span className="selection-stat">
+								max {formatNumberValue(stats.max, rounding)}
+							</span>
+							{stats.numericCount < stats.totalCells ? (
+								<span className="selection-stat">
+									nums {stats.numericCount.toLocaleString()}
+								</span>
+							) : null}
+						</>
+					) : null}
+					{truncated ? <span className="selection-stat">truncated</span> : null}
+				</div>
 			</footer>
 		</div>
 	);

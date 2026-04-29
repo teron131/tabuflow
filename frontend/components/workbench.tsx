@@ -10,13 +10,17 @@ import {
 import { ChatRail } from "@/components/chat-rail";
 import { ActivityBar } from "@/components/workbench/activity-bar";
 import { BrandMark } from "@/components/workbench/brand-mark";
-import { modelOptions } from "@/components/workbench/constants";
+import {
+	defaultRounding,
+	modelOptions,
+} from "@/components/workbench/constants";
 import { ExplorerPanel } from "@/components/workbench/explorer-panel";
 import { SettingsPanel } from "@/components/workbench/settings-panel";
 import { isTargetView } from "@/components/workbench/targets";
 import type {
 	ExplorerKey,
 	InspectorView,
+	RoundingSettings,
 	SidePanel,
 } from "@/components/workbench/types";
 import {
@@ -54,6 +58,7 @@ export function Workbench() {
 	const [activeExplorer, setActiveExplorer] = useState<ExplorerKey>("sql");
 	const [sidePanel, setSidePanel] = useState<SidePanel>("explorer");
 	const [inspectorView, setInspectorView] = useState<InspectorView>("results");
+	const [rounding, setRounding] = useState<RoundingSettings>(defaultRounding);
 	const [uiScale, setUiScale] = useState(workbenchScale.default);
 	const [selectedModel, setSelectedModel] = useState("gpt-5.4-nano");
 	const [bootstrap, setBootstrap] = useState<BootstrapPayload>(emptyBootstrap);
@@ -357,7 +362,9 @@ export function Workbench() {
 			{sidePanel === "settings" ? (
 				<SettingsPanel
 					isCollapsed={isExplorerCollapsed}
+					rounding={rounding}
 					uiScale={uiScale}
+					onRoundingChange={setRounding}
 					onUiScaleChange={setUiScale}
 					onToggle={toggleSidePanel}
 				/>
@@ -390,6 +397,7 @@ export function Workbench() {
 				inspectorView={inspectorView}
 				isPreviewingTarget={isPreviewingTarget}
 				isRunningSql={isRunningSql}
+				rounding={rounding}
 				selectedSkill={selectedSkill}
 				selectedSource={selectedSource}
 				selectedTarget={selectedTarget}
