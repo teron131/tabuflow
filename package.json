@@ -5,7 +5,7 @@
 	"scripts": {
 		"dev": "bash start.sh",
 		"dev:api": "uv run uvicorn src.api:app --host localhost --port ${API_PORT:-8017} --reload",
-		"dev:frontend": "pnpm --dir frontend dev --hostname localhost --port ${UI_PORT:-5174}",
-		"build": "pnpm --dir frontend build"
+		"dev:frontend": "cd frontend && pnpm dev --hostname localhost --port ${UI_PORT:-5174}",
+		"build": "cd frontend && pnpm build"
 	}
 }
