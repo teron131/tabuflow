@@ -457,50 +457,8 @@ h1 {
 	display: block;
 	width: 20px;
 	height: 20px;
+	flex: 0 0 20px;
 	overflow: visible;
-	color: var(--icon-color, var(--muted));
-	fill: color-mix(in srgb, var(--icon-color, var(--muted)) 14%, #fffdf6);
-	stroke: currentColor;
-	stroke-linecap: round;
-	stroke-linejoin: round;
-	stroke-width: 2.4px;
-}
-
-.file-type-icon.csv {
-	--icon-color: #6f8840;
-}
-
-.file-type-icon.db,
-.file-type-icon.raw {
-	--icon-color: #c89218;
-	fill: color-mix(in srgb, var(--icon-color) 22%, #fffdf6);
-}
-
-.file-type-icon.raw {
-	--icon-color: #a95421;
-}
-
-.file-type-icon.view,
-.file-type-icon.typed {
-	--icon-color: #3984a6;
-}
-
-.file-type-icon.typed {
-	--icon-color: #6c8e52;
-}
-
-.file-type-icon.view::after,
-.file-type-icon.typed::after {
-	top: 6px;
-	left: 3px;
-	width: 7px;
-	height: 5px;
-	border-top: 1.4px solid var(--icon-color);
-	border-bottom: 1.4px solid var(--icon-color);
-}
-
-.file-type-icon.skill {
-	--icon-color: #c24472;
 }
 
 .explorer-empty {
@@ -897,20 +855,24 @@ h1 {
 }
 
 table {
-	width: 100%;
+	min-width: 100%;
 	border-collapse: collapse;
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
+	table-layout: fixed;
 }
 
 th,
 td {
-	max-width: 280px;
+	width: 180px;
 	padding: 7px 9px;
 	border: 1px solid var(--line);
+	overflow: hidden;
+	overflow-wrap: anywhere;
 	text-align: left;
 	vertical-align: top;
-	white-space: nowrap;
+	white-space: normal;
+	word-break: break-word;
 }
 
 th {

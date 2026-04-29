@@ -10,6 +10,8 @@
 	},
 	"dependencies": {
 		"@ai-sdk/react": "^3.0.170",
+		"@iconify-json/material-icon-theme": "^1.2.61",
+		"@iconify/react": "^6.0.2",
 		"ai": "^6.0.168",
 		"lucide-react": "^0.561.0",
 		"next": "^16.2.4",

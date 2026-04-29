@@ -1,3 +1,4 @@
+import { Icon } from "@iconify/react";
 import {
 	ArrowDownAZ,
 	ArrowUpAZ,
@@ -56,8 +57,8 @@ type ExplorerGroup = {
 
 const groupLabels: Record<ExplorerKey, string> = {
 	files: "Sources",
-	sql: "Queryable targets",
-	views: "Saved views",
+	sql: "Extracted tables",
+	views: "Queried views",
 	skills: "Skills",
 };
 
@@ -66,6 +67,15 @@ const defaultOpenGroups: Record<ExplorerKey, boolean> = {
 	sql: true,
 	views: true,
 	skills: true,
+};
+
+const fileTypeIcons: Record<string, string> = {
+	csv: "material-icon-theme:table",
+	file: "material-icon-theme:document",
+	raw: "material-icon-theme:database",
+	skill: "material-icon-theme:skill",
+	sqlite: "material-icon-theme:database",
+	view: "material-icon-theme:json-schema",
 };
 
 export function ExplorerPanel({
@@ -227,7 +237,6 @@ export function ExplorerPanel({
 								)}
 								<FolderIcon size={15} />
 								<span>{group.label}</span>
-								<small>{group.rows.length}</small>
 							</button>
 							{isOpen &&
 								group.rows.map((row) => (
@@ -241,7 +250,7 @@ export function ExplorerPanel({
 										<span className="tree-spacer" />
 										<FileTypeIcon type={row.iconType} />
 										<span className="tree-label">{row.label}</span>
-										<small>{row.status}</small>
+										{row.status ? <small>{row.status}</small> : null}
 									</button>
 								))}
 						</section>
@@ -299,7 +308,7 @@ function buildGroups({
 				id: `target-${target.name}`,
 				label: target.name,
 				type: targetBadge(target.kind),
-				status: target.row_count == null ? "-" : String(target.row_count),
+				status: "",
 				detail: target.summary,
 				iconType: targetIconType(target),
 				isActive: selectedTarget?.name === target.name,
@@ -313,7 +322,7 @@ function buildGroups({
 				id: `view-${target.name}`,
 				label: target.name,
 				type: targetBadge(target.kind),
-				status: String(target.source_path_count),
+				status: "",
 				detail: target.summary,
 				iconType: "view",
 				isActive: selectedTarget?.name === target.name,
@@ -327,7 +336,7 @@ function buildGroups({
 				id: `skill-${skill.name}`,
 				label: skill.name,
 				type: "SKILL",
-				status: String(skill.references?.length ?? 0),
+				status: "",
 				detail: skill.description || skill.path || "",
 				iconType: "skill",
 				isActive: selectedSkill?.name === skill.name,
@@ -385,7 +394,7 @@ function sourceIconType(source: SourceFile) {
 		return "csv";
 	}
 	if (kind.includes("sqlite") || kind.includes("db")) {
-		return "db";
+		return "sqlite";
 	}
 	return "file";
 }
@@ -395,63 +404,18 @@ function targetIconType(target: Target) {
 		return "raw";
 	}
 	if (target.kind === "typed_content_view") {
-		return "typed";
+		return "view";
 	}
-	return isTargetView(target) ? "view" : "db";
+	return isTargetView(target) ? "view" : "raw";
 }
 
 function FileTypeIcon({ type }: { type: string }) {
-	const iconType = ["csv", "db", "raw", "view", "typed", "skill"].includes(type)
-		? type
-		: "file";
+	const iconType = type in fileTypeIcons ? type : "file";
 	return (
-		<svg
+		<Icon
 			className={`file-type-icon ${iconType}`}
-			viewBox="0 0 32 32"
+			icon={fileTypeIcons[iconType]}
 			aria-hidden="true"
-		>
-			{iconType === "csv" && (
-				<>
-					<rect x="5" y="6" width="22" height="20" rx="2" />
-					<path d="M5 12h22M5 19h22M12 6v20M20 6v20" />
-				</>
-			)}
-			{(iconType === "db" || iconType === "raw") && (
-				<>
-					<ellipse cx="16" cy="8" rx="10" ry="4" />
-					<path d="M6 8v15c0 2.2 4.5 4 10 4s10-1.8 10-4V8" />
-					<path d="M6 15c0 2.2 4.5 4 10 4s10-1.8 10-4" />
-					<path d="M6 22c0 2.2 4.5 4 10 4s10-1.8 10-4" />
-					{iconType === "raw" && <path d="M12 12h8M11 18h10" />}
-				</>
-			)}
-			{iconType === "view" && (
-				<>
-					<rect x="5" y="7" width="22" height="18" rx="2" />
-					<path d="M9 13h14M9 19h14M13 9v16" />
-					<path d="M20 6l6 6" />
-				</>
-			)}
-			{iconType === "typed" && (
-				<>
-					<rect x="5" y="7" width="22" height="18" rx="2" />
-					<path d="M9 13h14M9 19h9M13 9v16" />
-					<path d="M20 21l2.2 2.2L27 17" />
-				</>
-			)}
-			{iconType === "skill" && (
-				<>
-					<rect x="6" y="5" width="20" height="22" rx="2" />
-					<path d="M11 12h10M11 17h10M11 22h6" />
-					<path d="M23 4v7h6" />
-				</>
-			)}
-			{iconType === "file" && (
-				<>
-					<rect x="6" y="5" width="20" height="22" rx="2" />
-					<path d="M20 5v7h6M11 15h10M11 20h8" />
-				</>
-			)}
-		</svg>
+		/>
 	);
 }

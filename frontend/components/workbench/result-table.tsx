@@ -34,9 +34,10 @@ export function ResultTable({ result }: { result: SqlResult | null }) {
 			<div className="empty-state">{result.summary || "Query completed."}</div>
 		);
 	}
+	const tableMinWidth = `max(100%, ${columns.length * 180}px)`;
 	return (
 		<div className="table-scroll">
-			<table>
+			<table style={{ width: tableMinWidth }}>
 				<thead>
 					<tr>
 						{columns.map((column) => (
