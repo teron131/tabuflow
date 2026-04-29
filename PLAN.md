@@ -1,5 +1,153 @@
 # Agent Stack Stabilization Plan
 
+## UI Workbench Extension Plan
+
+### Product Goal
+
+Build a viable, functional UI around the current Python-first data-agentics backend without reshaping the analysis engine. The frontend should make the existing orchestrator, tabular extraction posture, SQL helpers, and future skills-assisted workflows visible as one coherent workbench.
+
+The first version should feel like a serious data operator surface:
+
+- chat-facing agent on one side,
+- SQL editor and result inspection in the center,
+- source files, queryable targets, saved views, and skills context close enough to use,
+- clear run state, errors, validation, and next-step affordances,
+- no dependency on a complete end-to-end production workflow for the UI to be useful.
+
+### Backend Scope
+
+Keep backend changes minimal and additive:
+
+- add a FastAPI app as a transport shell over current code,
+- expose health, chat, SQL execution, target listing, target description, skills listing, and UI bootstrap endpoints,
+- reuse `src.tools.sql.query` for read-only SQL execution and target navigation,
+- reuse current orchestrator entrypoints for chat when environment credentials exist,
+- fail chat requests clearly when model credentials are unavailable,
+- serve the built frontend from FastAPI for a one-process preview path.
+
+Do not rewrite the orchestrator, prep stage, query stage, validation stage, tabular extraction, or SQL helper internals for this UI pass.
+
+### Frontend Scope
+
+Create a new TypeScript React web shell under `frontend/` with Vite. The root should gain small scripts to build and run the UI, plus a `start.sh` that starts FastAPI and Vite together for local development on non-default ports.
+
+Primary UI surfaces:
+
+- Runs dashboard: current run identity, status, stage timeline, and recent changes.
+- SQL workbench: editable SQL, explain/run/save controls, validation panel, result table, chart placeholder, download affordance.
+- Agent panel: chat history, generated SQL summary, backend status, suggested next steps, and command composer.
+- Files and targets: source file queue, known SQLite database path, queryable target list, target metadata preview.
+- Skills editor: searchable skill list, selected skill preview, editable draft area, and future agent-assist controls.
+- SQL editor assist: prompt-to-SQL drawer/side panel, selected target chips, repair hints, and save-view affordance.
+
+### Design Direction
+
+Use the provided `artifacts/graphs/ui.png` as the functional baseline, but raise the visual standard:
+
+- calm operator-grade density instead of marketing cards,
+- premium split shell with persistent left rail, central command surface, and right agent rail,
+- wide editorial command header using Cabinet Grotesk-like typography,
+- precise spacing and stable dimensions for tables, editors, buttons, tabs, and side panels,
+- real hover/press/focus states on every button and card,
+- no generic AI-startup gradients, ornamental labels, or fake metrics.
+
+### API Contract
+
+Initial endpoints:
+
+- `GET /api/health`: app status, model default, and whether LLM environment variables are present.
+- `GET /api/bootstrap`: initial UI data, sample SQL, known database path, suggested questions, and stage cards.
+- `POST /api/chat`: message only; returns assistant content and compact artifact. Returns explicit errors if LLM credentials are absent or model execution fails.
+- `POST /api/sql/run`: read-only SQL execution against the prepared local SQLite database. Browser-supplied database paths are not accepted.
+- `GET /api/sql/targets`: list queryable targets for the prepared local SQLite database.
+- `GET /api/sql/targets/{name}`: describe one target.
+- `GET /api/skills`: discover workspace skills metadata for the UI.
+- `POST /api/skills/draft`: non-destructive skill draft echo endpoint for the editor until full persistence is designed.
+
+All responses should be JSON-friendly Pydantic models. The frontend should treat errors as first-class states rather than console-only failures.
+
+Default local ports:
+
+- FastAPI: `localhost:8017` via `API_PORT`
+- Vite UI: `localhost:5174` via `UI_PORT`
+
+### Implementation Steps
+
+1. Add the FastAPI app.
+   - Create a small API package under `src/api/`.
+   - Add request/response schemas near the API boundary.
+   - Reuse SQL helpers and current config defaults.
+   - Keep prepared local data server-side and expose only redacted source metadata to the browser.
+
+2. Add the frontend project.
+   - Create Vite React TypeScript files under `frontend/`.
+   - Add `package.json`, `tsconfig`, `vite.config`, and app source.
+   - Use CSS modules or a single disciplined CSS file instead of adding a large UI kit.
+   - Use `lucide-react` icons and restrained CSS motion.
+
+3. Build the app shell.
+   - Left navigation for Runs, Files, Targets, SQL, Views, Skills.
+   - Central SQL editor/results panel with toolbar controls.
+   - Right agent panel with chat, validation, recent changes, and suggested next steps.
+   - Skills and files drawers/sections that are functional, not placeholders.
+
+4. Wire the API.
+   - Fetch bootstrap data on load.
+   - Run SQL from the editor and update table/results state.
+   - Send chat messages and render backend replies or explicit API errors.
+   - Load targets and selected target details.
+   - Load skills and allow local draft editing.
+
+5. Verify iteratively with Playwright.
+   - Open the dev server.
+   - Snapshot the app at desktop and mobile widths.
+   - Click every primary nav item and toolbar button.
+   - Run the sample SQL.
+   - Send a simple chat message.
+   - Open target and skills views.
+   - Check console errors and horizontal overflow.
+
+6. Polish until it is good.
+   - Fix text overflow and cramped controls.
+   - Improve empty/error/loading states.
+   - Tighten colors, border contrast, table density, and responsive behavior.
+   - Add final build/typecheck/backend smoke checks.
+
+### Verification Targets
+
+Backend:
+
+- `uv run ruff check src/agents src/tools src/api`
+- `uv run python -m py_compile src/api/*.py`
+- `uv run python -c "from fastapi.testclient import TestClient; from src.api import app; c=TestClient(app); print(c.get('/api/health').json()['status']); print(c.post('/api/sql/run', json={'sql':'select 1 as ok'}).json()['status'])"`
+
+Frontend:
+
+- `pnpm --dir frontend build`
+- Playwright desktop screenshot and interactions.
+- Playwright mobile screenshot and interactions.
+- Browser console check after all major interactions.
+
+### Near-Term Non-Goals
+
+- full persistence for edited skills,
+- multi-user auth,
+- complete file upload and extraction orchestration,
+- production-grade charting,
+- changing orchestrator stage internals,
+- replacing LangGraph dev tooling.
+
+### Follow-Up After This UI Pass
+
+Once the shell is solid, the next valuable backend-facing work is:
+
+- real upload-to-prep workflow,
+- saved run history,
+- persisted skills editor with validation,
+- prompt-to-SQL assist using the query stage,
+- target-aware chart suggestions,
+- generated transport types from FastAPI OpenAPI.
+
 ## Summary
 
 The architecture is now a chat-facing orchestrator with explicit data stages:
@@ -170,7 +318,7 @@ Smoke checks:
 
 Add tests for:
 
-- `build_worker_skill_payload` lexical fallback behavior
+- `build_worker_skill_payload` deterministic lexical behavior
 - `build_result_artifact` and `build_result_message`
 - prep failure path
 - query runtime repair path
@@ -190,10 +338,10 @@ Current policy:
 
 - `create_agent` paths use `ToolStrategy(schema)`
 - graph outputs validate with Pydantic
-- no prompt-only "return JSON" fallback
+- no prompt-only "return JSON" workaround
 - no broad text JSON parsing for structured responses
 
-If a provider breaks structured tool output, fix the provider/model strategy instead of adding fallback parsing.
+If a provider breaks structured tool output, fix the provider/model strategy instead of adding broad text JSON parsing.
 
 ### 4. Keep Skill Context Orchestrator-Owned
 
@@ -202,7 +350,7 @@ Policy:
 - orchestrator owns skill search and worker context
 - stages receive only the prepared worker context and skill refs they need
 - semantic search may be used when embeddings are available
-- lexical fallback should stay deterministic and visible
+- deterministic lexical search should stay visible
 
 ## Non-Goals For Now
 

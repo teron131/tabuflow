@@ -1,0 +1,11 @@
+{
+	"name": "data-agentics",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bash start.sh",
+		"dev:api": "uv run uvicorn src.api:app --host localhost --port ${API_PORT:-8017} --reload",
+		"dev:frontend": "pnpm --dir frontend dev --hostname localhost --port ${UI_PORT:-5174}",
+		"build": "pnpm --dir frontend build"
+	}
+}
