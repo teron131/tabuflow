@@ -94,12 +94,13 @@ def fix_text(
 ) -> str:
     """Run the fixer graph on in-memory text via a temporary sandbox file."""
     with TemporaryDirectory(prefix="data-agentics-fixer-") as temp_dir:
-        fs = SandboxFS(root_dir=Path(temp_dir))
+        temp_root = Path(temp_dir).resolve()
+        fs = SandboxFS(root_dir=temp_root)
         sandbox_path = f"/{sandbox_file_name.lstrip('/')}"
         fs.write_text(sandbox_path, text)
         fix_file(
             path=fs.resolve(sandbox_path),
-            root_dir=temp_dir,
+            root_dir=temp_root,
             fixer_model=fixer_model,
             fixer_context=fixer_context,
             fixer_system_prompt=fixer_system_prompt,
