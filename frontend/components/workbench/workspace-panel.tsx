@@ -1,10 +1,17 @@
-import { Download, Play, RotateCcw, Save } from "lucide-react";
+import {
+	ChevronDown,
+	ChevronRight,
+	Download,
+	Play,
+	RotateCcw,
+	Save,
+} from "lucide-react";
 import type {
 	ReactNode,
 	PointerEvent as ReactPointerEvent,
 	RefObject,
 } from "react";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
 	type BootstrapPayload,
 	type SkillEntry,
@@ -20,6 +27,8 @@ import { downloadResult } from "./download";
 import { ResultTable } from "./result-table";
 import { renderHighlightedSql } from "./sql";
 import type { CenterTab } from "./types";
+
+type CollapsiblePane = "query" | "output";
 
 type WorkspacePanelProps = {
 	activeTab: CenterTab;
@@ -62,6 +71,8 @@ export function WorkspacePanel({
 	onSqlChange,
 	onVerticalResize,
 }: WorkspacePanelProps) {
+	const [queryCollapsed, setQueryCollapsed] = useState(false);
+	const [outputCollapsed, setOutputCollapsed] = useState(false);
 	const renderSqlLine = useCallback(
 		(line: string) => renderHighlightedSql(line),
 		[],
@@ -70,6 +81,13 @@ export function WorkspacePanel({
 		(line: string) => renderHighlightedMarkdown(line),
 		[],
 	);
+	const togglePane = useCallback((pane: CollapsiblePane) => {
+		if (pane === "query") {
+			setQueryCollapsed((collapsed) => !collapsed);
+			return;
+		}
+		setOutputCollapsed((collapsed) => !collapsed);
+	}, []);
 
 	return (
 		<section ref={centerRef} className="workspace">
@@ -90,10 +108,31 @@ export function WorkspacePanel({
 				})}
 			</header>
 
-			<div className="workspace-grid">
+			<div
+				className={[
+					"workspace-grid",
+					queryCollapsed ? "query-collapsed" : "",
+					outputCollapsed ? "output-collapsed" : "",
+				]
+					.filter(Boolean)
+					.join(" ")}
+			>
 				<section className="query-pane">
-					<header className="pane-header">
-						<span>QUERY BUFFER</span>
+					<header className="pane-header collapsible-pane-header">
+						<button
+							aria-controls="query-pane-body"
+							aria-expanded={!queryCollapsed}
+							className="pane-toggle"
+							onClick={() => togglePane("query")}
+							type="button"
+						>
+							{queryCollapsed ? (
+								<ChevronRight size={14} aria-hidden="true" />
+							) : (
+								<ChevronDown size={14} aria-hidden="true" />
+							)}
+							QUERY BUFFER
+						</button>
 						<div className="button-cluster">
 							<button
 								className="outline-button"
@@ -113,22 +152,28 @@ export function WorkspacePanel({
 							</button>
 						</div>
 					</header>
-					<CodeEditor
-						ariaLabel="SQL editor"
-						className="sql-editor-wrap"
-						highlightClassName="sql-highlight"
-						renderLine={renderSqlLine}
-						value={sql}
-						onChange={onSqlChange}
-					/>
+					{!queryCollapsed ? (
+						<div id="query-pane-body" className="query-pane-body">
+							<CodeEditor
+								ariaLabel="SQL editor"
+								className="sql-editor-wrap"
+								highlightClassName="sql-highlight"
+								renderLine={renderSqlLine}
+								value={sql}
+								onChange={onSqlChange}
+							/>
+						</div>
+					) : null}
 				</section>
 
-				<button
-					className="resize-handle vertical-handle"
-					onPointerDown={onVerticalResize}
-					type="button"
-					aria-label="Resize query pane"
-				/>
+				{!queryCollapsed && !outputCollapsed ? (
+					<button
+						className="resize-handle vertical-handle"
+						onPointerDown={onVerticalResize}
+						type="button"
+						aria-label="Resize query pane"
+					/>
+				) : null}
 
 				<section
 					className={
@@ -137,8 +182,21 @@ export function WorkspacePanel({
 							: "output-pane"
 					}
 				>
-					<header className="pane-header">
-						<span>{activeTab.toUpperCase()}</span>
+					<header className="pane-header collapsible-pane-header">
+						<button
+							aria-controls="output-pane-body"
+							aria-expanded={!outputCollapsed}
+							className="pane-toggle"
+							onClick={() => togglePane("output")}
+							type="button"
+						>
+							{outputCollapsed ? (
+								<ChevronRight size={14} aria-hidden="true" />
+							) : (
+								<ChevronDown size={14} aria-hidden="true" />
+							)}
+							{activeTab.toUpperCase()}
+						</button>
 						{activeTab === "results" && sqlResult?.columns?.length ? (
 							<button
 								className="outline-button"
@@ -150,116 +208,119 @@ export function WorkspacePanel({
 							</button>
 						) : null}
 					</header>
-					<div
-						className={
-							activeTab === "results"
-								? "pane-body result-pane-body"
-								: "pane-body"
-						}
-					>
-						{activeTab === "sql" && (
-							<div className="summary-grid">
-								{bootstrap.stage_cards.map((card) => (
-									<section className="telemetry-tile" key={card.name}>
-										<span>{card.status}</span>
-										<strong>{card.name}</strong>
-										<p>{card.summary}</p>
-									</section>
-								))}
-							</div>
-						)}
-						{activeTab === "results" && <ResultTable result={sqlResult} />}
-						{activeTab === "target" && (
-							<div className="detail-panel">
-								<h3>{selectedTarget?.name || "No target selected"}</h3>
-								<p>{selectedTarget?.summary || bootstrap.target_summary}</p>
-								<dl>
-									<dt>kind</dt>
-									<dd>
-										{selectedTarget ? targetBadge(selectedTarget.kind) : "-"}
-									</dd>
-									<dt>size</dt>
-									<dd>{selectedTarget?.size_label || "-"}</dd>
-									<dt>rows</dt>
-									<dd>{selectedTarget?.row_count ?? "-"}</dd>
-									<dt>columns</dt>
-									<dd>{selectedTarget?.column_count ?? "-"}</dd>
-									<dt>sources</dt>
-									<dd>{selectedTarget?.source_path_count ?? "-"}</dd>
-								</dl>
-							</div>
-						)}
-						{activeTab === "skill" && (
-							<div className="skill-editor">
-								<header>
-									<h3>
-										{selectedSkill && !isSkillSaved ? (
-											<span className="dirty-dot" aria-hidden="true" />
-										) : null}
-										<span>{selectedSkill?.name || "No skill selected"}</span>
-										{selectedSkill && !isSkillSaved ? (
-											<span className="sr-only">Unsaved changes</span>
-										) : null}
-									</h3>
-									<div className="skill-meta">
-										<span>
-											{selectedSkill
-												? `${skillLineCount(selectedSkill)} LINES`
-												: "-"}
-										</span>
-										<span>{formatSkillModifiedAt(selectedSkill)}</span>
-									</div>
-									<button
-										aria-label="Save skill"
-										className="outline-button icon-button"
-										disabled={!selectedSkill}
-										onClick={onSaveSkill}
-										title="Save skill"
-										type="button"
-									>
-										<Save size={13} />
-									</button>
-									<button
-										aria-label="Revert to saved skill"
-										className="outline-button icon-button"
-										disabled={!selectedSkill || isSkillSaved}
-										onClick={onRevertSkill}
-										title="Revert to saved skill"
-										type="button"
-									>
-										<RotateCcw size={13} />
-									</button>
-								</header>
-								<CodeEditor
-									className="skill-editor-wrap"
-									highlightClassName="skill-highlight"
-									renderLine={renderSkillLine}
-									value={skillText}
-									onChange={onSkillTextChange}
-								/>
-							</div>
-						)}
-						{activeTab === "source" && (
-							<div className="detail-panel">
-								<h3>{selectedSource?.name || "No source selected"}</h3>
-								<p>
-									{selectedSource
-										? `${selectedSource.kind} source is ${selectedSource.status}.`
-										: "Pick a source in Explorer."}
-								</p>
-								<dl>
-									<dt>type</dt>
-									<dd>{selectedSource?.kind || "-"}</dd>
-									<dt>source</dt>
-									<dd>{selectedSource?.source_path || "-"}</dd>
-									<dt>destination</dt>
-									<dd>{selectedSource?.destination_path || "-"}</dd>
-									<dt>table</dt>
-									<dd>{selectedSource?.table_name || "-"}</dd>
-								</dl>
-							</div>
-						)}
-					</div>
+					{!outputCollapsed ? (
+						<div
+							id="output-pane-body"
+							className={
+								activeTab === "results"
+									? "pane-body result-pane-body"
+									: "pane-body"
+							}
+						>
+							{activeTab === "sql" && (
+								<div className="summary-grid">
+									{bootstrap.stage_cards.map((card) => (
+										<section className="telemetry-tile" key={card.name}>
+											<span>{card.status}</span>
+											<strong>{card.name}</strong>
+											<p>{card.summary}</p>
+										</section>
+									))}
+								</div>
+							)}
+							{activeTab === "results" && <ResultTable result={sqlResult} />}
+							{activeTab === "target" && (
+								<div className="detail-panel">
+									<h3>{selectedTarget?.name || "No target selected"}</h3>
+									<p>{selectedTarget?.summary || bootstrap.target_summary}</p>
+									<dl>
+										<dt>kind</dt>
+										<dd>
+											{selectedTarget ? targetBadge(selectedTarget.kind) : "-"}
+										</dd>
+										<dt>size</dt>
+										<dd>{selectedTarget?.size_label || "-"}</dd>
+										<dt>rows</dt>
+										<dd>{selectedTarget?.row_count ?? "-"}</dd>
+										<dt>columns</dt>
+										<dd>{selectedTarget?.column_count ?? "-"}</dd>
+										<dt>sources</dt>
+										<dd>{selectedTarget?.source_path_count ?? "-"}</dd>
+									</dl>
+								</div>
+							)}
+							{activeTab === "skill" && (
+								<div className="skill-editor">
+									<header>
+										<h3>
+											{selectedSkill && !isSkillSaved ? (
+												<span className="dirty-dot" aria-hidden="true" />
+											) : null}
+											<span>{selectedSkill?.name || "No skill selected"}</span>
+											{selectedSkill && !isSkillSaved ? (
+												<span className="sr-only">Unsaved changes</span>
+											) : null}
+										</h3>
+										<div className="skill-meta">
+											<span>
+												{selectedSkill
+													? `${skillLineCount(selectedSkill)} LINES`
+													: "-"}
+											</span>
+											<span>{formatSkillModifiedAt(selectedSkill)}</span>
+										</div>
+										<button
+											aria-label="Save skill"
+											className="outline-button icon-button"
+											disabled={!selectedSkill}
+											onClick={onSaveSkill}
+											title="Save skill"
+											type="button"
+										>
+											<Save size={13} />
+										</button>
+										<button
+											aria-label="Revert to saved skill"
+											className="outline-button icon-button"
+											disabled={!selectedSkill || isSkillSaved}
+											onClick={onRevertSkill}
+											title="Revert to saved skill"
+											type="button"
+										>
+											<RotateCcw size={13} />
+										</button>
+									</header>
+									<CodeEditor
+										className="skill-editor-wrap"
+										highlightClassName="skill-highlight"
+										renderLine={renderSkillLine}
+										value={skillText}
+										onChange={onSkillTextChange}
+									/>
+								</div>
+							)}
+							{activeTab === "source" && (
+								<div className="detail-panel">
+									<h3>{selectedSource?.name || "No source selected"}</h3>
+									<p>
+										{selectedSource
+											? `${selectedSource.kind} source is ${selectedSource.status}.`
+											: "Pick a source in Explorer."}
+									</p>
+									<dl>
+										<dt>type</dt>
+										<dd>{selectedSource?.kind || "-"}</dd>
+										<dt>source</dt>
+										<dd>{selectedSource?.source_path || "-"}</dd>
+										<dt>destination</dt>
+										<dd>{selectedSource?.destination_path || "-"}</dd>
+										<dt>table</dt>
+										<dd>{selectedSource?.table_name || "-"}</dd>
+									</dl>
+								</div>
+							)}
+						</div>
+					) : null}
 				</section>
 			</div>
 		</section>

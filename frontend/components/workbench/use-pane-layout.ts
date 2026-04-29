@@ -8,8 +8,8 @@ import {
 import { clamp, queryContentHeight } from "./sql";
 import type { ShellStyle } from "./types";
 
-const DEFAULT_EXPLORER_WIDTH = 286;
-const DEFAULT_CHAT_WIDTH = 470;
+const DEFAULT_EXPLORER_WIDTH = 240;
+const DEFAULT_CHAT_WIDTH = 450;
 const DEFAULT_CHAT_DOCK_HEIGHT = 250;
 const DEFAULT_QUERY_HEIGHT = 30;
 const COMPACT_BREAKPOINT = 980;

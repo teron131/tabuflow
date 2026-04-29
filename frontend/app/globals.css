@@ -103,7 +103,7 @@ button:disabled {
 	grid-template-columns: var(--activity-width) minmax(
 			220px,
 			var(--explorer-width)
-		) 5px minmax(0, 1fr) 5px minmax(360px, var(--chat-width));
+		) 1px minmax(0, 1fr) 1px minmax(360px, var(--chat-width));
 	grid-template-rows: 48px minmax(0, 1fr);
 	width: 100vw;
 	height: 100dvh;
@@ -112,13 +112,13 @@ button:disabled {
 	overflow: hidden;
 	background: var(--line);
 	font-size: var(--font-size-md);
-	gap: 1px;
+	gap: 0;
 	transform: scale(var(--workbench-ui-scale));
 	transform-origin: top left;
 }
 
 .workbench-shell.explorer-collapsed {
-	grid-template-columns: var(--activity-width) 0 0 minmax(0, 1fr) 5px minmax(
+	grid-template-columns: var(--activity-width) 0 0 minmax(0, 1fr) 1px minmax(
 			360px,
 			var(--chat-width)
 		);
@@ -232,6 +232,7 @@ h1 {
 	align-items: center;
 	gap: 4px;
 	padding: 6px 4px;
+	border-right: 1px solid var(--line);
 }
 
 .activity-bar button {
@@ -636,15 +637,13 @@ h1 {
 .resize-handle::before {
 	position: absolute;
 	content: "";
-	background: color-mix(in srgb, var(--line-strong) 42%, transparent);
-	transition:
-		background 140ms ease,
-		transform 140ms ease;
+	background: color-mix(in srgb, var(--line-strong) 26%, transparent);
+	transition: background 140ms ease;
 }
 
 .resize-handle:hover::before,
 .resize-handle:focus-visible::before {
-	background: color-mix(in srgb, var(--accent) 48%, transparent);
+	background: color-mix(in srgb, var(--accent) 36%, transparent);
 }
 
 .explorer-handle {
@@ -657,7 +656,7 @@ h1 {
 .chat-handle::before {
 	top: 0;
 	bottom: 0;
-	left: 2px;
+	left: 0;
 	width: 1px;
 }
 
@@ -665,7 +664,7 @@ h1 {
 .explorer-handle:focus-visible::before,
 .chat-handle:hover::before,
 .chat-handle:focus-visible::before {
-	transform: scaleX(2);
+	transform: none;
 }
 
 .chat-handle {
@@ -675,20 +674,21 @@ h1 {
 }
 
 .vertical-handle {
-	height: 5px;
+	grid-row: 2;
+	height: 1px;
 	cursor: row-resize;
 }
 
 .vertical-handle::before {
 	right: 0;
-	bottom: 2px;
+	bottom: 0;
 	left: 0;
 	height: 1px;
 }
 
 .vertical-handle:hover::before,
 .vertical-handle:focus-visible::before {
-	transform: scaleY(2);
+	transform: none;
 }
 
 .workspace {
@@ -732,12 +732,25 @@ h1 {
 
 .workspace-grid {
 	display: grid;
-	grid-template-rows: minmax(var(--query-min-height), var(--query-height)) 5px minmax(
+	grid-template-rows: minmax(var(--query-min-height), var(--query-height)) 1px minmax(
 			0,
 			1fr
 		);
 	min-height: 0;
 	flex: 1;
+}
+
+.workspace-grid.query-collapsed {
+	grid-template-rows: auto 0 minmax(0, 1fr);
+}
+
+.workspace-grid.output-collapsed {
+	grid-template-rows: minmax(0, 1fr) 0 auto;
+}
+
+.workspace-grid.query-collapsed.output-collapsed {
+	align-content: start;
+	grid-template-rows: auto 0 auto;
 }
 
 .query-pane,
@@ -750,14 +763,61 @@ h1 {
 	background: var(--panel-soft);
 }
 
+.query-pane {
+	grid-row: 1;
+}
+
+.output-pane {
+	grid-row: 3;
+}
+
 .pane-header {
 	min-height: 34px;
 	padding: 0 10px;
 }
 
-.pane-header > span {
+.collapsible-pane-header {
+	user-select: none;
+}
+
+.pane-toggle:hover {
+	background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.pane-toggle:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: -2px;
+}
+
+.pane-header > span,
+.pane-toggle {
 	color: var(--text);
 	font-weight: 700;
+}
+
+.pane-toggle {
+	display: inline-flex;
+	align-items: center;
+	align-self: stretch;
+	flex: 1;
+	gap: 5px;
+	min-width: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	font-family: inherit;
+	font-size: inherit;
+	letter-spacing: inherit;
+	text-transform: inherit;
+	transition:
+		background 160ms ease,
+		color 160ms ease;
+}
+
+.query-pane-body {
+	display: flex;
+	min-height: 0;
+	flex: 1;
 }
 
 .button-cluster {
@@ -1890,13 +1950,13 @@ h1 {
 		overflow: hidden;
 	}
 
-	.workbench-shell {
-		--activity-width: 34px;
-		grid-template-columns: var(--activity-width) minmax(
-				220px,
-				var(--explorer-width)
-			) 5px minmax(0, 1fr);
-		grid-template-rows: 48px minmax(0, 1fr) 5px var(--chat-dock-height);
+		.workbench-shell {
+			--activity-width: 34px;
+			grid-template-columns: var(--activity-width) minmax(
+					220px,
+					var(--explorer-width)
+				) 1px minmax(0, 1fr);
+			grid-template-rows: 48px minmax(0, 1fr) 1px var(--chat-dock-height);
 		height: 100dvh;
 		min-height: 0;
 		overflow: hidden;
@@ -1945,18 +2005,18 @@ h1 {
 		grid-column: 2;
 	}
 
-	.chat-handle::before {
-		top: 2px;
-		right: 0;
-		bottom: auto;
-		left: 0;
+		.chat-handle::before {
+			top: 0;
+			right: 0;
+			bottom: auto;
+			left: 0;
 		width: auto;
 		height: 1px;
 	}
 
 	.chat-handle:hover::before,
 	.chat-handle:focus-visible::before {
-		transform: scaleY(2);
+		transform: none;
 	}
 
 	.chat-rail {
@@ -1987,11 +2047,11 @@ h1 {
 		padding: 0 8px;
 	}
 
-	.workspace-grid {
-		grid-template-rows: minmax(var(--query-min-height), var(--query-height)) 5px minmax(
-				0,
-				1fr
-			);
+		.workspace-grid {
+			grid-template-rows: minmax(var(--query-min-height), var(--query-height)) 1px minmax(
+					0,
+					1fr
+				);
 	}
 
 	.explorer-list {
