@@ -44,6 +44,7 @@ SQLITE_SOURCES_UNIQUE_COLUMNS = (
     "source_path",
     "source_sheet_name",
     "source_table_name",
+    "content_id",
 )
 SQLITE_SOURCES_COLUMN_SET = frozenset(SQLITE_SOURCES_COLUMNS)
 
@@ -190,7 +191,7 @@ def _create_sqlite_sources_table(
             source_table_name TEXT NOT NULL,
             fingerprint TEXT NOT NULL,
             content_id TEXT NOT NULL,
-            UNIQUE(source_path, source_sheet_name, source_table_name)
+            UNIQUE(source_path, source_sheet_name, source_table_name, content_id)
         )
         """
     )
@@ -441,6 +442,14 @@ def _register_sqlite_source(
     )
 
 
+def _required_metadata_text(value: Any, field_name: str) -> str:
+    """Return a non-empty metadata value or fail before writing partial lineage."""
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError(f"Extracted table metadata requires `{field_name}`.")
+    return text
+
+
 def load_tables_into_sqlite(
     recovered: dict[str, Any],
     *,
@@ -450,8 +459,8 @@ def load_tables_into_sqlite(
     """Load recovered tables into a shared SQLite database."""
     database_path = sqlite_database_path(root_dir=root_dir)
     loaded_tables: list[dict[str, Any]] = []
-    source_path = recovered["path"]
-    source_format = recovered["format"]
+    source_path = _required_metadata_text(recovered.get("path"), "path")
+    source_format = _required_metadata_text(recovered.get("format"), "format")
     source_sheet_name = recovered.get("sheet_name") or ""
 
     with sqlite_write_lock(database_path):
@@ -460,6 +469,7 @@ def load_tables_into_sqlite(
             _ensure_sqlite_catalog(connection)
 
             for table in recovered["tables"]:
+                source_table_name = _required_metadata_text(table.get("name"), "tables[].name")
                 columns = list(table["columns"])
                 rows = list(table["rows"])
                 content_id, table_name, db_columns, load_status = _load_or_reuse_content_table(
@@ -479,14 +489,14 @@ def load_tables_into_sqlite(
                     source_path=source_path,
                     source_format=source_format,
                     source_sheet_name=source_sheet_name,
-                    source_table_name=table["name"],
+                    source_table_name=source_table_name,
                     fingerprint=fingerprint,
                     content_id=content_id,
                 )
 
                 loaded_tables.append(
                     {
-                        "source_name": table["name"],
+                        "source_name": source_table_name,
                         "content_id": content_id,
                         "table_name": table_name,
                         "typed_view_name": typed_view_name,

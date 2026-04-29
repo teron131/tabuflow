@@ -49,6 +49,10 @@ _SUGGESTION_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "how", "in", "i
 _VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+class CatalogMetadataError(RuntimeError):
+    """Raised when a queryable catalog target is missing required lineage."""
+
+
 def _jsonable_value(value: object) -> object:
     """Convert SQL query results into JSON-friendly values."""
     if isinstance(value, bytes):
@@ -244,6 +248,7 @@ def _fetch_catalog_metadata(
     content_rows = {
         cast(str, row[1]): {
             "content_id": cast(str, row[0]),
+            "table_name": cast(str, row[1]),
             "source_format": cast(str, row[2]),
             "row_count": cast(int, row[3]),
             "content_schema": json.loads(cast(str, row[4])),
@@ -326,7 +331,9 @@ def _target_source_paths(
     content_metadata = content_rows.get(_base_table_name(name, kind))
     if content_metadata is None:
         return None, [], []
-    source_mappings = source_rows.get(cast(str, content_metadata["content_id"]), [])
+    source_mappings = _dedupe_source_mappings(source_rows.get(cast(str, content_metadata["content_id"]), []))
+    if not source_mappings:
+        raise CatalogMetadataError(f"Source metadata is missing for queryable target `{content_metadata['table_name']}`.")
     source_paths = _source_paths_from_mappings(source_mappings)
     return content_metadata, source_mappings, source_paths
 
@@ -1007,6 +1014,12 @@ def list_targets(
             error_type="missing_database",
             message=str(exc),
         )
+    except CatalogMetadataError as exc:
+        return _error_result(
+            database_path=requested_path,
+            error_type="catalog_metadata_error",
+            message=str(exc),
+        )
     except (sqlite3.Error, sqlite3.Warning) as exc:
         return _error_result(
             database_path=requested_path,
@@ -1095,6 +1108,13 @@ def describe_target(
         return _error_result(
             database_path=requested_path,
             error_type="missing_database",
+            message=str(exc),
+            target_name=target_name,
+        )
+    except CatalogMetadataError as exc:
+        return _error_result(
+            database_path=requested_path,
+            error_type="catalog_metadata_error",
             message=str(exc),
             target_name=target_name,
         )
@@ -1206,6 +1226,14 @@ def suggest_targets(
         return _error_result(
             database_path=requested_path,
             error_type="missing_database",
+            message=str(exc),
+            question=question,
+            max_results=safe_max_results,
+        )
+    except CatalogMetadataError as exc:
+        return _error_result(
+            database_path=requested_path,
+            error_type="catalog_metadata_error",
             message=str(exc),
             question=question,
             max_results=safe_max_results,
