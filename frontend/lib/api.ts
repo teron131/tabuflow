@@ -54,6 +54,7 @@ export type SkillEntry = {
 	description?: string;
 	path?: string;
 	skills_path?: string;
+	modified_at?: string | null;
 	content?: string;
 	instructions?: {
 		path?: string;
@@ -89,7 +90,10 @@ LIMIT 10;`,
 	target_summary: "",
 };
 
-export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
+export async function fetchJson<T>(
+	url: string,
+	init?: RequestInit,
+): Promise<T> {
 	const response = await fetch(url, {
 		headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
 		...init,

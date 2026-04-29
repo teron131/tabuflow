@@ -46,7 +46,8 @@ export function Workbench() {
 	const [selectedSource, setSelectedSource] = useState<SourceFile | null>(null);
 	const [skills, setSkills] = useState<SkillEntry[]>([]);
 	const [selectedSkill, setSelectedSkill] = useState<SkillEntry | null>(null);
-	const [skillDraft, setSkillDraft] = useState("");
+	const [skillEditorText, setSkillEditorText] = useState("");
+	const [savedSkillText, setSavedSkillText] = useState("");
 	const [isRunningSql, setIsRunningSql] = useState(false);
 	const {
 		isExplorerCollapsed,
@@ -72,9 +73,11 @@ export function Workbench() {
 			setSelectedTarget(preferredTarget(bootstrapPayload.targets));
 			if (skillsPayload.skills?.length) {
 				const firstSkill = skillsPayload.skills[0];
+				const firstSkillContent = skillContent(firstSkill);
 				setSkills(skillsPayload.skills);
 				setSelectedSkill(firstSkill);
-				setSkillDraft(skillContent(firstSkill));
+				setSkillEditorText(firstSkillContent);
+				setSavedSkillText(firstSkillContent);
 			}
 		} catch (error) {
 			setSqlResult({
@@ -143,10 +146,40 @@ export function Workbench() {
 	}
 
 	function selectSkill(skill: SkillEntry) {
+		const nextContent = skillContent(skill);
 		setSelectedSkill(skill);
-		setSkillDraft(skillContent(skill));
+		setSkillEditorText(nextContent);
+		setSavedSkillText(nextContent);
 		setActiveExplorer("skills");
 		setActiveTab("skill");
+	}
+
+	async function saveSkill() {
+		if (!selectedSkill) {
+			return;
+		}
+		const savedSkill = await fetchJson<SkillEntry>("/api/skills/save", {
+			method: "POST",
+			body: JSON.stringify({
+				name: selectedSkill.name,
+				content: skillEditorText,
+			}),
+		});
+		setSavedSkillText(skillEditorText);
+		const savedSkillPatch = {
+			content: skillEditorText,
+			modified_at: savedSkill.modified_at,
+		};
+		setSelectedSkill((currentSkill) =>
+			currentSkill ? { ...currentSkill, ...savedSkillPatch } : currentSkill,
+		);
+		setSkills((currentSkills) =>
+			currentSkills.map((skill) =>
+				skill.name === selectedSkill.name
+					? { ...skill, ...savedSkillPatch }
+					: skill,
+			),
+		);
 	}
 
 	return (
@@ -218,12 +251,15 @@ export function Workbench() {
 				selectedSkill={selectedSkill}
 				selectedSource={selectedSource}
 				selectedTarget={selectedTarget}
-				skillDraft={skillDraft}
+				isSkillSaved={skillEditorText === savedSkillText}
+				skillText={skillEditorText}
 				sql={sql}
 				sqlResult={sqlResult}
 				onActiveTabChange={setActiveTab}
 				onRunSql={runSql}
-				onSkillDraftChange={setSkillDraft}
+				onRevertSkill={() => setSkillEditorText(savedSkillText)}
+				onSaveSkill={saveSkill}
+				onSkillTextChange={setSkillEditorText}
 				onSqlChange={setSql}
 				onVerticalResize={startVerticalResize}
 			/>

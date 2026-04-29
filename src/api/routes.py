@@ -1,5 +1,6 @@
 """HTTP routes for the data-agentics workbench API."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -10,7 +11,7 @@ from ..tools import list_skills, load_skills
 from ..tools.sql.query import describe_target, list_targets, run_query
 from .chat import ChatConfigurationError, ChatRuntimeError, has_llm_environment, run_chat
 from .constants import DEFAULT_SQL, STAGE_CARDS, SUGGESTED_QUESTIONS
-from .schemas import ChatRequest, SkillDraftRequest, SqlRunRequest
+from .schemas import ChatRequest, SkillSaveRequest, SqlRunRequest
 from .workspace_data import (
     WorkspaceDataMissingError,
     default_database_path,
@@ -70,6 +71,33 @@ def _reject_private_sql(sql: str) -> None:
                 "message": "Private source catalog metadata is not exposed through the demo API.",
             },
         )
+
+
+def _skill_modified_at(skills_file: Path) -> str:
+    """Return one ISO timestamp from the skill file mtime."""
+    return datetime.fromtimestamp(skills_file.stat().st_mtime, tz=UTC).isoformat()
+
+
+def _writable_skill_path(skill_name: str) -> Path:
+    """Resolve the workspace skill file path or raise an HTTP error."""
+    loaded_payload = load_skills.func(path="skills", skills=skill_name)
+    loaded_skills = loaded_payload.get("skills", [])
+    if not loaded_skills:
+        raise HTTPException(
+            status_code=404,
+            detail={"status": "error", "message": f"Skill not found: {skill_name}"},
+        )
+
+    skills_path = loaded_skills[0].get("skills_path")
+    if not isinstance(skills_path, str):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "message": f"Skill has no writable path: {skill_name}",
+            },
+        )
+    return Path(skills_path)
 
 
 @router.get("/health")
@@ -190,12 +218,16 @@ def skills() -> dict[str, Any]:
             instructions = loaded_skill.get("instructions", {})
             skills_path = loaded_skill.get("skills_path")
             raw_content = instructions.get("content", "")
+            modified_at = None
             if isinstance(skills_path, str):
-                raw_content = Path(skills_path).read_text(encoding="utf-8")
+                skills_file = Path(skills_path)
+                raw_content = skills_file.read_text(encoding="utf-8")
+                modified_at = _skill_modified_at(skills_file)
             enriched_skills.append(
                 {
                     **skill,
                     "skills_path": skills_path,
+                    "modified_at": modified_at,
                     "instructions": instructions,
                     "content": raw_content,
                     "references": loaded_skill.get("references", []),
@@ -212,12 +244,16 @@ def skills() -> dict[str, Any]:
     return result
 
 
-@router.post("/skills/draft")
-def draft_skill(request: SkillDraftRequest) -> dict[str, Any]:
-    """Accept a non-persistent skill draft from the browser UI."""
+@router.post("/skills/save")
+def save_skill(request: SkillSaveRequest) -> dict[str, Any]:
+    """Persist skill editor content and return the updated file metadata."""
+    skills_file = _writable_skill_path(request.name)
+    skills_file.write_text(request.content, encoding="utf-8")
     return {
-        "status": "drafted",
+        "status": "saved",
         "name": request.name,
         "content": request.content,
-        "summary": "Draft kept in the browser. Persistence is intentionally disabled in this UI pass.",
+        "skills_path": str(skills_file),
+        "modified_at": _skill_modified_at(skills_file),
+        "summary": "Skill saved.",
     }

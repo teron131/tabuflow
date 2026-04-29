@@ -16,8 +16,8 @@ class SqlRunRequest(BaseModel):
     max_rows: int = Field(default=100, ge=1, le=500)
 
 
-class SkillDraftRequest(BaseModel):
-    """Request body for the non-destructive skill draft endpoint."""
+class SkillSaveRequest(BaseModel):
+    """Request body for saving skill editor content."""
 
     name: str = Field(min_length=1)
     content: str = ""
