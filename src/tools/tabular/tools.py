@@ -27,7 +27,7 @@ from .segmentation import compute_region_boxes, header_candidates, profile_regio
 from .storage import fingerprint, fingerprint_from_samples, load_tables_into_sqlite, resolve_root_dir
 
 
-def _inspect_tabular_file(
+def inspect_tabular_file(
     path: Path,
     *,
     start_row: int = 1,
@@ -91,7 +91,7 @@ def _inspect_tabular_file(
     }
 
 
-def _profile_tabular_file(
+def profile_tabular_file(
     path: Path,
     *,
     max_sample_rows: int = MAX_SAMPLE_ROWS,
@@ -160,7 +160,7 @@ def _recover_tabular_blocks(
     }
 
 
-def _extract_tabular_file(
+def extract_tabular_file(
     path: Path,
     *,
     root_dir: str | Path | None = None,
@@ -172,7 +172,7 @@ def _extract_tabular_file(
     if path.suffix.lower() == ".csv" and path.stat().st_size > MAX_FULL_EXTRACT_BYTES:
         raise ValueError(f"CSV extraction currently requires a full in-memory layout pass and is capped at {MAX_FULL_EXTRACT_BYTES} bytes for safety: {path}")
 
-    profile = _profile_tabular_file(path, max_sample_rows=sample_rows, sheet=sheet)
+    profile = profile_tabular_file(path, max_sample_rows=sample_rows, sheet=sheet)
     recovered = _recover_tabular_blocks(
         path,
         sample_rows=None,
@@ -222,7 +222,7 @@ def make_tabular_tools(*, root_dir: str | Path | None = None):
             end_col: Optional one-based column number where the preview window ends.
             sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
-        return _inspect_tabular_file(
+        return inspect_tabular_file(
             Path(path),
             start_row=start_row,
             limit=limit,
@@ -244,7 +244,7 @@ def make_tabular_tools(*, root_dir: str | Path | None = None):
             max_sample_rows: Maximum number of top rows to include in the profile sample.
             sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
-        return _profile_tabular_file(
+        return profile_tabular_file(
             Path(path),
             max_sample_rows=max_sample_rows,
             sheet=sheet,
@@ -265,8 +265,8 @@ def make_tabular_tools(*, root_dir: str | Path | None = None):
             metadata_rows: Maximum number of metadata rows to inspect while preparing extraction.
             sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
-        return _extract_tabular_file(
-            Path(path),
+        return extract_tabular_file(
+            path,
             root_dir=resolved_root_dir,
             sample_rows=sample_rows,
             metadata_rows=metadata_rows,

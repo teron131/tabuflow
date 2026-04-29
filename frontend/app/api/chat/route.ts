@@ -4,6 +4,10 @@ import {
 	type UIMessageChunk,
 } from "ai";
 import type { BackendChatResponse } from "@/lib/chat-contracts";
+import {
+	buildDemoTraceChunks,
+	parseDemoTraceCommand,
+} from "./demo-trace-stream";
 
 const API_BASE = process.env.DATA_AGENTICS_API_URL || "http://localhost:8017";
 const BACKEND_CHAT_TOOL_NAME = "backendChat";
@@ -27,6 +31,22 @@ function latestUserText(messages: UIMessage[]) {
 	);
 }
 
+function backendMessages(messages: UIMessage[]) {
+	return messages
+		.filter(
+			(message) => message.role === "user" || message.role === "assistant",
+		)
+		.map((message) => ({
+			role: message.role as "user" | "assistant",
+			content: message.parts
+				.map(extractTextPart)
+				.filter(Boolean)
+				.join("\n")
+				.trim(),
+		}))
+		.filter((message) => message.content.length > 0);
+}
+
 function detailMessage(payload: BackendChatResponse, status: number) {
 	return (
 		payload.detail?.message ||
@@ -35,19 +55,28 @@ function detailMessage(payload: BackendChatResponse, status: number) {
 	);
 }
 
-function streamChunks(chunks: UIMessageChunk[]) {
+function sleep(delayMs: number) {
+	return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+function streamChunks(chunks: UIMessageChunk[], delayMs = 0) {
 	return new ReadableStream<UIMessageChunk>({
-		start(controller) {
+		async start(controller) {
 			for (const chunk of chunks) {
 				controller.enqueue(chunk);
+				if (delayMs > 0) {
+					await sleep(delayMs);
+				}
 			}
 			controller.close();
 		},
 	});
 }
 
-function responseStream(chunks: UIMessageChunk[]) {
-	return createUIMessageStreamResponse({ stream: streamChunks(chunks) });
+function responseStream(chunks: UIMessageChunk[], delayMs = 0) {
+	return createUIMessageStreamResponse({
+		stream: streamChunks(chunks, delayMs),
+	});
 }
 
 async function readPayload(response: Response): Promise<BackendChatResponse> {
@@ -124,7 +153,20 @@ export async function POST(request: Request) {
 		]);
 	}
 
-	const backendRequest = { message, model: selectedModel };
+	const demoTrace = parseDemoTraceCommand(message, body?.demoTraceMode);
+	if (demoTrace) {
+		return responseStream(
+			buildDemoTraceChunks(demoTrace.message),
+			demoTrace.delayMs,
+		);
+	}
+
+	const visibleMessages = messages.length ? messages : singleMessage;
+	const backendRequest = {
+		message,
+		messages: backendMessages(visibleMessages),
+		model: selectedModel,
+	};
 	const backendResponse = await fetch(new URL("/api/chat", API_BASE), {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },

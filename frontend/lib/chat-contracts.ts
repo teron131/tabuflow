@@ -13,7 +13,11 @@ export type BackendChatResponse = {
 
 export type WorkbenchTools = {
 	backendChat: {
-		input: { message: string; model?: string };
+		input: {
+			message: string;
+			messages?: Array<{ role: "user" | "assistant"; content: string }>;
+			model?: string;
+		};
 		output: BackendChatResponse;
 	};
 };
