@@ -327,8 +327,88 @@ def _target_source_paths(
     if content_metadata is None:
         return None, [], []
     source_mappings = source_rows.get(cast(str, content_metadata["content_id"]), [])
-    source_paths = list(dict.fromkeys(cast(str, mapping["source_path"]) for mapping in source_mappings))
+    source_paths = _source_paths_from_mappings(source_mappings)
     return content_metadata, source_mappings, source_paths
+
+
+def _source_paths_from_mappings(source_mappings: list[dict[str, Any]]) -> list[str]:
+    """Return non-empty source paths while preserving first-seen order."""
+    return list(dict.fromkeys(source_path for mapping in source_mappings if (source_path := str(mapping.get("source_path") or "").strip())))
+
+
+SQL_TARGET_REFERENCE_PATTERN = re.compile(
+    r'\b(?:FROM|JOIN)\s+(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*))',
+    re.IGNORECASE,
+)
+
+
+def _referenced_target_names(
+    create_sql: str | None,
+    *,
+    available_targets: set[str],
+    current_target: str,
+) -> list[str]:
+    """Return known SQLite targets referenced by a target's stored SQL."""
+    if not create_sql:
+        return []
+    references: list[str] = []
+    for match in SQL_TARGET_REFERENCE_PATTERN.finditer(create_sql):
+        reference = next((value for value in match.groups() if value), "")
+        if reference and reference != current_target and reference in available_targets:
+            references.append(reference)
+    return list(dict.fromkeys(references))
+
+
+def _dedupe_source_mappings(source_mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deduplicate source mappings while preserving first-seen order."""
+    seen: set[tuple[str, str, str]] = set()
+    deduped: list[dict[str, Any]] = []
+    for mapping in source_mappings:
+        source_path = str(mapping.get("source_path") or "").strip()
+        if not source_path:
+            continue
+        key = (
+            source_path,
+            str(mapping.get("source_sheet_name") or ""),
+            str(mapping.get("source_table_name") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(mapping)
+    return deduped
+
+
+def _lineage_source_mappings(
+    target_info: dict[str, Any],
+    targets_by_name: dict[str, dict[str, Any]],
+    *,
+    visited: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Return direct source mappings or inherit mappings from upstream targets."""
+    direct_mappings = _dedupe_source_mappings(cast(list[dict[str, Any]], target_info["source_mappings"]))
+    if direct_mappings:
+        return direct_mappings
+
+    visited_targets = set() if visited is None else visited
+    target_name = cast(str, target_info["name"])
+    if target_name in visited_targets:
+        return []
+    visited_targets.add(target_name)
+
+    source_mappings: list[dict[str, Any]] = []
+    for referenced_name in cast(list[str], target_info.get("source_target_names", [])):
+        referenced_target = targets_by_name.get(referenced_name)
+        if referenced_target is None:
+            continue
+        source_mappings.extend(
+            _lineage_source_mappings(
+                referenced_target,
+                targets_by_name,
+                visited=visited_targets,
+            )
+        )
+    return _dedupe_source_mappings(source_mappings)
 
 
 def _database_cache_key(
@@ -389,9 +469,25 @@ def _cached_database_catalog(
                 "row_count": None if content_metadata is None else content_metadata["row_count"],
                 "source_mappings": source_mappings,
                 "source_paths": source_paths,
+                "source_target_names": [],
             }
             targets.append(target_info)
             targets_by_name[name] = target_info
+        available_targets = set(targets_by_name)
+        for target_info in targets:
+            source_target_names = _referenced_target_names(
+                cast(str | None, target_info["create_sql"]),
+                available_targets=available_targets,
+                current_target=cast(str, target_info["name"]),
+            )
+            target_info["source_target_names"] = source_target_names
+        for target_info in targets:
+            lineage_source_mappings = _lineage_source_mappings(
+                target_info,
+                targets_by_name,
+            )
+            target_info["source_mappings"] = lineage_source_mappings
+            target_info["source_paths"] = _source_paths_from_mappings(lineage_source_mappings)
         return {
             "has_catalog": has_catalog,
             "targets": targets,
@@ -868,6 +964,7 @@ def list_targets(
                 continue
 
             source_paths = cast(list[str], target["source_paths"])
+            source_mappings = cast(list[dict[str, Any]], target["source_mappings"])
             source_path_preview, source_paths_truncated = _preview_list(source_paths, max_items=MAX_SOURCE_PATH_PREVIEW)
             column_names = [cast(str, column["name"]) for column in cast(list[dict[str, Any]], target["columns"])]
             column_count = len(column_names)
@@ -880,9 +977,11 @@ def list_targets(
                     "row_count": row_count,
                     "column_count": column_count,
                     "size_label": _target_size_label(row_count=row_count, column_count=column_count),
+                    "source_mappings": source_mappings,
                     "source_path_count": len(source_paths),
                     "source_path_preview": source_path_preview,
                     "source_paths_truncated": source_paths_truncated,
+                    "source_target_names": target["source_target_names"],
                     "summary": _target_summary(
                         name=cast(str, target["name"]),
                         target_type=cast(str, target["type"]),
@@ -982,6 +1081,7 @@ def describe_target(
                 "source_mappings": source_mappings,
                 "source_path_count": len(source_paths),
                 "source_path_preview": source_paths[:MAX_SOURCE_PATH_PREVIEW],
+                "source_target_names": target_info["source_target_names"],
                 "summary": _target_summary(
                     name=name,
                     target_type=target_type,

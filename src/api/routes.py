@@ -41,6 +41,13 @@ DEFAULT_IMAGE_EXTENSION_BY_TYPE = {
     "image/png": ".png",
     "image/webp": ".webp",
 }
+SOURCE_MAPPING_PRIVATE_KEYS = {
+    "database_path",
+    "source_mappings",
+    "source_path_preview",
+    "source_paths",
+    "source_paths_truncated",
+}
 
 
 def _workspace_data_error(exc: WorkspaceDataMissingError) -> HTTPException:
@@ -57,18 +64,53 @@ def _workspace_data_error(exc: WorkspaceDataMissingError) -> HTTPException:
 
 def _public_target(target: dict[str, Any]) -> dict[str, Any]:
     """Remove private source path metadata from a SQL target payload."""
-    return {
-        key: value
-        for key, value in target.items()
-        if key
-        not in {
-            "database_path",
-            "source_mappings",
-            "source_path_preview",
-            "source_paths",
-            "source_paths_truncated",
-        }
-    }
+    source_references = _public_source_references(target.get("source_mappings"))
+    public_target = {key: value for key, value in target.items() if key not in SOURCE_MAPPING_PRIVATE_KEYS}
+    public_target["source_references"] = source_references
+    public_target["source_file_names"] = list(dict.fromkeys(reference["name"] for reference in source_references))
+    return public_target
+
+
+def _public_source_references(source_mappings: Any) -> list[dict[str, str]]:
+    """Return browser-safe source lineage without exposing raw absolute paths."""
+    if not isinstance(source_mappings, list):
+        return []
+    references: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for source_mapping in source_mappings:
+        if not isinstance(source_mapping, dict):
+            continue
+        raw_source_path = str(source_mapping.get("source_path") or "").strip()
+        if not raw_source_path:
+            continue
+        public_path = _public_source_path(raw_source_path)
+        source_table_name = str(source_mapping.get("source_table_name") or "")
+        source_sheet_name = str(source_mapping.get("source_sheet_name") or "")
+        key = (public_path, source_sheet_name, source_table_name)
+        if key in seen:
+            continue
+        seen.add(key)
+        references.append(
+            {
+                "name": Path(public_path).name or public_path,
+                "path": public_path,
+                "format": str(source_mapping.get("source_format") or ""),
+                "sheet_name": source_sheet_name,
+                "table_name": source_table_name,
+            }
+        )
+    return references
+
+
+def _public_source_path(source_path: str) -> str:
+    """Return a stable source path suitable for the browser UI."""
+    path = Path(source_path).expanduser()
+    if not path.is_absolute():
+        return source_path
+    try:
+        return str(path.resolve().relative_to(REPO_ROOT))
+    except ValueError:
+        return path.name or str(path)
 
 
 def _public_sql_payload(payload: dict[str, Any]) -> dict[str, Any]:

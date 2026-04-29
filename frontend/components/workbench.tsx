@@ -15,8 +15,8 @@ import { ExplorerPanel } from "@/components/workbench/explorer-panel";
 import { SettingsPanel } from "@/components/workbench/settings-panel";
 import { isTargetView } from "@/components/workbench/targets";
 import type {
-	CenterTab,
 	ExplorerKey,
+	InspectorView,
 	SidePanel,
 } from "@/components/workbench/types";
 import {
@@ -35,6 +35,7 @@ import {
 	type SqlResult,
 	skillContent,
 	type Target,
+	type TargetDetails,
 	type UploadPayload,
 	uploadWorkspaceFile,
 } from "@/lib/api";
@@ -49,21 +50,29 @@ export type UploadedWorkspaceFile = {
 export function Workbench() {
 	const shellRef = useRef<HTMLElement | null>(null);
 	const centerRef = useRef<HTMLElement | null>(null);
+	const targetPreviewRequestId = useRef(0);
 	const [activeExplorer, setActiveExplorer] = useState<ExplorerKey>("sql");
 	const [sidePanel, setSidePanel] = useState<SidePanel>("explorer");
-	const [activeTab, setActiveTab] = useState<CenterTab>("results");
+	const [inspectorView, setInspectorView] = useState<InspectorView>("results");
 	const [uiScale, setUiScale] = useState(workbenchScale.default);
 	const [selectedModel, setSelectedModel] = useState("gpt-5.4-nano");
 	const [bootstrap, setBootstrap] = useState<BootstrapPayload>(emptyBootstrap);
 	const [sql, setSql] = useState(emptyBootstrap.sample_sql);
 	const [sqlResult, setSqlResult] = useState<SqlResult | null>(null);
+	const [targetPreviewResult, setTargetPreviewResult] =
+		useState<SqlResult | null>(null);
 	const [selectedTarget, setSelectedTarget] = useState<Target | null>(null);
+	const [targetSourceName, setTargetSourceName] = useState<string | null>(null);
+	const [targetSourceFileName, setTargetSourceFileName] = useState<
+		string | null
+	>(null);
 	const [selectedSource, setSelectedSource] = useState<SourceFile | null>(null);
 	const [skills, setSkills] = useState<SkillEntry[]>([]);
 	const [selectedSkill, setSelectedSkill] = useState<SkillEntry | null>(null);
 	const [skillEditorText, setSkillEditorText] = useState("");
 	const [savedSkillText, setSavedSkillText] = useState("");
 	const [isRunningSql, setIsRunningSql] = useState(false);
+	const [isPreviewingTarget, setIsPreviewingTarget] = useState(false);
 	const [uploadStatus, setUploadStatus] = useState("");
 	const {
 		isExplorerCollapsed,
@@ -84,6 +93,9 @@ export function Workbench() {
 			setBootstrap(bootstrapPayload);
 			setSql(bootstrapPayload.sample_sql);
 			setSqlResult(bootstrapPayload.initial_result || null);
+			setTargetPreviewResult(null);
+			setTargetSourceName(null);
+			setTargetSourceFileName(null);
 			setSelectedModel(healthPayload.model);
 			setSelectedSource(bootstrapPayload.source_files[0] || null);
 			setSelectedTarget(preferredTarget(bootstrapPayload.targets));
@@ -109,7 +121,7 @@ export function Workbench() {
 
 	const runSql = useCallback(async () => {
 		setIsRunningSql(true);
-		setActiveTab("results");
+		setInspectorView("results");
 		try {
 			const result = await fetchJson<SqlResult>("/api/sql/run", {
 				method: "POST",
@@ -149,25 +161,73 @@ export function Workbench() {
 		setIsExplorerCollapsed((collapsed) => !collapsed);
 	}, [setIsExplorerCollapsed]);
 
-	const selectTarget = useCallback((target: Target) => {
+	const selectTarget = useCallback(async (target: Target) => {
+		const requestId = targetPreviewRequestId.current + 1;
+		targetPreviewRequestId.current = requestId;
+		const isView = isTargetView(target);
 		setSelectedTarget(target);
-		setActiveExplorer(isTargetView(target) ? "views" : "sql");
-		setActiveTab("target");
+		setActiveExplorer(isView ? "views" : "sql");
+		setInspectorView("target");
+		setIsPreviewingTarget(true);
+		setTargetPreviewResult(null);
+		setTargetSourceName(null);
+		setTargetSourceFileName(firstSourceFileName(target));
+		try {
+			const [result, details] = await Promise.all([
+				fetchJson<SqlResult>("/api/sql/run", {
+					method: "POST",
+					body: JSON.stringify({
+						sql: targetPreviewSql(target.name),
+						max_rows: 100,
+					}),
+				}),
+				isView
+					? fetchTargetDetails(target.name).catch(() => null)
+					: Promise.resolve(null),
+			]);
+			if (targetPreviewRequestId.current === requestId) {
+				setTargetPreviewResult(result);
+				setTargetSourceFileName(
+					firstSourceFileName(details) || firstSourceFileName(target),
+				);
+				if (details?.create_sql) {
+					setSql(queryFromCreateViewSql(details.create_sql, target.name));
+					setTargetSourceName(details.source_target_names?.[0] || null);
+				}
+			}
+		} catch (error) {
+			if (targetPreviewRequestId.current === requestId) {
+				setTargetPreviewResult({
+					status: "error",
+					message: (error as Error).message,
+				});
+				setTargetSourceName(null);
+				setTargetSourceFileName(null);
+			}
+		} finally {
+			if (targetPreviewRequestId.current === requestId) {
+				setIsPreviewingTarget(false);
+			}
+		}
 	}, []);
 
 	const selectSource = useCallback((source: SourceFile) => {
 		setSelectedSource(source);
+		setTargetSourceName(null);
+		setTargetSourceFileName(null);
 		setActiveExplorer("files");
-		setActiveTab("source");
+		setInspectorView("source");
 	}, []);
 
 	const selectSkill = useCallback((skill: SkillEntry) => {
 		const nextContent = skillContent(skill);
 		setSelectedSkill(skill);
+		setTargetSourceName(null);
+		setTargetSourceFileName(null);
 		setSkillEditorText(nextContent);
 		setSavedSkillText(nextContent);
 		setActiveExplorer("skills");
-		setActiveTab("skill");
+		setInspectorView("skill");
 	}, []);
 
 	const saveSkill = useCallback(async () => {
@@ -206,6 +266,9 @@ export function Workbench() {
 		setBootstrap(payload);
 		setSql(payload.sample_sql);
 		setSqlResult(payload.initial_result || null);
+		setTargetPreviewResult(null);
+		setTargetSourceName(null);
+		setTargetSourceFileName(null);
 		setSelectedSource(payload.source_files[0] || null);
 		setSelectedTarget(preferredTarget(payload.targets));
 	}, []);
@@ -322,18 +385,21 @@ export function Workbench() {
 			/>
 
 			<WorkspacePanel
-				activeTab={activeTab}
 				bootstrap={bootstrap}
 				centerRef={centerRef}
+				inspectorView={inspectorView}
+				isPreviewingTarget={isPreviewingTarget}
 				isRunningSql={isRunningSql}
 				selectedSkill={selectedSkill}
 				selectedSource={selectedSource}
 				selectedTarget={selectedTarget}
+				targetSourceFileName={targetSourceFileName}
+				targetSourceName={targetSourceName}
 				isSkillSaved={skillEditorText === savedSkillText}
 				skillText={skillEditorText}
 				sql={sql}
 				sqlResult={sqlResult}
-				onActiveTabChange={setActiveTab}
+				targetPreviewResult={targetPreviewResult}
 				onRunSql={runSql}
 				onRevertSkill={revertSkill}
 				onSaveSkill={saveSkill}
@@ -366,6 +432,43 @@ function preferredTarget(targets: Target[]) {
 		targets[0] ||
 		null
 	);
+}
+
+function targetPreviewSql(targetName: string) {
+	return `SELECT * FROM ${quoteSqlIdentifier(targetName)} LIMIT 100;`;
+}
+
+function quoteSqlIdentifier(identifier: string) {
+	return `"${identifier.replaceAll('"', '""')}"`;
+}
+
+function fetchTargetDetails(targetName: string) {
+	return fetchJson<TargetDetails>(
+		`/api/sql/targets/${encodeURIComponent(targetName)}`,
+	);
+}
+
+function firstSourceFileName(target: Target | null) {
+	return (
+		target?.source_file_names?.[0] ||
+		target?.source_references?.[0]?.name ||
+		null
+	);
+}
+
+function queryFromCreateViewSql(createSql: string, targetName: string) {
+	const trimmedSql = createSql.trim();
+	const createViewPrefix =
+		/^CREATE\s+(?:TEMP(?:ORARY)?\s+)?VIEW(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|\S+)\s+AS\s+/i;
+	const match = createViewPrefix.exec(trimmedSql);
+	if (!match) {
+		return targetPreviewSql(targetName);
+	}
+	const query = trimmedSql
+		.slice(match[0].length)
+		.trim()
+		.replace(/;+\s*$/, "");
+	return query ? `${query};` : targetPreviewSql(targetName);
 }
 
 function uploadedWorkspaceFile(

@@ -13,7 +13,22 @@ export type Target = {
 	column_count?: number;
 	size_label?: string;
 	source_path_count: number;
+	source_file_names?: string[];
+	source_references?: SourceReference[];
+	source_target_names?: string[];
 	summary: string;
+};
+
+export type TargetDetails = Target & {
+	create_sql?: string;
+};
+
+export type SourceReference = {
+	name: string;
+	path: string;
+	format: string;
+	sheet_name: string;
+	table_name: string;
 };
 
 export type SourceFile = {

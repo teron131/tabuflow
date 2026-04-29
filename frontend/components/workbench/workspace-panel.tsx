@@ -1,10 +1,16 @@
 import {
+	Activity,
 	ChevronDown,
 	ChevronRight,
 	Download,
+	FileCode2,
+	FileText,
+	type LucideIcon,
 	Play,
 	RotateCcw,
 	Save,
+	ScrollText,
+	Table2,
 } from "lucide-react";
 import type {
 	ReactNode,
@@ -20,20 +26,20 @@ import {
 	skillLineCount,
 	type Target,
 } from "@/lib/api";
-import { targetBadge } from "./badges";
 import { CodeEditor } from "./code-editor";
-import { workspaceTabs } from "./constants";
 import { downloadResult } from "./download";
 import { ResultTable } from "./result-table";
 import { renderHighlightedSql } from "./sql";
-import type { CenterTab } from "./types";
+import { isTargetView } from "./targets";
+import type { InspectorView } from "./types";
 
 type CollapsiblePane = "query" | "output";
 
 type WorkspacePanelProps = {
-	activeTab: CenterTab;
 	bootstrap: BootstrapPayload;
 	centerRef: RefObject<HTMLElement | null>;
+	inspectorView: InspectorView;
+	isPreviewingTarget: boolean;
 	isRunningSql: boolean;
 	isSkillSaved: boolean;
 	selectedSkill: SkillEntry | null;
@@ -42,7 +48,9 @@ type WorkspacePanelProps = {
 	skillText: string;
 	sql: string;
 	sqlResult: SqlResult | null;
-	onActiveTabChange: (tab: CenterTab) => void;
+	targetPreviewResult: SqlResult | null;
+	targetSourceFileName: string | null;
+	targetSourceName: string | null;
 	onRevertSkill: () => void;
 	onRunSql: () => void;
 	onSaveSkill: () => void;
@@ -52,9 +60,10 @@ type WorkspacePanelProps = {
 };
 
 export function WorkspacePanel({
-	activeTab,
 	bootstrap,
 	centerRef,
+	inspectorView,
+	isPreviewingTarget,
 	isRunningSql,
 	isSkillSaved,
 	selectedSkill,
@@ -63,7 +72,9 @@ export function WorkspacePanel({
 	skillText,
 	sql,
 	sqlResult,
-	onActiveTabChange,
+	targetPreviewResult,
+	targetSourceFileName,
+	targetSourceName,
 	onRevertSkill,
 	onRunSql,
 	onSaveSkill,
@@ -88,26 +99,21 @@ export function WorkspacePanel({
 		}
 		setOutputCollapsed((collapsed) => !collapsed);
 	}, []);
+	const inspector = inspectorState({
+		bootstrap,
+		inspectorView,
+		selectedSkill,
+		selectedSource,
+		selectedTarget,
+		sqlResult,
+		targetPreviewResult,
+		targetSourceFileName,
+		targetSourceName,
+	});
+	const InspectorIcon = inspector.icon;
 
 	return (
 		<section ref={centerRef} className="workspace">
-			<header className="workspace-tabs">
-				{workspaceTabs.map((tab) => {
-					const Icon = tab.icon;
-					return (
-						<button
-							key={tab.key}
-							className={activeTab === tab.key ? "active" : ""}
-							onClick={() => onActiveTabChange(tab.key)}
-							type="button"
-						>
-							<Icon size={14} />
-							{tab.label}
-						</button>
-					);
-				})}
-			</header>
-
 			<div
 				className={[
 					"workspace-grid",
@@ -134,13 +140,6 @@ export function WorkspacePanel({
 							QUERY BUFFER
 						</button>
 						<div className="button-cluster">
-							<button
-								className="outline-button"
-								type="button"
-								onClick={() => onSqlChange(bootstrap.sample_sql)}
-							>
-								Reset
-							</button>
 							<button
 								className="primary-button"
 								type="button"
@@ -177,7 +176,7 @@ export function WorkspacePanel({
 
 				<section
 					className={
-						activeTab === "results"
+						inspectorView === "results"
 							? "output-pane result-output"
 							: "output-pane"
 					}
@@ -195,9 +194,11 @@ export function WorkspacePanel({
 							) : (
 								<ChevronDown size={14} aria-hidden="true" />
 							)}
-							{activeTab.toUpperCase()}
+							<InspectorIcon size={14} aria-hidden="true" />
+							<span className="inspector-title">{inspector.title}</span>
+							<span className="inspector-detail">{inspector.detail}</span>
 						</button>
-						{activeTab === "results" && sqlResult?.columns?.length ? (
+						{inspectorView === "results" && sqlResult?.columns?.length ? (
 							<button
 								className="outline-button"
 								type="button"
@@ -212,12 +213,12 @@ export function WorkspacePanel({
 						<div
 							id="output-pane-body"
 							className={
-								activeTab === "results"
+								inspectorView === "results"
 									? "pane-body result-pane-body"
 									: "pane-body"
 							}
 						>
-							{activeTab === "sql" && (
+							{inspectorView === "run" && (
 								<div className="summary-grid">
 									{bootstrap.stage_cards.map((card) => (
 										<section className="telemetry-tile" key={card.name}>
@@ -228,28 +229,25 @@ export function WorkspacePanel({
 									))}
 								</div>
 							)}
-							{activeTab === "results" && <ResultTable result={sqlResult} />}
-							{activeTab === "target" && (
-								<div className="detail-panel">
-									<h3>{selectedTarget?.name || "No target selected"}</h3>
-									<p>{selectedTarget?.summary || bootstrap.target_summary}</p>
-									<dl>
-										<dt>kind</dt>
-										<dd>
-											{selectedTarget ? targetBadge(selectedTarget.kind) : "-"}
-										</dd>
-										<dt>size</dt>
-										<dd>{selectedTarget?.size_label || "-"}</dd>
-										<dt>rows</dt>
-										<dd>{selectedTarget?.row_count ?? "-"}</dd>
-										<dt>columns</dt>
-										<dd>{selectedTarget?.column_count ?? "-"}</dd>
-										<dt>sources</dt>
-										<dd>{selectedTarget?.source_path_count ?? "-"}</dd>
-									</dl>
+							{inspectorView === "results" && (
+								<ResultTable result={sqlResult} />
+							)}
+							{inspectorView === "target" && (
+								<div className="target-viewer">
+									<div className="target-preview-grid">
+										{isPreviewingTarget ? (
+											<div className="empty-state">Loading preview</div>
+										) : targetPreviewResult ? (
+											<ResultTable result={targetPreviewResult} />
+										) : (
+											<div className="empty-state">
+												Select a table or view to preview rows.
+											</div>
+										)}
+									</div>
 								</div>
 							)}
-							{activeTab === "skill" && (
+							{inspectorView === "skill" && (
 								<div className="skill-editor">
 									<header>
 										<h3>
@@ -299,7 +297,7 @@ export function WorkspacePanel({
 									/>
 								</div>
 							)}
-							{activeTab === "source" && (
+							{inspectorView === "source" && (
 								<div className="detail-panel">
 									<h3>{selectedSource?.name || "No source selected"}</h3>
 									<p>
@@ -324,6 +322,113 @@ export function WorkspacePanel({
 				</section>
 			</div>
 		</section>
+	);
+}
+
+function inspectorState({
+	bootstrap,
+	inspectorView,
+	selectedSkill,
+	selectedSource,
+	selectedTarget,
+	sqlResult,
+	targetPreviewResult,
+	targetSourceFileName,
+	targetSourceName,
+}: {
+	bootstrap: BootstrapPayload;
+	inspectorView: InspectorView;
+	selectedSkill: SkillEntry | null;
+	selectedSource: SourceFile | null;
+	selectedTarget: Target | null;
+	sqlResult: SqlResult | null;
+	targetPreviewResult: SqlResult | null;
+	targetSourceFileName: string | null;
+	targetSourceName: string | null;
+}): { title: ReactNode; detail: string; icon: LucideIcon } {
+	if (inspectorView === "results") {
+		return { title: "Results", detail: resultDetail(sqlResult), icon: Table2 };
+	}
+	if (inspectorView === "target") {
+		return {
+			title: targetTitle(
+				selectedTarget,
+				targetSourceName,
+				targetSourceFileName,
+			),
+			detail: targetDetail(selectedTarget, targetPreviewResult),
+			icon: selectedTarget && isTargetView(selectedTarget) ? FileCode2 : Table2,
+		};
+	}
+	if (inspectorView === "skill") {
+		return {
+			title: selectedSkill?.name || "No skill selected",
+			detail: selectedSkill
+				? `${skillLineCount(selectedSkill)} lines`
+				: "skill",
+			icon: ScrollText,
+		};
+	}
+	if (inspectorView === "source") {
+		return {
+			title: selectedSource?.name || "No source selected",
+			detail: selectedSource?.kind || "source",
+			icon: FileText,
+		};
+	}
+	return {
+		title: "Run state",
+		detail: `${bootstrap.stage_cards.length} stages`,
+		icon: Activity,
+	};
+}
+
+function resultDetail(result: SqlResult | null) {
+	if (!result) return "waiting for query";
+	if (result.status === "error") return "error";
+	if (result.row_count != null) return `${result.row_count} rows`;
+	if (result.columns?.length) return `${result.columns.length} columns`;
+	return result.summary || result.status;
+}
+
+function targetDetail(target: Target | null, previewResult: SqlResult | null) {
+	if (!target) return "target";
+	if (previewResult?.status === "error") return "preview error";
+	if (previewResult?.row_count != null) {
+		return `preview ${previewResult.row_count} rows`;
+	}
+	return isTargetView(target) ? "queried view" : "extracted table";
+}
+
+function targetTitle(
+	target: Target | null,
+	sourceName: string | null,
+	sourceFileName: string | null,
+) {
+	if (!target) return "No table or view selected";
+	if (!isTargetView(target)) {
+		return (
+			<>
+				Extracted Table <em className="inspector-name">{target.name}</em>
+				{sourceFileName ? (
+					<>
+						{" "}
+						From <em className="inspector-name">{sourceFileName}</em>
+					</>
+				) : null}
+			</>
+		);
+	}
+	return (
+		<>
+			Queried Result <em className="inspector-name">{target.name}</em>
+			{sourceName ? (
+				<>
+					{" "}
+					From <em className="inspector-name">{sourceName}</em>
+				</>
+			) : null}
+		</>
 	);
 }
 
