@@ -139,6 +139,16 @@ def _target_summary(
     return "; ".join(summary_parts)
 
 
+def _target_size_label(
+    *,
+    row_count: int | None,
+    column_count: int,
+) -> str:
+    """Return a compact table shape label for UI navigation."""
+    row_label = "?" if row_count is None else str(row_count)
+    return f"{row_label}x{column_count}"
+
+
 def _normalized_column_names(column_names: list[str | None]) -> tuple[list[str], list[str]]:
     """Return stable, unique column names for row dictionaries."""
     seen: set[str] = set()
@@ -860,12 +870,16 @@ def list_targets(
             source_paths = cast(list[str], target["source_paths"])
             source_path_preview, source_paths_truncated = _preview_list(source_paths, max_items=MAX_SOURCE_PATH_PREVIEW)
             column_names = [cast(str, column["name"]) for column in cast(list[dict[str, Any]], target["columns"])]
+            column_count = len(column_names)
+            row_count = cast(int | None, target["row_count"])
             items.append(
                 {
                     "name": target["name"],
                     "type": target["type"],
                     "kind": kind,
-                    "row_count": target["row_count"],
+                    "row_count": row_count,
+                    "column_count": column_count,
+                    "size_label": _target_size_label(row_count=row_count, column_count=column_count),
                     "source_path_count": len(source_paths),
                     "source_path_preview": source_path_preview,
                     "source_paths_truncated": source_paths_truncated,
@@ -873,7 +887,7 @@ def list_targets(
                         name=cast(str, target["name"]),
                         target_type=cast(str, target["type"]),
                         kind=kind,
-                        row_count=cast(int | None, target["row_count"]),
+                        row_count=row_count,
                         column_names=column_names,
                         source_paths=source_paths,
                     ),
@@ -931,6 +945,8 @@ def describe_target(
         target_type = cast(str, target_info["type"])
         kind = cast(str, target_info["kind"])
         columns = cast(list[dict[str, Any]], target_info["columns"])
+        column_count = len(columns)
+        row_count = cast(int | None, target_info["row_count"])
         source_mappings = cast(list[dict[str, Any]], target_info["source_mappings"])
         source_paths = cast(list[str], target_info["source_paths"])
         with closing(_open_read_only_connection(resolved_path)) as connection:
@@ -954,7 +970,9 @@ def describe_target(
                 "name": name,
                 "type": target_type,
                 "kind": kind,
-                "row_count": target_info["row_count"],
+                "row_count": row_count,
+                "column_count": column_count,
+                "size_label": _target_size_label(row_count=row_count, column_count=column_count),
                 "columns": columns,
                 "sample_rows": sample_row_items,
                 "text_value_hints": text_value_hint_map,
@@ -968,7 +986,7 @@ def describe_target(
                     name=name,
                     target_type=target_type,
                     kind=kind,
-                    row_count=cast(int | None, target_info["row_count"]),
+                    row_count=row_count,
                     column_names=[cast(str, column["name"]) for column in columns],
                     source_paths=source_paths,
                 ),

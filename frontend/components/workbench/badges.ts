@@ -8,7 +8,7 @@ export function fileBadge(name: string, kind = "") {
 }
 
 export function targetBadge(kind: string) {
-	if (kind === "raw_content_table") return "RAW";
+	if (kind === "raw_content_table") return "TABLE";
 	if (kind === "typed_content_view") return "TYPED";
 	if (kind === "view_or_table") return "VIEW";
 	return kind || "SQL";

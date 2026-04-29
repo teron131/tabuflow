@@ -9,13 +9,15 @@ import {
 	ListFilter,
 	PanelLeft,
 	Search,
+	Table2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type {
-	BootstrapPayload,
-	SkillEntry,
-	SourceFile,
-	Target,
+import {
+	type BootstrapPayload,
+	type SkillEntry,
+	type SourceFile,
+	skillLineCount,
+	type Target,
 } from "@/lib/api";
 import { fileBadge, targetBadge } from "./badges";
 import { isTargetView } from "./targets";
@@ -44,6 +46,7 @@ type ExplorerRow = {
 	type: string;
 	status: string;
 	detail: string;
+	metadata: string;
 	iconType: string;
 	isActive: boolean;
 	onSelect: () => void;
@@ -72,7 +75,6 @@ const defaultOpenGroups: Record<ExplorerKey, boolean> = {
 const fileTypeIcons: Record<string, string> = {
 	csv: "material-icon-theme:table",
 	file: "material-icon-theme:document",
-	raw: "material-icon-theme:database",
 	skill: "material-icon-theme:skill",
 	sqlite: "material-icon-theme:database",
 	view: "material-icon-theme:json-schema",
@@ -146,6 +148,10 @@ export function ExplorerPanel({
 			sortDirection,
 		),
 	}));
+	const isFiltering = query.trim().length > 0 || typeFilter !== "all";
+	const displayedGroups = isFiltering
+		? visibleGroups.filter((group) => group.rows.length > 0)
+		: visibleGroups;
 	const hasVisibleRows = visibleGroups.some((group) => group.rows.length > 0);
 
 	return (
@@ -166,10 +172,10 @@ export function ExplorerPanel({
 				<label className="explorer-search">
 					<Search size={13} />
 					<input
-						aria-label="Search explorer"
+						aria-label="Filter workbench sidebar"
 						value={query}
 						onChange={(event) => setQuery(event.target.value)}
-						placeholder="Search"
+						placeholder="Filter files, source, size"
 					/>
 				</label>
 				<label className="explorer-select">
@@ -214,7 +220,7 @@ export function ExplorerPanel({
 				</button>
 			</div>
 			<div className="explorer-list">
-				{visibleGroups.map((group) => {
+				{displayedGroups.map((group) => {
 					const isOpen = openGroups[group.key];
 					const isActiveGroup = activeExplorer === group.key;
 					const FolderIcon = isOpen ? FolderOpen : Folder;
@@ -285,7 +291,6 @@ function buildGroups({
 	const targetItems = bootstrap.targets.filter(
 		(target) => !isTargetView(target),
 	);
-
 	return [
 		{
 			key: "files",
@@ -296,6 +301,7 @@ function buildGroups({
 				type: fileBadge(source.name, source.kind),
 				status: source.status,
 				detail: source.source_path || source.destination_path || "",
+				metadata: "",
 				iconType: sourceIconType(source),
 				isActive: selectedSource?.id === source.id,
 				onSelect: () => onSelectSource(source),
@@ -308,8 +314,9 @@ function buildGroups({
 				id: `target-${target.name}`,
 				label: target.name,
 				type: targetBadge(target.kind),
-				status: "",
+				status: target.size_label || "",
 				detail: target.summary,
+				metadata: `${target.size_label || ""} ${target.row_count ?? ""} rows ${target.column_count ?? ""} columns ${target.source_path_count} sources`,
 				iconType: targetIconType(target),
 				isActive: selectedTarget?.name === target.name,
 				onSelect: () => onSelectTarget(target),
@@ -322,8 +329,9 @@ function buildGroups({
 				id: `view-${target.name}`,
 				label: target.name,
 				type: targetBadge(target.kind),
-				status: "",
+				status: target.size_label || "",
 				detail: target.summary,
+				metadata: `${target.size_label || ""} ${target.row_count ?? ""} rows ${target.column_count ?? ""} columns ${target.source_path_count} sources`,
 				iconType: "view",
 				isActive: selectedTarget?.name === target.name,
 				onSelect: () => onSelectTarget(target),
@@ -332,16 +340,22 @@ function buildGroups({
 		{
 			key: "skills",
 			label: groupLabels.skills,
-			rows: skills.map((skill) => ({
-				id: `skill-${skill.name}`,
-				label: skill.name,
-				type: "SKILL",
-				status: "",
-				detail: skill.description || skill.path || "",
-				iconType: "skill",
-				isActive: selectedSkill?.name === skill.name,
-				onSelect: () => onSelectSkill(skill),
-			})),
+			rows: skills.map((skill) => {
+				const lineCount = skillLineCount(skill);
+				return {
+					id: `skill-${skill.name}`,
+					label: skill.name,
+					type: "SKILL",
+					status: lineCount ? String(lineCount) : "",
+					detail: skill.description || skill.path || "",
+					metadata: [skill.path, skill.skills_path, lineCount]
+						.filter(Boolean)
+						.join(" "),
+					iconType: "skill",
+					isActive: selectedSkill?.name === skill.name,
+					onSelect: () => onSelectSkill(skill),
+				};
+			}),
 		},
 	];
 }
@@ -355,7 +369,7 @@ function filterRows(rows: ExplorerRow[], query: string, typeFilter: string) {
 		if (!normalizedQuery) {
 			return true;
 		}
-		return [row.label, row.type, row.status, row.detail]
+		return [row.label, row.type, row.status, row.detail, row.metadata]
 			.join(" ")
 			.toLowerCase()
 			.includes(normalizedQuery);
@@ -410,6 +424,9 @@ function targetIconType(target: Target) {
 }
 
 function FileTypeIcon({ type }: { type: string }) {
+	if (type === "raw") {
+		return <Table2 className="file-type-icon raw" aria-hidden="true" />;
+	}
 	const iconType = type in fileTypeIcons ? type : "file";
 	return (
 		<Icon

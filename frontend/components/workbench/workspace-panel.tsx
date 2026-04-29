@@ -1,12 +1,14 @@
 import { Download, Play, Save } from "lucide-react";
 import type { PointerEvent as ReactPointerEvent, RefObject } from "react";
-import type {
-	BootstrapPayload,
-	SkillEntry,
-	SourceFile,
-	SqlResult,
-	Target,
+import {
+	type BootstrapPayload,
+	type SkillEntry,
+	type SourceFile,
+	type SqlResult,
+	skillLineCount,
+	type Target,
 } from "@/lib/api";
+import { targetBadge } from "./badges";
 import { workspaceTabs } from "./constants";
 import { downloadResult } from "./download";
 import { ResultTable } from "./result-table";
@@ -155,9 +157,15 @@ export function WorkspacePanel({
 								<p>{selectedTarget?.summary || bootstrap.target_summary}</p>
 								<dl>
 									<dt>kind</dt>
-									<dd>{selectedTarget?.kind || "-"}</dd>
+									<dd>
+										{selectedTarget ? targetBadge(selectedTarget.kind) : "-"}
+									</dd>
+									<dt>size</dt>
+									<dd>{selectedTarget?.size_label || "-"}</dd>
 									<dt>rows</dt>
 									<dd>{selectedTarget?.row_count ?? "-"}</dd>
+									<dt>columns</dt>
+									<dd>{selectedTarget?.column_count ?? "-"}</dd>
 									<dt>sources</dt>
 									<dd>{selectedTarget?.source_path_count ?? "-"}</dd>
 								</dl>
@@ -167,6 +175,9 @@ export function WorkspacePanel({
 							<div className="skill-editor">
 								<header>
 									<h3>{selectedSkill?.name || "No skill selected"}</h3>
+									<span className="skill-line-count">
+										{selectedSkill ? skillLineCount(selectedSkill) : "-"}
+									</span>
 									<button className="outline-button" type="button">
 										<Save size={13} />
 										Draft

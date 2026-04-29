@@ -19,6 +19,7 @@
 	--accent-rust: #a95421;
 	--accent-olive: #667044;
 	--accent-smoke: #6b6a61;
+	--accent-table: #2f7f8f;
 	--danger: #b42318;
 	--red: var(--accent);
 	--green: #536257;
@@ -410,11 +411,11 @@ h1 {
 
 .tree-row {
 	display: grid;
-	grid-template-columns: 14px 20px minmax(0, 1fr) auto;
+	grid-template-columns: 14px 20px minmax(0, 1fr) minmax(34px, auto);
 	align-items: center;
 	width: 100%;
 	min-height: 27px;
-	column-gap: 7px;
+	column-gap: 5px;
 	padding: 2px 5px;
 	border: 1px solid transparent;
 	background: transparent;
@@ -445,8 +446,14 @@ h1 {
 }
 
 .tree-row small {
+	justify-self: end;
+	max-width: 62px;
+	overflow: hidden;
 	color: var(--dim);
 	font-size: var(--font-size-2xs);
+	text-overflow: ellipsis;
+	text-transform: none;
+	white-space: nowrap;
 }
 
 .tree-spacer {
@@ -460,6 +467,11 @@ h1 {
 	height: 20px;
 	flex: 0 0 20px;
 	overflow: visible;
+}
+
+.file-type-icon.raw {
+	color: var(--accent-table);
+	stroke-width: 2;
 }
 
 .explorer-empty {
@@ -964,6 +976,22 @@ h1 {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	gap: 8px;
+}
+
+.skill-editor h3 {
+	min-width: 0;
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.skill-line-count {
+	color: var(--dim);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	font-variant-numeric: tabular-nums;
 }
 
 .skill-editor textarea {
