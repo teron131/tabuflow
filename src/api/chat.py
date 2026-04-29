@@ -1,6 +1,7 @@
 """Chat response helpers for the workbench API."""
 
 import os
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
@@ -8,12 +9,16 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from ..agents.config import DEFAULT_REASONING_EFFORT, resolve_agent_model
 from ..agents.orchestrator.orchestrator import Orchestrator
 from ..agents.orchestrator.state import message_text
+from ..clients.multimodal import MediaMessage
 from ..clients.openai import ChatOpenAI
+from .constants import IMAGE_UPLOAD_EXTENSIONS, REPO_ROOT, UPLOADS_DIR
 from .schemas import ChatHistoryMessage, ChatRequest
 
 MAX_CHAT_HISTORY_MESSAGES = 16
 MAX_TRACE_CONTENT_CHARS = 500
 MAX_TOOL_TRACE_SUMMARY_CHARS = 220
+MAX_CHAT_IMAGE_ATTACHMENTS = 4
+MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024
 REQUIRED_LLM_ENV_VARS = ("LLM_API_KEY", "LLM_BASE_URL")
 MISSING_LLM_CONFIG_MESSAGE = "LLM_API_KEY and LLM_BASE_URL are required for chat."
 
@@ -29,6 +34,50 @@ class ChatConfigurationError(RuntimeError):
 
 class ChatRuntimeError(RuntimeError):
     """Raised when model-backed chat fails during execution."""
+
+
+def _uploaded_source_path(source_file: str) -> Path | None:
+    """Resolve a chat source file only when it points inside the uploads area."""
+    source_path = Path(source_file).expanduser()
+    if not source_path.is_absolute():
+        source_path = REPO_ROOT / source_path
+    try:
+        resolved_path = source_path.resolve()
+        resolved_path.relative_to(UPLOADS_DIR.resolve())
+    except (OSError, ValueError):
+        return None
+    return resolved_path if resolved_path.is_file() else None
+
+
+def _image_source_paths(source_files: list[str]) -> list[Path]:
+    """Return valid uploaded image paths for one chat turn."""
+    image_paths: list[Path] = []
+    for source_file in source_files:
+        source_path = _uploaded_source_path(source_file)
+        if source_path is None or source_path.suffix.lower() not in IMAGE_UPLOAD_EXTENSIONS:
+            continue
+        try:
+            if source_path.stat().st_size > MAX_CHAT_IMAGE_BYTES:
+                continue
+        except OSError:
+            continue
+        image_paths.append(source_path)
+        if len(image_paths) >= MAX_CHAT_IMAGE_ATTACHMENTS:
+            break
+    return image_paths
+
+
+def _human_message(
+    latest_message: str,
+    image_paths: list[Path],
+) -> HumanMessage:
+    """Create the latest user message, using MediaMessage when images are attached."""
+    if image_paths:
+        return MediaMessage(
+            paths=image_paths,
+            description=latest_message,
+        )
+    return HumanMessage(content=latest_message)
 
 
 def assistant_content(message: BaseMessage | dict[str, Any]) -> str:
@@ -51,7 +100,11 @@ def assistant_content(message: BaseMessage | dict[str, Any]) -> str:
     return text.strip()
 
 
-def _chat_history(messages: list[ChatHistoryMessage], latest_message: str) -> list[BaseMessage]:
+def _chat_history(
+    messages: list[ChatHistoryMessage],
+    latest_message: str,
+    image_paths: list[Path],
+) -> list[BaseMessage]:
     """Convert browser-visible history into LangChain chat messages."""
     history: list[BaseMessage] = []
     for message in messages[-MAX_CHAT_HISTORY_MESSAGES:]:
@@ -63,8 +116,10 @@ def _chat_history(messages: list[ChatHistoryMessage], latest_message: str) -> li
         elif message.role == "assistant":
             history.append(AIMessage(content=content))
 
-    if not history or not isinstance(history[-1], HumanMessage) or message_text(history[-1]) != latest_message:
-        history.append(HumanMessage(content=latest_message))
+    if history and isinstance(history[-1], HumanMessage) and message_text(history[-1]) == latest_message:
+        history[-1] = _human_message(latest_message, image_paths)
+    else:
+        history.append(_human_message(latest_message, image_paths))
     return history
 
 
@@ -152,7 +207,12 @@ def run_chat(request: ChatRequest) -> dict[str, Any]:
         raise ChatConfigurationError(MISSING_LLM_CONFIG_MESSAGE)
 
     latest_message = request.message.strip()
-    history = _chat_history(request.messages, latest_message)
+    image_paths = _image_source_paths(request.source_files)
+    history = _chat_history(
+        request.messages,
+        latest_message,
+        image_paths,
+    )
     model_name = resolve_agent_model(request.model)
     llm = ChatOpenAI(model=model_name, temperature=0, reasoning_effort=DEFAULT_REASONING_EFFORT)
 
@@ -186,5 +246,6 @@ def run_chat(request: ChatRequest) -> dict[str, Any]:
             "message_count": len(messages),
             "input_message_count": len(history),
             "source_file_count": len(request.source_files),
+            "image_source_count": len(image_paths),
         },
     }

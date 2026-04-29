@@ -2,25 +2,45 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+import re
+import shutil
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from ..agents.config import DEFAULT_AGENT_MODEL
 from ..tools import list_skills, load_skills
+from ..tools.tabular.tools import extract_tabular_file
 from ..tools.sql.query import describe_target, list_targets, run_query
 from .chat import ChatConfigurationError, ChatRuntimeError, has_llm_environment, run_chat
-from .constants import DEFAULT_SQL, STAGE_CARDS, SUGGESTED_QUESTIONS
+from .constants import (
+    DEFAULT_SQL,
+    IMAGE_UPLOAD_EXTENSIONS,
+    REPO_ROOT,
+    STAGE_CARDS,
+    SUGGESTED_QUESTIONS,
+    TABULAR_UPLOAD_EXTENSIONS,
+    UPLOAD_EXTENSIONS,
+    UPLOADS_DIR,
+)
 from .schemas import ChatRequest, SkillSaveRequest, SqlRunRequest
 from .workspace_data import (
     WorkspaceDataMissingError,
     default_database_path,
+    list_uploaded_source_summaries,
     list_prepared_source_summaries,
     resolve_database_path,
 )
 
 router = APIRouter(prefix="/api")
 PRIVATE_SQL_TOKENS = ("_tabular_", "source_path")
+PDF_PREVIEW_PAGE_LIMIT = 3
+DEFAULT_IMAGE_EXTENSION_BY_TYPE = {
+    "image/gif": ".gif",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+}
 
 
 def _workspace_data_error(exc: WorkspaceDataMissingError) -> HTTPException:
@@ -71,6 +91,95 @@ def _reject_private_sql(sql: str) -> None:
                 "message": "Private source catalog metadata is not exposed through the demo API.",
             },
         )
+
+
+def _safe_upload_name(filename: str, *, content_type: str | None = None) -> str:
+    """Return a stable local filename for a browser upload."""
+    clean_name = re.sub(r"[^A-Za-z0-9._ -]+", "-", Path(filename).name).strip(" .")
+    if clean_name:
+        return clean_name
+    extension = DEFAULT_IMAGE_EXTENSION_BY_TYPE.get(content_type or "", "")
+    return f"upload{extension}"
+
+
+def _source_files_payload(database_path: Path) -> list[dict[str, Any]]:
+    """Return prepared and uploaded source files for the browser UI."""
+    prepared_files = list_prepared_source_summaries(database_path)
+    existing_paths = {str(source.get("source_path") or "") for source in prepared_files}
+    return [*prepared_files, *list_uploaded_source_summaries(existing_paths=existing_paths)]
+
+
+def _bootstrap_payload(database_path: Path) -> dict[str, Any]:
+    """Build the initial workbench payload with a verified default result."""
+    target_payload = _public_sql_payload(list_targets(database_path=database_path))
+    initial_result = _public_sql_payload(
+        run_query(
+            DEFAULT_SQL,
+            database_path=str(database_path),
+            max_rows=100,
+        )
+    )
+    return {
+        "status": "ok",
+        "sample_sql": DEFAULT_SQL,
+        "suggested_questions": SUGGESTED_QUESTIONS,
+        "stage_cards": STAGE_CARDS,
+        "source_files": _source_files_payload(database_path),
+        "targets": target_payload.get("targets", []),
+        "target_summary": target_payload.get("summary", ""),
+        "initial_result": initial_result,
+    }
+
+
+def _pdf_upload_summary(path: Path) -> dict[str, Any]:
+    """Return a lightweight PDF upload summary without model-backed OCR."""
+    import fitz
+
+    with fitz.open(path) as document:
+        preview_pages = min(document.page_count, PDF_PREVIEW_PAGE_LIMIT)
+        preview_text = "\n".join(document.load_page(index).get_text("text").strip() for index in range(preview_pages)).strip()
+        return {
+            "status": "uploaded",
+            "target_backend": "pdf",
+            "path": str(path),
+            "page_count": document.page_count,
+            "preview_text": preview_text[:2000],
+        }
+
+
+def _image_upload_summary(path: Path, *, content_type: str | None) -> dict[str, Any]:
+    """Return a lightweight image upload summary for pasted or attached screenshots."""
+    return {
+        "status": "uploaded",
+        "target_backend": "image",
+        "name": path.name,
+        "path": str(path),
+        "content_type": content_type or "application/octet-stream",
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def _store_upload(file: UploadFile) -> Path:
+    """Persist an uploaded file into the local demo upload folder."""
+    filename = _safe_upload_name(file.filename or "", content_type=file.content_type)
+    suffix = Path(filename).suffix.lower()
+    if suffix not in UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "mode": "unsupported_upload_type",
+                "message": "Uploads are limited to CSV, XLSX, PDF, or image files.",
+            },
+        )
+
+    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
+    destination = UPLOADS_DIR / filename
+    if destination.exists():
+        destination = UPLOADS_DIR / f"{destination.stem}-{datetime.now(tz=UTC).strftime('%Y%m%d%H%M%S')}{destination.suffix}"
+    with destination.open("wb") as output:
+        shutil.copyfileobj(file.file, output)
+    return destination
 
 
 def _skill_modified_at(skills_file: Path) -> str:
@@ -124,15 +233,36 @@ def bootstrap() -> dict[str, Any]:
         database_path = default_database_path()
     except WorkspaceDataMissingError as exc:
         raise _workspace_data_error(exc) from exc
-    target_payload = _public_sql_payload(list_targets(database_path=database_path))
+    return _bootstrap_payload(database_path)
+
+
+@router.post("/files/upload")
+def upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
+    """Upload one CSV, XLSX, PDF, or image file into the local demo workspace."""
+    saved_path = _store_upload(file)
+    suffix = saved_path.suffix.lower()
+    try:
+        if suffix in TABULAR_UPLOAD_EXTENSIONS:
+            upload_result = extract_tabular_file(saved_path, root_dir=REPO_ROOT)
+        elif suffix in IMAGE_UPLOAD_EXTENSIONS:
+            upload_result = _image_upload_summary(saved_path, content_type=file.content_type)
+        else:
+            upload_result = _pdf_upload_summary(saved_path)
+        database_path = default_database_path()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "status": "error",
+                "mode": "upload_processing_failed",
+                "message": str(exc),
+                "path": str(saved_path),
+            },
+        ) from exc
     return {
         "status": "ok",
-        "sample_sql": DEFAULT_SQL,
-        "suggested_questions": SUGGESTED_QUESTIONS,
-        "stage_cards": STAGE_CARDS,
-        "source_files": list_prepared_source_summaries(database_path),
-        "targets": target_payload.get("targets", []),
-        "target_summary": target_payload.get("summary", ""),
+        "upload": upload_result,
+        "bootstrap": _bootstrap_payload(database_path),
     }
 
 

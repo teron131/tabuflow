@@ -17,6 +17,7 @@ export type WorkbenchTools = {
 			message: string;
 			messages?: Array<{ role: "user" | "assistant"; content: string }>;
 			model?: string;
+			source_files?: string[];
 		};
 		output: BackendChatResponse;
 	};

@@ -38,6 +38,25 @@ export type BootstrapPayload = {
 	initial_result?: SqlResult;
 };
 
+export type UploadPayload = {
+	status: string;
+	upload?: {
+		status?: string;
+		name?: string;
+		path?: string;
+		format?: string;
+		target_backend?: string;
+		content_type?: string;
+		size_bytes?: number;
+		recovered_table_count?: number;
+		page_count?: number;
+	};
+	bootstrap?: BootstrapPayload;
+	detail?: {
+		message?: string;
+	};
+};
+
 export type SqlResult = {
 	status: string;
 	summary?: string;
@@ -103,6 +122,25 @@ export async function fetchJson<T>(
 		throw new Error(text || `${response.status} ${response.statusText}`);
 	}
 	return response.json() as Promise<T>;
+}
+
+export async function uploadWorkspaceFile(file: File): Promise<UploadPayload> {
+	const formData = new FormData();
+	formData.append("file", file);
+	const response = await fetch("/api/files/upload", {
+		method: "POST",
+		body: formData,
+	});
+	const payload = (await response.json().catch(() => ({
+		status: "error",
+		detail: { message: "Upload returned a non-JSON response." },
+	}))) as UploadPayload;
+	if (!response.ok) {
+		throw new Error(
+			payload.detail?.message || `${response.status} ${response.statusText}`,
+		);
+	}
+	return payload;
 }
 
 export function skillContent(skill: SkillEntry): string {

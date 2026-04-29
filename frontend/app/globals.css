@@ -1500,18 +1500,24 @@ h1 {
 }
 
 .composer {
+	--composer-textarea-max-height: 150px;
 	position: relative;
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) 36px;
-	gap: 7px;
+	grid-template-columns: minmax(0, 1fr);
+	gap: 6px;
 	padding: 10px;
 	border-top: 1px solid var(--line);
 	background: var(--panel-strong);
 }
 
+.composer.drop-active {
+	background: color-mix(in srgb, var(--accent) 14%, var(--panel-strong));
+	box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 64%, transparent);
+}
+
 .command-palette {
 	position: absolute;
-	right: calc(10px + 36px + 7px);
+	right: 10px;
 	bottom: calc(100% + 8px);
 	left: 10px;
 	z-index: 20;
@@ -1626,16 +1632,168 @@ h1 {
 	font-size: var(--font-size-sm);
 }
 
+.message-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 0 0 10px;
+	padding: 0;
+	list-style: none;
+}
+
+.message-thumbnail {
+	position: relative;
+	display: grid;
+	width: 86px;
+	height: 64px;
+	overflow: hidden;
+	place-items: center;
+	border: 1px solid var(--line-strong);
+	background: var(--panel-soft);
+	color: var(--muted);
+}
+
+.message-thumbnail img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.message-thumbnail span {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	min-width: 0;
+	overflow: hidden;
+	padding: 2px 4px;
+	background: rgb(23 23 22 / 72%);
+	color: var(--panel);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-2xs);
+	text-overflow: ellipsis;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+.composer-attachments {
+	display: flex;
+	grid-column: 1;
+	gap: 8px;
+	min-width: 0;
+	max-width: 100%;
+	margin: 0;
+	overflow-x: auto;
+	padding: 0 2px 2px;
+	list-style: none;
+}
+
+.attachment-preview {
+	position: relative;
+	display: grid;
+	grid-template-columns: 20px minmax(0, 1fr);
+	align-items: center;
+	flex: 0 0 auto;
+	gap: 6px;
+	max-width: 170px;
+	min-height: 32px;
+	padding: 5px 26px 5px 7px;
+	border: 1px solid var(--line-strong);
+	background: #fffdf6;
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+}
+
+.attachment-preview.image {
+	display: block;
+	width: 58px;
+	height: 58px;
+	overflow: hidden;
+	padding: 0;
+	background: var(--panel-soft);
+}
+
+.attachment-preview img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.attachment-preview > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	text-transform: uppercase;
+	white-space: nowrap;
+}
+
+.attachment-preview.image > span {
+	position: absolute;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	padding: 2px 4px;
+	background: rgb(23 23 22 / 72%);
+	color: var(--panel);
+	font-size: var(--font-size-2xs);
+}
+
+.attachment-preview small {
+	position: absolute;
+	right: 4px;
+	bottom: 3px;
+	color: var(--muted);
+	font-size: var(--font-size-2xs);
+	text-transform: uppercase;
+}
+
+.attachment-preview.image small {
+	top: 3px;
+	bottom: auto;
+	left: 3px;
+	width: fit-content;
+	padding: 1px 3px;
+	background: rgb(255 253 246 / 82%);
+	color: var(--accent-strong);
+}
+
+.attachment-preview button {
+	position: absolute;
+	top: 3px;
+	right: 3px;
+	display: grid;
+	width: 18px;
+	height: 18px;
+	place-items: center;
+	border: 1px solid transparent;
+	background: rgb(255 253 246 / 82%);
+	color: var(--muted);
+}
+
+.attachment-preview button:hover,
+.attachment-preview button:focus-visible {
+	border-color: var(--accent);
+	background: var(--accent-wash);
+	color: var(--accent-strong);
+	outline: none;
+}
+
 .composer textarea {
-	min-height: 72px;
-	max-height: 160px;
-	padding: 9px;
+	--composer-textarea-max-height: 150px;
+	grid-column: 1;
+	min-height: 46px;
+	max-height: var(--composer-textarea-max-height);
+	padding: 12px 54px 10px 45px;
 	border: 1px solid var(--line-strong);
 	background: #fffdf6;
 	color: var(--text);
 	font-size: var(--font-size-lg);
 	line-height: 1.4;
-	resize: vertical;
+	overflow-y: hidden;
+	resize: none;
 	outline: none;
 }
 
@@ -1644,20 +1802,76 @@ h1 {
 	box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.composer button {
+.composer.drop-active textarea {
+	border-color: var(--accent);
+}
+
+.composer .send-button,
+.composer .attachment-button {
+	position: absolute;
+	bottom: 19px;
 	display: grid;
-	width: 36px;
-	height: 36px;
+	width: 28px;
+	height: 28px;
+	min-height: 0;
 	place-items: center;
-	align-self: end;
+	transition:
+		background 120ms ease,
+		color 120ms ease,
+		border-color 120ms ease,
+		transform 120ms ease;
+}
+
+.composer .send-button {
+	right: 17px;
 	border: 1px solid var(--text);
-	background: var(--text);
+	background: #171716;
 	color: var(--panel);
 }
 
-.composer button:hover {
-	border-color: var(--accent-strong);
-	background: color-mix(in srgb, var(--accent) 22%, var(--text));
+.composer .send-button:hover,
+.composer .send-button:focus-visible {
+	border: 1px solid var(--text);
+	background: color-mix(in srgb, var(--accent) 28%, var(--text));
+	color: var(--panel);
+	outline: none;
+}
+
+.composer .send-button:active,
+.composer .attachment-button:active {
+	transform: translateY(1px) scale(0.98);
+}
+
+.composer .attachment-button {
+	left: 17px;
+	border: 1px solid transparent;
+	background: transparent;
+	color: var(--muted);
+}
+
+.composer .attachment-button:hover,
+.composer .attachment-button:focus-visible {
+	border-color: var(--accent);
+	background: var(--accent-wash);
+	color: var(--accent-strong);
+	outline: none;
+}
+
+.composer .attachment-button:focus-visible + textarea,
+.composer .attachment-button:hover + textarea {
+	border-color: color-mix(in srgb, var(--accent) 72%, var(--line-strong));
+}
+
+.composer-status {
+	grid-column: 1;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	text-overflow: ellipsis;
+	text-transform: uppercase;
+	white-space: nowrap;
 }
 
 .spin {
@@ -1818,20 +2032,37 @@ h1 {
 	}
 
 	.composer {
-		grid-template-columns: minmax(0, 1fr) 34px;
-		gap: 7px;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 6px;
 		padding: 8px;
 	}
 
+	.command-palette {
+		right: 8px;
+		left: 8px;
+	}
+
 	.composer textarea {
-		min-height: 44px;
-		max-height: 86px;
+		--composer-textarea-max-height: 96px;
+		min-height: 42px;
+		max-height: var(--composer-textarea-max-height);
+		padding: 10px 45px 8px 38px;
 		font-size: var(--font-size-md);
 	}
 
-	.composer button {
-		width: 34px;
-		height: 34px;
+	.composer .send-button,
+	.composer .attachment-button {
+		bottom: 16px;
+		width: 26px;
+		height: 26px;
+	}
+
+	.composer .attachment-button {
+		left: 13px;
+	}
+
+	.composer .send-button {
+		right: 13px;
 	}
 }
 

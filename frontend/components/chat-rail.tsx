@@ -1,7 +1,7 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, type FileUIPart } from "ai";
 import {
 	Bot,
 	CheckCircle2,
@@ -9,17 +9,33 @@ import {
 	CircleUserRound,
 	Cloud,
 	Loader2,
+	Paperclip,
 	Send,
 	TriangleAlert,
 	Wrench,
+	X,
 	Zap,
 } from "lucide-react";
-import type { ComponentType } from "react";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import type {
+	ChangeEvent,
+	ComponentType,
+	ClipboardEvent as ReactClipboardEvent,
+	DragEvent as ReactDragEvent,
+} from "react";
+import {
+	memo,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import type { WorkbenchMessage } from "@/lib/chat-contracts";
 
 type WorkbenchPart = WorkbenchMessage["parts"][number];
 type WorkbenchToolPart = Extract<WorkbenchPart, { toolCallId: string }>;
+type WorkbenchFilePart = Extract<WorkbenchPart, { type: "file" }>;
 type DemoTraceMode = "fast" | "slow";
 type TraceEntry = {
 	id: string;
@@ -34,11 +50,29 @@ type ComposerCommand = {
 	mode: DemoTraceMode;
 	icon: ComponentType<{ size?: number; className?: string }>;
 };
+type ComposerAttachment = {
+	id: string;
+	name: string;
+	type: string;
+	previewUrl: string | null;
+	sourcePath?: string;
+	status: "uploading" | "attached" | "error";
+};
+type UploadedWorkspaceFile = {
+	name: string;
+	path: string;
+	contentType?: string;
+	targetBackend?: string;
+};
 
 type ChatRailProps = {
 	modelOptions: string[];
 	selectedModel: string;
+	uploadStatus: string;
 	onModelChange: (model: string) => void;
+	onUploadFiles: (
+		files: File[],
+	) => Promise<UploadedWorkspaceFile[]> | UploadedWorkspaceFile[];
 };
 
 const initialMessages: WorkbenchMessage[] = [
@@ -72,12 +106,89 @@ const composerCommands: ComposerCommand[] = [
 ];
 
 const CHAT_BOTTOM_THRESHOLD = 28;
+const ACCEPTED_UPLOAD_TYPES = ".csv,.xlsx,.pdf,image/*";
+const TEXTAREA_MAX_HEIGHT_VAR = "--composer-textarea-max-height";
+const DEFAULT_TEXTAREA_MAX_HEIGHT = 150;
 
 function isScrolledNearBottom(element: HTMLElement) {
 	return (
 		element.scrollHeight - element.scrollTop - element.clientHeight <=
 		CHAT_BOTTOM_THRESHOLD
 	);
+}
+
+function hasDraggedFiles(event: ReactDragEvent) {
+	return Array.from(event.dataTransfer.types).includes("Files");
+}
+
+function imageFilesFromClipboard(
+	event: ReactClipboardEvent<HTMLTextAreaElement>,
+) {
+	return Array.from(event.clipboardData?.items || [])
+		.filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+		.map((item) => item.getAsFile())
+		.filter((file): file is File => file !== null);
+}
+
+function attachmentId(file: File) {
+	return `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`;
+}
+
+function attachmentPreview(file: File) {
+	return file.type.startsWith("image/") ? URL.createObjectURL(file) : null;
+}
+
+function revokeAttachmentPreview(
+	attachment: Pick<ComposerAttachment, "previewUrl">,
+	previewUrls: Set<string>,
+) {
+	if (!attachment.previewUrl) {
+		return;
+	}
+	URL.revokeObjectURL(attachment.previewUrl);
+	previewUrls.delete(attachment.previewUrl);
+}
+
+function attachmentPrompt(attachments: ComposerAttachment[]) {
+	const names = attachments.map((attachment) => attachment.name).join(", ");
+	return names ? `Attached files: ${names}` : "";
+}
+
+function attachedSourceFiles(attachments: ComposerAttachment[]) {
+	return attachments
+		.filter((attachment) => attachment.status === "attached")
+		.map((attachment) => attachment.sourcePath || attachment.name)
+		.filter(Boolean);
+}
+
+function messageFileParts(attachments: ComposerAttachment[]): FileUIPart[] {
+	return attachments
+		.filter(
+			(attachment) =>
+				attachment.status === "attached" &&
+				attachment.previewUrl &&
+				attachment.type.startsWith("image/"),
+		)
+		.map((attachment) => ({
+			type: "file",
+			mediaType: attachment.type,
+			filename: attachment.name,
+			url: attachment.previewUrl || "",
+		}));
+}
+
+function fitComposerTextarea(textarea: HTMLTextAreaElement | null) {
+	if (!textarea) {
+		return;
+	}
+	const styles = window.getComputedStyle(textarea);
+	const maxHeight =
+		Number.parseFloat(styles.getPropertyValue(TEXTAREA_MAX_HEIGHT_VAR)) ||
+		DEFAULT_TEXTAREA_MAX_HEIGHT;
+	textarea.style.height = "auto";
+	textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+	textarea.style.overflowY =
+		textarea.scrollHeight > maxHeight ? "auto" : "hidden";
 }
 
 function textFromMessage(message: WorkbenchMessage) {
@@ -89,6 +200,10 @@ function textFromMessage(message: WorkbenchMessage) {
 
 function isToolPart(part: WorkbenchPart): part is WorkbenchToolPart {
 	return part.type.startsWith("tool-") || part.type === "dynamic-tool";
+}
+
+function isFilePart(part: WorkbenchPart): part is WorkbenchFilePart {
+	return part.type === "file";
 }
 
 function formatJson(value: unknown) {
@@ -301,6 +416,7 @@ function conversationTrace(
 function ChatMessage({ message }: { message: WorkbenchMessage }) {
 	const isUser = message.role === "user";
 	const text = textFromMessage(message);
+	const fileParts = message.parts.filter(isFilePart);
 	const toolParts = message.parts.filter(isToolPart);
 
 	return (
@@ -313,6 +429,24 @@ function ChatMessage({ message }: { message: WorkbenchMessage }) {
 					<span>{isUser ? "USER" : "AGENT"}</span>
 					{!isUser && <CheckCircle2 size={12} />}
 				</header>
+				{fileParts.length > 0 && (
+					<ul className="message-attachments" aria-label="Message attachments">
+						{fileParts.map((part) => (
+							<li
+								className="message-thumbnail"
+								key={`${part.url}-${part.filename}`}
+							>
+								{part.mediaType.startsWith("image/") ? (
+									// biome-ignore lint/performance/noImgElement: local object URL previews are user-selected uploads.
+									<img alt={part.filename || "attached image"} src={part.url} />
+								) : (
+									<Paperclip size={15} />
+								)}
+								{part.filename && <span>{part.filename}</span>}
+							</li>
+						))}
+					</ul>
+				)}
 				{text && <p>{text}</p>}
 				{toolParts.map((part) => (
 					<ToolMessage key={`${part.toolCallId}-${part.type}`} part={part} />
@@ -322,13 +456,51 @@ function ChatMessage({ message }: { message: WorkbenchMessage }) {
 	);
 }
 
+function ComposerAttachmentPreview({
+	attachment,
+	onRemove,
+}: {
+	attachment: ComposerAttachment;
+	onRemove: (id: string) => void;
+}) {
+	const isImage = Boolean(attachment.previewUrl);
+
+	return (
+		<li className={isImage ? "attachment-preview image" : "attachment-preview"}>
+			{isImage ? (
+				// biome-ignore lint/performance/noImgElement: local object URL previews are user-selected uploads.
+				<img alt={attachment.name} src={attachment.previewUrl || ""} />
+			) : (
+				<Paperclip size={14} />
+			)}
+			<span>{attachment.name}</span>
+			{attachment.status === "uploading" && <small>uploading</small>}
+			<button
+				type="button"
+				aria-label={`Remove ${attachment.name}`}
+				onClick={() => onRemove(attachment.id)}
+			>
+				<X size={12} />
+			</button>
+		</li>
+	);
+}
+
 export const ChatRail = memo(function ChatRail({
 	modelOptions,
 	selectedModel,
+	uploadStatus,
 	onModelChange,
+	onUploadFiles,
 }: ChatRailProps) {
 	const [input, setInput] = useState("");
+	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+	const [isDragActive, setIsDragActive] = useState(false);
 	const messageStreamRef = useRef<HTMLDivElement>(null);
+	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const uploadInputRef = useRef<HTMLInputElement>(null);
+	const dragDepthRef = useRef(0);
+	const attachmentPreviewUrlsRef = useRef(new Set<string>());
 	const shouldStickToBottomRef = useRef(true);
 	const transport = useMemo(
 		() =>
@@ -371,6 +543,148 @@ export const ChatRail = memo(function ChatRail({
 		activeCommandIndex,
 		Math.max(filteredCommands.length - 1, 0),
 	);
+	const removeAttachment = useCallback((id: string) => {
+		setAttachments((currentAttachments) => {
+			const removedAttachment = currentAttachments.find(
+				(attachment) => attachment.id === id,
+			);
+			if (removedAttachment) {
+				revokeAttachmentPreview(
+					removedAttachment,
+					attachmentPreviewUrlsRef.current,
+				);
+			}
+			return currentAttachments.filter((attachment) => attachment.id !== id);
+		});
+	}, []);
+	const clearAttachments = useCallback(
+		(options?: { keepPreviewUrls?: boolean }) => {
+			setAttachments((currentAttachments) => {
+				if (!options?.keepPreviewUrls) {
+					for (const attachment of currentAttachments) {
+						revokeAttachmentPreview(
+							attachment,
+							attachmentPreviewUrlsRef.current,
+						);
+					}
+				}
+				return [];
+			});
+		},
+		[],
+	);
+	const uploadSelectedFiles = useCallback(
+		(files: FileList | File[] | null) => {
+			const selectedFiles = Array.from(files || []);
+			if (selectedFiles.length === 0) {
+				return;
+			}
+			const nextAttachments = selectedFiles.map((file) => ({
+				id: attachmentId(file),
+				name: file.name || "pasted-image.png",
+				type: file.type,
+				previewUrl: attachmentPreview(file),
+				status: "uploading" as const,
+			}));
+			for (const attachment of nextAttachments) {
+				if (attachment.previewUrl) {
+					attachmentPreviewUrlsRef.current.add(attachment.previewUrl);
+				}
+			}
+			setAttachments((currentAttachments) => [
+				...currentAttachments,
+				...nextAttachments,
+			]);
+			void Promise.resolve(onUploadFiles(selectedFiles))
+				.then((uploadedFiles) => {
+					const uploadedById = new Map(
+						nextAttachments.map((attachment, attachmentIndex) => [
+							attachment.id,
+							uploadedFiles[attachmentIndex],
+						]),
+					);
+					setAttachments((currentAttachments) =>
+						currentAttachments.map((attachment) => {
+							const uploadedFile = uploadedById.get(attachment.id);
+							if (!uploadedById.has(attachment.id)) {
+								return attachment;
+							}
+							return {
+								...attachment,
+								name: uploadedFile?.name || attachment.name,
+								sourcePath: uploadedFile?.path || attachment.sourcePath,
+								status: "attached",
+							};
+						}),
+					);
+				})
+				.catch(() => {
+					const uploadedIds = new Set(
+						nextAttachments.map((attachment) => attachment.id),
+					);
+					setAttachments((currentAttachments) =>
+						currentAttachments.map((attachment) =>
+							uploadedIds.has(attachment.id)
+								? { ...attachment, status: "error" }
+								: attachment,
+						),
+					);
+				});
+		},
+		[onUploadFiles],
+	);
+	const fileInputChanged = useCallback(
+		(event: ChangeEvent<HTMLInputElement>) => {
+			uploadSelectedFiles(event.target.files);
+			event.target.value = "";
+		},
+		[uploadSelectedFiles],
+	);
+	const pastedIntoComposer = useCallback(
+		(event: ReactClipboardEvent<HTMLTextAreaElement>) => {
+			const imageFiles = imageFilesFromClipboard(event);
+			if (imageFiles.length === 0) {
+				return;
+			}
+			event.preventDefault();
+			uploadSelectedFiles(imageFiles);
+		},
+		[uploadSelectedFiles],
+	);
+	const dragEntered = (event: ReactDragEvent<HTMLFormElement>) => {
+		if (!hasDraggedFiles(event)) {
+			return;
+		}
+		event.preventDefault();
+		dragDepthRef.current += 1;
+		setIsDragActive(true);
+	};
+	const dragLeft = (event: ReactDragEvent<HTMLFormElement>) => {
+		if (!hasDraggedFiles(event)) {
+			return;
+		}
+		event.preventDefault();
+		dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+		if (dragDepthRef.current === 0) {
+			setIsDragActive(false);
+		}
+	};
+	const dragOver = (event: ReactDragEvent<HTMLFormElement>) => {
+		if (!hasDraggedFiles(event)) {
+			return;
+		}
+		event.preventDefault();
+		event.dataTransfer.dropEffect = "copy";
+	};
+	const filesDropped = (event: ReactDragEvent<HTMLFormElement>) => {
+		if (!hasDraggedFiles(event)) {
+			return;
+		}
+		event.preventDefault();
+		dragDepthRef.current = 0;
+		setIsDragActive(false);
+		uploadSelectedFiles(event.dataTransfer.files);
+	};
 
 	const sendDemoTrace = (mode: DemoTraceMode) => {
 		let prompt = input.trim();
@@ -421,6 +735,20 @@ export const ChatRail = memo(function ChatRail({
 		return () => cancelAnimationFrame(animationFrame);
 	});
 
+	useLayoutEffect(() => {
+		fitComposerTextarea(textareaRef.current);
+	});
+
+	useEffect(
+		() => () => {
+			for (const previewUrl of attachmentPreviewUrlsRef.current) {
+				URL.revokeObjectURL(previewUrl);
+			}
+			attachmentPreviewUrlsRef.current.clear();
+		},
+		[],
+	);
+
 	return (
 		<aside className="chat-rail">
 			<header className="rail-header">
@@ -467,7 +795,11 @@ export const ChatRail = memo(function ChatRail({
 			</div>
 
 			<form
-				className="composer"
+				className={isDragActive ? "composer drop-active" : "composer"}
+				onDragEnter={dragEntered}
+				onDragLeave={dragLeft}
+				onDragOver={dragOver}
+				onDrop={filesDropped}
 				onSubmit={(event) => {
 					event.preventDefault();
 					if (commandMenuOpen) {
@@ -478,16 +810,36 @@ export const ChatRail = memo(function ChatRail({
 						return;
 					}
 					const text = input.trim();
-					if (!text) {
+					const currentSourceFiles = attachedSourceFiles(attachments);
+					const currentFileParts = messageFileParts(attachments);
+					const messageText = text || attachmentPrompt(attachments);
+					if (!messageText) {
 						return;
 					}
 					sendMessage(
-						{ role: "user", parts: [{ type: "text", text }] },
-						{ body: { selectedChatModel: selectedModel } },
+						{ text: messageText, files: currentFileParts },
+						{
+							body: {
+								selectedChatModel: selectedModel,
+								sourceFiles: currentSourceFiles,
+							},
+						},
 					);
 					setInput("");
+					clearAttachments({ keepPreviewUrls: true });
 				}}
 			>
+				<input
+					ref={uploadInputRef}
+					accept={ACCEPTED_UPLOAD_TYPES}
+					aria-hidden="true"
+					className="sr-only"
+					hidden
+					multiple
+					onChange={fileInputChanged}
+					tabIndex={-1}
+					type="file"
+				/>
 				{commandMenuOpen && (
 					<section className="command-palette" aria-label="Tool commands">
 						<header>
@@ -524,7 +876,28 @@ export const ChatRail = memo(function ChatRail({
 						</div>
 					</section>
 				)}
+				{attachments.length > 0 && (
+					<ul className="composer-attachments" aria-label="Attached files">
+						{attachments.map((attachment) => (
+							<ComposerAttachmentPreview
+								attachment={attachment}
+								key={attachment.id}
+								onRemove={removeAttachment}
+							/>
+						))}
+					</ul>
+				)}
+				<button
+					className="attachment-button"
+					type="button"
+					onClick={() => uploadInputRef.current?.click()}
+					aria-label="Attach file"
+					title={uploadStatus || "Attach file"}
+				>
+					<Paperclip size={16} />
+				</button>
 				<textarea
+					ref={textareaRef}
 					aria-label="Ask the data agent"
 					onChange={(event) => {
 						setInput(event.target.value);
@@ -559,16 +932,21 @@ export const ChatRail = memo(function ChatRail({
 							event.currentTarget.form?.requestSubmit();
 						}
 					}}
+					onPaste={pastedIntoComposer}
 					placeholder="Ask about the active data workspace..."
 					value={input}
 				/>
 				<button
+					className="send-button"
 					type={isBusy ? "button" : "submit"}
 					onClick={isBusy ? stop : undefined}
 					aria-label={isBusy ? "Stop generation" : "Send message"}
 				>
 					{isBusy ? <Loader2 className="spin" size={16} /> : <Send size={16} />}
 				</button>
+				{uploadStatus && attachments.length === 0 ? (
+					<span className="composer-status">{uploadStatus}</span>
+				) : null}
 			</form>
 		</aside>
 	);

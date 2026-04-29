@@ -5,6 +5,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FRONTEND_DIST = REPO_ROOT / "frontend" / "dist"
+IMAGE_UPLOAD_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".png", ".webp"}
+TABULAR_UPLOAD_EXTENSIONS = {".csv", ".xlsx"}
+UPLOAD_EXTENSIONS = {*TABULAR_UPLOAD_EXTENSIONS, ".pdf", *IMAGE_UPLOAD_EXTENSIONS}
 
 
 def _configured_path(env_name: str, default: Path) -> Path:
@@ -18,6 +21,10 @@ def _configured_path(env_name: str, default: Path) -> Path:
 PREPARED_DATABASE_PATH = _configured_path(
     "DATA_AGENTICS_PREPARED_DATABASE_PATH",
     REPO_ROOT / "data" / "tabular.sqlite",
+)
+UPLOADS_DIR = _configured_path(
+    "DATA_AGENTICS_UPLOADS_DIR",
+    REPO_ROOT / "data" / "uploads",
 )
 WORKBENCH_SOURCE_ROOT = _configured_path(
     "DATA_AGENTICS_WORKBENCH_SOURCE_ROOT",

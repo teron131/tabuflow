@@ -7,7 +7,12 @@ import hashlib
 import sqlite3
 
 from ..tools.tabular.storage import SQLITE_SOURCES_TABLE
-from .constants import PREPARED_DATABASE_PATH, WORKBENCH_SOURCE_ROOT
+from .constants import (
+    PREPARED_DATABASE_PATH,
+    UPLOAD_EXTENSIONS,
+    UPLOADS_DIR,
+    WORKBENCH_SOURCE_ROOT,
+)
 
 
 class WorkspaceDataMissingError(RuntimeError):
@@ -58,6 +63,35 @@ def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
                 "status": "prepared",
                 "source_path": database_path_text,
                 "destination_path": database_path_text,
+                "sheet_name": "",
+                "table_name": "",
+            }
+        )
+    return files
+
+
+def list_uploaded_source_summaries(*, existing_paths: set[str] | None = None) -> list[dict[str, str]]:
+    """Return uploaded files not already represented by the prepared catalog."""
+    if not UPLOADS_DIR.exists():
+        return []
+
+    existing = existing_paths or set()
+    files: list[dict[str, str]] = []
+    for path in sorted(UPLOADS_DIR.iterdir(), key=lambda item: item.name.lower()):
+        if not path.is_file() or path.suffix.lower() not in UPLOAD_EXTENSIONS:
+            continue
+        path_text = str(path)
+        if path_text in existing:
+            continue
+        kind = path.suffix.lower().lstrip(".").upper()
+        files.append(
+            {
+                "id": _stable_source_id(path_text),
+                "name": path.name,
+                "kind": kind,
+                "status": "uploaded",
+                "source_path": path_text,
+                "destination_path": "",
                 "sheet_name": "",
                 "table_name": "",
             }

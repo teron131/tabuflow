@@ -35,14 +35,23 @@ import {
 	type SqlResult,
 	skillContent,
 	type Target,
+	type UploadPayload,
+	uploadWorkspaceFile,
 } from "@/lib/api";
+
+export type UploadedWorkspaceFile = {
+	name: string;
+	path: string;
+	contentType?: string;
+	targetBackend?: string;
+};
 
 export function Workbench() {
 	const shellRef = useRef<HTMLElement | null>(null);
 	const centerRef = useRef<HTMLElement | null>(null);
 	const [activeExplorer, setActiveExplorer] = useState<ExplorerKey>("sql");
 	const [sidePanel, setSidePanel] = useState<SidePanel>("explorer");
-	const [activeTab, setActiveTab] = useState<CenterTab>("sql");
+	const [activeTab, setActiveTab] = useState<CenterTab>("results");
 	const [uiScale, setUiScale] = useState(workbenchScale.default);
 	const [selectedModel, setSelectedModel] = useState("gpt-5.4-nano");
 	const [bootstrap, setBootstrap] = useState<BootstrapPayload>(emptyBootstrap);
@@ -55,6 +64,7 @@ export function Workbench() {
 	const [skillEditorText, setSkillEditorText] = useState("");
 	const [savedSkillText, setSavedSkillText] = useState("");
 	const [isRunningSql, setIsRunningSql] = useState(false);
+	const [uploadStatus, setUploadStatus] = useState("");
 	const {
 		isExplorerCollapsed,
 		setIsExplorerCollapsed,
@@ -192,6 +202,54 @@ export function Workbench() {
 		setSkillEditorText(savedSkillText);
 	}, [savedSkillText]);
 
+	const applyBootstrap = useCallback((payload: BootstrapPayload) => {
+		setBootstrap(payload);
+		setSql(payload.sample_sql);
+		setSqlResult(payload.initial_result || null);
+		setSelectedSource(payload.source_files[0] || null);
+		setSelectedTarget(preferredTarget(payload.targets));
+	}, []);
+
+	const uploadFiles = useCallback(
+		async (files: File[]): Promise<UploadedWorkspaceFile[]> => {
+			const selectedFiles = files.filter((file) => file.size > 0);
+			if (selectedFiles.length === 0) {
+				return [];
+			}
+			try {
+				let latestBootstrap: BootstrapPayload | undefined;
+				const uploadedFiles: UploadedWorkspaceFile[] = [];
+				for (const [fileIndex, file] of selectedFiles.entries()) {
+					const progress =
+						selectedFiles.length > 1
+							? `${fileIndex + 1}/${selectedFiles.length} `
+							: "";
+					setUploadStatus(`Uploading ${progress}${file.name}`);
+					const payload = await uploadWorkspaceFile(file);
+					const uploadedFile = uploadedWorkspaceFile(payload, file);
+					if (uploadedFile) {
+						uploadedFiles.push(uploadedFile);
+					}
+					if (payload.bootstrap) {
+						latestBootstrap = payload.bootstrap;
+					}
+				}
+				if (latestBootstrap) {
+					applyBootstrap(latestBootstrap);
+				}
+				setActiveExplorer("files");
+				setSidePanel("explorer");
+				setIsExplorerCollapsed(false);
+				setUploadStatus("");
+				return uploadedFiles;
+			} catch (error) {
+				setUploadStatus(`Upload failed: ${(error as Error).message}`);
+				throw error;
+			}
+		},
+		[applyBootstrap, setIsExplorerCollapsed],
+	);
+
 	const startExplorerResize = useCallback(
 		(event: ReactPointerEvent) => startPanelResize("explorer", event),
 		[startPanelResize],
@@ -293,7 +351,9 @@ export function Workbench() {
 			<ChatRail
 				modelOptions={modelOptions}
 				selectedModel={selectedModel}
+				uploadStatus={uploadStatus}
 				onModelChange={setSelectedModel}
+				onUploadFiles={uploadFiles}
 			/>
 		</main>
 	);
@@ -306,4 +366,20 @@ function preferredTarget(targets: Target[]) {
 		targets[0] ||
 		null
 	);
+}
+
+function uploadedWorkspaceFile(
+	payload: UploadPayload,
+	file: File,
+): UploadedWorkspaceFile | null {
+	const upload = payload.upload;
+	if (!upload?.path) {
+		return null;
+	}
+	return {
+		name: upload.name || file.name || upload.path,
+		path: upload.path,
+		contentType: upload.content_type || file.type || undefined,
+		targetBackend: upload.target_backend,
+	};
 }

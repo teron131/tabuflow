@@ -47,6 +47,13 @@ function backendMessages(messages: UIMessage[]) {
 		.filter((message) => message.content.length > 0);
 }
 
+function sourceFilesFromBody(value: unknown) {
+	if (!Array.isArray(value)) {
+		return [];
+	}
+	return value.filter((item): item is string => typeof item === "string");
+}
+
 function detailMessage(payload: BackendChatResponse, status: number) {
 	return (
 		payload.detail?.message ||
@@ -97,7 +104,12 @@ function buildMessageChunks({
 	isError = false,
 }: {
 	content: string;
-	request: { message: string; model?: string };
+	request: {
+		message: string;
+		messages?: unknown;
+		model?: string;
+		source_files?: string[];
+	};
 	payload: BackendChatResponse;
 	isError?: boolean;
 }): UIMessageChunk[] {
@@ -144,6 +156,7 @@ export async function POST(request: Request) {
 		typeof body?.selectedChatModel === "string"
 			? body.selectedChatModel
 			: undefined;
+	const sourceFiles = sourceFilesFromBody(body?.sourceFiles);
 
 	if (!message) {
 		return responseStream([
@@ -166,6 +179,7 @@ export async function POST(request: Request) {
 		message,
 		messages: backendMessages(visibleMessages),
 		model: selectedModel,
+		source_files: sourceFiles,
 	};
 	const backendResponse = await fetch(new URL("/api/chat", API_BASE), {
 		method: "POST",

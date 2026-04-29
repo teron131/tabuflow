@@ -73,13 +73,29 @@ class OrchestratorState(
     prep_output: dict[str, Any] | None = Field(default=None, description="Serialized prep-stage output artifact.")
 
 
+def _content_block_text(block: Any) -> str:
+    """Return readable text for one multimodal content block."""
+    if isinstance(block, str):
+        return block.strip()
+    if not isinstance(block, dict):
+        return ""
+    if block.get("type") == "text":
+        return str(block.get("text") or "").strip()
+    if block.get("type") in {"image", "image_url"}:
+        return "[image]"
+    return str(block.get("text") or "").strip()
+
+
 def message_text(message: BaseMessage | dict[str, Any]) -> str:
     """Return compact readable text for one chat message."""
     if isinstance(message, BaseMessage):
         if isinstance(message.content, str):
             return message.content.strip()
-        return str(message.content).strip()
-    return str(message.get("content") or "").strip()
+        return "\n".join(text for text in (_content_block_text(block) for block in message.content) if text).strip()
+    content = message.get("content")
+    if isinstance(content, list):
+        return "\n".join(text for text in (_content_block_text(block) for block in content) if text).strip()
+    return str(content or "").strip()
 
 
 def latest_user_message(messages: list[AnyMessage]) -> str:
