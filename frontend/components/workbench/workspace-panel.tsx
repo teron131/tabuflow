@@ -110,7 +110,13 @@ export function WorkspacePanel({
 					aria-label="Resize query pane"
 				/>
 
-				<section className="output-pane">
+				<section
+					className={
+						activeTab === "results"
+							? "output-pane result-output"
+							: "output-pane"
+					}
+				>
 					<header className="pane-header">
 						<span>{activeTab.toUpperCase()}</span>
 						{activeTab === "results" && sqlResult?.columns?.length ? (
@@ -124,7 +130,13 @@ export function WorkspacePanel({
 							</button>
 						) : null}
 					</header>
-					<div className="pane-body">
+					<div
+						className={
+							activeTab === "results"
+								? "pane-body result-pane-body"
+								: "pane-body"
+						}
+					>
 						{activeTab === "sql" && (
 							<div className="summary-grid">
 								{bootstrap.stage_cards.map((card) => (

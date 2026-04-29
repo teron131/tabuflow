@@ -4,12 +4,13 @@
 	"version": "0.1.0",
 	"type": "module",
 	"scripts": {
-		"dev": "next dev",
+		"dev": "next dev --webpack",
 		"build": "next build",
 		"start": "next start"
 	},
 	"dependencies": {
 		"@ai-sdk/react": "^3.0.170",
+		"@glideapps/glide-data-grid": "^6.0.3",
 		"@iconify-json/material-icon-theme": "^1.2.61",
 		"@iconify/react": "^6.0.2",
 		"ai": "^6.0.168",

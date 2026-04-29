@@ -704,6 +704,11 @@ h1 {
 	padding: 0 10px;
 }
 
+.pane-header > span {
+	color: var(--text);
+	font-weight: 700;
+}
+
 .button-cluster {
 	display: flex;
 	align-items: center;
@@ -811,6 +816,15 @@ h1 {
 	padding: 10px;
 }
 
+.result-output {
+	background: var(--panel);
+}
+
+.result-pane-body {
+	overflow: hidden;
+	padding: 0;
+}
+
 .summary-grid {
 	display: grid;
 	grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -847,45 +861,47 @@ h1 {
 	line-height: 1.45;
 }
 
-.table-scroll {
+.result-grid-shell {
+	display: flex;
 	width: 100%;
 	height: 100%;
-	overflow: auto;
-	border: 1px solid var(--line);
+	min-height: 0;
+	flex-direction: column;
+	border-top: 1px solid var(--line);
+	background: var(--panel);
 }
 
-table {
-	min-width: 100%;
-	border-collapse: collapse;
+.result-grid-frame {
+	min-height: 0;
+	flex: 1;
+}
+
+.result-data-grid {
+	height: 100%;
 	font-family: var(--font-mono);
-	font-size: var(--font-size-sm);
-	table-layout: fixed;
 }
 
-th,
-td {
-	width: 180px;
-	padding: 7px 9px;
-	border: 1px solid var(--line);
-	overflow: hidden;
-	overflow-wrap: anywhere;
-	text-align: left;
-	vertical-align: top;
-	white-space: normal;
-	word-break: break-word;
-}
-
-th {
-	position: sticky;
-	top: 0;
-	z-index: 1;
-	background: #ebe7dc;
-	color: var(--text);
+.result-grid-status {
+	display: flex;
+	min-height: 25px;
+	align-items: center;
+	gap: 14px;
+	padding: 0 10px;
+	border-top: 1px solid var(--line);
+	background: var(--panel-soft);
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
 	text-transform: uppercase;
 }
 
-td {
+.result-grid-status span:first-child {
 	color: var(--text);
+	font-weight: 700;
+}
+
+.result-grid-status span + span {
+	color: var(--accent-rust);
 }
 
 .empty-state,
