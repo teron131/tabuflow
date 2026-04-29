@@ -4,7 +4,7 @@ import type {
 	PointerEvent as ReactPointerEvent,
 	RefObject,
 } from "react";
-import { useRef } from "react";
+import { useCallback } from "react";
 import {
 	type BootstrapPayload,
 	type SkillEntry,
@@ -14,6 +14,7 @@ import {
 	type Target,
 } from "@/lib/api";
 import { targetBadge } from "./badges";
+import { CodeEditor } from "./code-editor";
 import { workspaceTabs } from "./constants";
 import { downloadResult } from "./download";
 import { ResultTable } from "./result-table";
@@ -61,26 +62,14 @@ export function WorkspacePanel({
 	onSqlChange,
 	onVerticalResize,
 }: WorkspacePanelProps) {
-	const sqlEditorRef = useRef<HTMLDivElement | null>(null);
-	const sqlHighlightRef = useRef<HTMLPreElement | null>(null);
-	const skillEditorRef = useRef<HTMLDivElement | null>(null);
-	const skillHighlightRef = useRef<HTMLPreElement | null>(null);
-
-	function updateSqlCursor(editor: HTMLTextAreaElement) {
-		updateEditorActiveLine(
-			editor,
-			sqlEditorRef.current,
-			sqlHighlightRef.current,
-		);
-	}
-
-	function updateSkillCursor(editor: HTMLTextAreaElement) {
-		updateEditorActiveLine(
-			editor,
-			skillEditorRef.current,
-			skillHighlightRef.current,
-		);
-	}
+	const renderSqlLine = useCallback(
+		(line: string) => renderHighlightedSql(line),
+		[],
+	);
+	const renderSkillLine = useCallback(
+		(line: string) => renderHighlightedMarkdown(line),
+		[],
+	);
 
 	return (
 		<section ref={centerRef} className="workspace">
@@ -124,47 +113,14 @@ export function WorkspacePanel({
 							</button>
 						</div>
 					</header>
-					<div ref={sqlEditorRef} className="sql-editor-wrap">
-						<div className="editor-active-line" aria-hidden="true" />
-						<pre
-							ref={sqlHighlightRef}
-							aria-hidden="true"
-							className="editor-content sql-highlight"
-						>
-							{editorLines(sql).map((line, index) => (
-								<span className="editor-line" key={line.key}>
-									<span className="editor-line-number">{index + 1}</span>
-									<span className="editor-line-text">
-										{line.text ? renderHighlightedSql(line.text) : "\u00a0"}
-									</span>
-								</span>
-							))}
-						</pre>
-						<textarea
-							aria-label="SQL editor"
-							value={sql}
-							onChange={(event) => {
-								onSqlChange(event.target.value);
-								updateSqlCursor(event.currentTarget);
-							}}
-							onClick={(event) => updateSqlCursor(event.currentTarget)}
-							onBlur={() => clearEditorActiveLine(sqlEditorRef.current)}
-							onKeyDown={(event) => {
-								const editor = event.currentTarget;
-								requestAnimationFrame(() => updateSqlCursor(editor));
-							}}
-							onKeyUp={(event) => updateSqlCursor(event.currentTarget)}
-							onPointerDown={() => clearEditorActiveLine(sqlEditorRef.current)}
-							onScroll={(event) => {
-								const editor = event.currentTarget;
-								syncEditorScroll(editor, sqlHighlightRef.current);
-								updateSqlCursor(editor);
-							}}
-							onSelect={(event) => updateSqlCursor(event.currentTarget)}
-							spellCheck={false}
-							wrap="soft"
-						/>
-					</div>
+					<CodeEditor
+						ariaLabel="SQL editor"
+						className="sql-editor-wrap"
+						highlightClassName="sql-highlight"
+						renderLine={renderSqlLine}
+						value={sql}
+						onChange={onSqlChange}
+					/>
 				</section>
 
 				<button
@@ -274,50 +230,13 @@ export function WorkspacePanel({
 										<RotateCcw size={13} />
 									</button>
 								</header>
-								<div ref={skillEditorRef} className="skill-editor-wrap">
-									<div className="editor-active-line" aria-hidden="true" />
-									<pre
-										ref={skillHighlightRef}
-										aria-hidden="true"
-										className="editor-content skill-highlight"
-									>
-										{editorLines(skillText).map((line, index) => (
-											<span className="editor-line" key={line.key}>
-												<span className="editor-line-number">{index + 1}</span>
-												<span className="editor-line-text">
-													{line.text
-														? renderHighlightedMarkdown(line.text)
-														: "\u00a0"}
-												</span>
-											</span>
-										))}
-									</pre>
-									<textarea
-										value={skillText}
-										onChange={(event) => {
-											onSkillTextChange(event.target.value);
-											updateSkillCursor(event.currentTarget);
-										}}
-										onClick={(event) => updateSkillCursor(event.currentTarget)}
-										onBlur={() => clearEditorActiveLine(skillEditorRef.current)}
-										onKeyDown={(event) => {
-											const editor = event.currentTarget;
-											requestAnimationFrame(() => updateSkillCursor(editor));
-										}}
-										onKeyUp={(event) => updateSkillCursor(event.currentTarget)}
-										onPointerDown={() =>
-											clearEditorActiveLine(skillEditorRef.current)
-										}
-										onScroll={(event) => {
-											const editor = event.currentTarget;
-											syncEditorScroll(editor, skillHighlightRef.current);
-											updateSkillCursor(editor);
-										}}
-										onSelect={(event) => updateSkillCursor(event.currentTarget)}
-										spellCheck={false}
-										wrap="soft"
-									/>
-								</div>
+								<CodeEditor
+									className="skill-editor-wrap"
+									highlightClassName="skill-highlight"
+									renderLine={renderSkillLine}
+									value={skillText}
+									onChange={onSkillTextChange}
+								/>
 							</div>
 						)}
 						{activeTab === "source" && (
@@ -345,53 +264,6 @@ export function WorkspacePanel({
 			</div>
 		</section>
 	);
-}
-
-function editorLines(text: string) {
-	const matches = text.matchAll(/[^\r\n]*(?:\r\n|\r|\n|$)/g);
-	const lines: Array<{ key: string; text: string }> = [];
-	for (const match of matches) {
-		if (match.index === text.length && match[0] === "") {
-			continue;
-		}
-		lines.push({
-			key: `line-${match.index}`,
-			text: match[0].replace(/\r\n|\r|\n$/, ""),
-		});
-	}
-	return lines.length ? lines : [{ key: "line-0", text: "" }];
-}
-
-function updateEditorActiveLine(
-	editor: HTMLTextAreaElement,
-	container: HTMLDivElement | null,
-	contentLayer: HTMLPreElement | null,
-) {
-	if (!container || !contentLayer) {
-		return;
-	}
-	const lineNumber = editor.value
-		.slice(0, editor.selectionStart)
-		.split(/\r\n|\r|\n/).length;
-	const activeLine = contentLayer.children.item(lineNumber - 1);
-	if (!(activeLine instanceof HTMLElement)) {
-		clearEditorActiveLine(container);
-		return;
-	}
-	const activeLineTop = activeLine.offsetTop - contentLayer.scrollTop;
-	container.dataset.activeLine = "true";
-	container.style.setProperty("--editor-active-line-top", `${activeLineTop}px`);
-	container.style.setProperty(
-		"--editor-active-line-height",
-		`${activeLine.offsetHeight}px`,
-	);
-}
-
-function clearEditorActiveLine(container: HTMLDivElement | null) {
-	if (!container) {
-		return;
-	}
-	delete container.dataset.activeLine;
 }
 
 function renderHighlightedMarkdown(line: string) {
@@ -455,23 +327,4 @@ function formatSkillModifiedAt(skill: SkillEntry | null) {
 	const hours = String(modifiedAt.getHours()).padStart(2, "0");
 	const minutes = String(modifiedAt.getMinutes()).padStart(2, "0");
 	return `MODIFIED: ${year}-${month}-${day} ${hours}:${minutes}`;
-}
-
-function syncEditorScroll(
-	editor: HTMLTextAreaElement,
-	contentLayer: HTMLPreElement | null,
-) {
-	if (!contentLayer) {
-		return;
-	}
-	const maxContentScroll = Math.max(
-		0,
-		contentLayer.scrollHeight - contentLayer.clientHeight,
-	);
-	const nextScrollTop = Math.min(editor.scrollTop, maxContentScroll);
-	if (editor.scrollTop !== nextScrollTop) {
-		editor.scrollTop = nextScrollTop;
-	}
-	contentLayer.scrollTop = nextScrollTop;
-	contentLayer.scrollLeft = editor.scrollLeft;
 }

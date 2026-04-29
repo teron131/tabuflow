@@ -1,4 +1,5 @@
 import { Minus, PanelLeft, Plus } from "lucide-react";
+import { memo } from "react";
 import { clampWorkbenchScale, workbenchScale } from "./ui-scale";
 
 type SettingsPanelProps = {
@@ -8,7 +9,7 @@ type SettingsPanelProps = {
 	onToggle: () => void;
 };
 
-export function SettingsPanel({
+export const SettingsPanel = memo(function SettingsPanel({
 	isCollapsed,
 	uiScale,
 	onUiScaleChange,
@@ -70,4 +71,4 @@ export function SettingsPanel({
 			</div>
 		</aside>
 	);
-}
+});

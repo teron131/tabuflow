@@ -1,4 +1,5 @@
 import { Files, Settings2 } from "lucide-react";
+import { memo } from "react";
 import type { ExplorerKey, SidePanel } from "./types";
 
 type ActivityBarProps = {
@@ -9,7 +10,7 @@ type ActivityBarProps = {
 	onOpenSettings: () => void;
 };
 
-export function ActivityBar({
+export const ActivityBar = memo(function ActivityBar({
 	activeExplorer,
 	isExplorerCollapsed,
 	sidePanel,
@@ -49,4 +50,4 @@ export function ActivityBar({
 			</button>
 		</nav>
 	);
-}
+});

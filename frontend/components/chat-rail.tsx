@@ -12,7 +12,7 @@ import {
 	TriangleAlert,
 	Wrench,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
 import type { WorkbenchMessage } from "@/lib/chat-contracts";
 
 type WorkbenchPart = WorkbenchMessage["parts"][number];
@@ -124,7 +124,7 @@ function ChatMessage({ message }: { message: WorkbenchMessage }) {
 	);
 }
 
-export function ChatRail({
+export const ChatRail = memo(function ChatRail({
 	modelOptions,
 	selectedModel,
 	onModelChange,
@@ -228,4 +228,4 @@ export function ChatRail({
 			</form>
 		</aside>
 	);
-}
+});

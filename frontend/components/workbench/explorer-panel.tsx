@@ -11,7 +11,7 @@ import {
 	Search,
 	Table2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import {
 	type BootstrapPayload,
 	type SkillEntry,
@@ -80,7 +80,7 @@ const fileTypeIcons: Record<string, string> = {
 	view: "material-icon-theme:json-schema",
 };
 
-export function ExplorerPanel({
+export const ExplorerPanel = memo(function ExplorerPanel({
 	activeExplorer,
 	bootstrap,
 	isCollapsed,
@@ -266,7 +266,7 @@ export function ExplorerPanel({
 			</div>
 		</aside>
 	);
-}
+});
 
 function buildGroups({
 	bootstrap,

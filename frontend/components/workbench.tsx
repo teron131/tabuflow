@@ -1,6 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	type PointerEvent as ReactPointerEvent,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { ChatRail } from "@/components/chat-rail";
 import { ActivityBar } from "@/components/workbench/activity-bar";
 import { BrandMark } from "@/components/workbench/brand-mark";
@@ -91,7 +97,7 @@ export function Workbench() {
 		hydrate();
 	}, [hydrate]);
 
-	async function runSql() {
+	const runSql = useCallback(async () => {
 		setIsRunningSql(true);
 		setActiveTab("results");
 		try {
@@ -108,9 +114,9 @@ export function Workbench() {
 		} finally {
 			setIsRunningSql(false);
 		}
-	}
+	}, [sql]);
 
-	function toggleFiles() {
+	const toggleFiles = useCallback(() => {
 		if (
 			!isExplorerCollapsed &&
 			sidePanel === "explorer" &&
@@ -122,39 +128,39 @@ export function Workbench() {
 		setActiveExplorer("files");
 		setSidePanel("explorer");
 		setIsExplorerCollapsed(false);
-	}
+	}, [activeExplorer, isExplorerCollapsed, setIsExplorerCollapsed, sidePanel]);
 
-	function openSettings() {
+	const openSettings = useCallback(() => {
 		setSidePanel("settings");
 		setIsExplorerCollapsed(false);
-	}
+	}, [setIsExplorerCollapsed]);
 
-	function toggleSidePanel() {
+	const toggleSidePanel = useCallback(() => {
 		setIsExplorerCollapsed((collapsed) => !collapsed);
-	}
+	}, [setIsExplorerCollapsed]);
 
-	function selectTarget(target: Target) {
+	const selectTarget = useCallback((target: Target) => {
 		setSelectedTarget(target);
 		setActiveExplorer(isTargetView(target) ? "views" : "sql");
 		setActiveTab("target");
-	}
+	}, []);
 
-	function selectSource(source: SourceFile) {
+	const selectSource = useCallback((source: SourceFile) => {
 		setSelectedSource(source);
 		setActiveExplorer("files");
 		setActiveTab("source");
-	}
+	}, []);
 
-	function selectSkill(skill: SkillEntry) {
+	const selectSkill = useCallback((skill: SkillEntry) => {
 		const nextContent = skillContent(skill);
 		setSelectedSkill(skill);
 		setSkillEditorText(nextContent);
 		setSavedSkillText(nextContent);
 		setActiveExplorer("skills");
 		setActiveTab("skill");
-	}
+	}, []);
 
-	async function saveSkill() {
+	const saveSkill = useCallback(async () => {
 		if (!selectedSkill) {
 			return;
 		}
@@ -180,7 +186,21 @@ export function Workbench() {
 					: skill,
 			),
 		);
-	}
+	}, [selectedSkill, skillEditorText]);
+
+	const revertSkill = useCallback(() => {
+		setSkillEditorText(savedSkillText);
+	}, [savedSkillText]);
+
+	const startExplorerResize = useCallback(
+		(event: ReactPointerEvent) => startPanelResize("explorer", event),
+		[startPanelResize],
+	);
+
+	const startChatResize = useCallback(
+		(event: ReactPointerEvent) => startPanelResize("chat", event),
+		[startPanelResize],
+	);
 
 	return (
 		<main
@@ -238,7 +258,7 @@ export function Workbench() {
 
 			<button
 				className="resize-handle explorer-handle"
-				onPointerDown={(event) => startPanelResize("explorer", event)}
+				onPointerDown={startExplorerResize}
 				type="button"
 				aria-label="Resize explorer"
 			/>
@@ -257,7 +277,7 @@ export function Workbench() {
 				sqlResult={sqlResult}
 				onActiveTabChange={setActiveTab}
 				onRunSql={runSql}
-				onRevertSkill={() => setSkillEditorText(savedSkillText)}
+				onRevertSkill={revertSkill}
 				onSaveSkill={saveSkill}
 				onSkillTextChange={setSkillEditorText}
 				onSqlChange={setSql}
@@ -266,7 +286,7 @@ export function Workbench() {
 
 			<button
 				className="resize-handle chat-handle"
-				onPointerDown={(event) => startPanelResize("chat", event)}
+				onPointerDown={startChatResize}
 				type="button"
 				aria-label="Resize chat"
 			/>
