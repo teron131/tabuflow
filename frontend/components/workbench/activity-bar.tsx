@@ -21,7 +21,9 @@ export const ActivityBar = memo(function ActivityBar({
 		<nav className="activity-bar" aria-label="Side panel controls">
 			<button
 				className={
-					sidePanel === "explorer" && activeExplorer === "files"
+					sidePanel === "explorer" &&
+					activeExplorer === "files" &&
+					!isExplorerCollapsed
 						? "activity-panel-toggle active"
 						: "activity-panel-toggle"
 				}
@@ -38,7 +40,7 @@ export const ActivityBar = memo(function ActivityBar({
 			</button>
 			<button
 				className={
-					sidePanel === "settings"
+					sidePanel === "settings" && !isExplorerCollapsed
 						? "activity-settings-button active"
 						: "activity-settings-button"
 				}

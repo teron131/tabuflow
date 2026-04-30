@@ -158,9 +158,13 @@ export function Workbench() {
 	}, [activeExplorer, isExplorerCollapsed, setIsExplorerCollapsed, sidePanel]);
 
 	const openSettings = useCallback(() => {
+		if (sidePanel === "settings" && !isExplorerCollapsed) {
+			setIsExplorerCollapsed(true);
+			return;
+		}
 		setSidePanel("settings");
 		setIsExplorerCollapsed(false);
-	}, [setIsExplorerCollapsed]);
+	}, [isExplorerCollapsed, setIsExplorerCollapsed, sidePanel]);
 
 	const toggleSidePanel = useCallback(() => {
 		setIsExplorerCollapsed((collapsed) => !collapsed);

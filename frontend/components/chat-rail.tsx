@@ -266,9 +266,9 @@ function ToolMessage({ part }: { part: WorkbenchToolPart }) {
 					<span>{heading.title}</span>
 					<span className="tool-summary-steps">{heading.detail}</span>
 				</span>
-				<span className={isError ? "tool-state error" : "tool-state"}>
-					{state.replaceAll("-", " ")}
-				</span>
+				{isError && (
+					<span className="tool-state error">{state.replaceAll("-", " ")}</span>
+				)}
 				<ChevronDown size={13} className="tool-chevron" />
 			</summary>
 			<div className="tool-message-body">
@@ -780,10 +780,6 @@ export const ChatRail = memo(function ChatRail({
 	return (
 		<aside className="chat-rail">
 			<header className="rail-header">
-				<div>
-					<span className="eyebrow">CHAT RUNTIME</span>
-					<h2>Agent console</h2>
-				</div>
 				<select
 					className="model-select"
 					aria-label="Model"
@@ -954,7 +950,7 @@ export const ChatRail = memo(function ChatRail({
 						}
 					}}
 					onPaste={pastedIntoComposer}
-					placeholder="Ask about the active data workspace..."
+					placeholder="Ask agent to do things"
 					value={input}
 				/>
 				<button

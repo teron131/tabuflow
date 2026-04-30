@@ -86,6 +86,7 @@ button:disabled {
 	--workbench-ui-scale: 1;
 	--workbench-font-size: 12px;
 	--activity-width: 38px;
+	--chrome-header-height: 34px;
 	--font-size-2xs: max(9px, calc(var(--workbench-font-size) - 3px));
 	--font-size-xs: max(10px, calc(var(--workbench-font-size) - 2px));
 	--font-size-sm: max(11px, calc(var(--workbench-font-size) - 1px));
@@ -104,7 +105,7 @@ button:disabled {
 			220px,
 			var(--explorer-width)
 		) 1px minmax(0, 1fr) 1px minmax(360px, var(--chat-width));
-	grid-template-rows: 48px minmax(0, 1fr);
+	grid-template-rows: 44px minmax(0, 1fr);
 	width: 100vw;
 	height: 100dvh;
 	min-width: 0;
@@ -140,20 +141,20 @@ button:disabled {
 	align-items: center;
 	justify-content: space-between;
 	gap: 24px;
-	padding: 0 14px;
+	padding: 0 12px;
 	border-bottom: 2px solid var(--line-strong);
 }
 
 .brand-lockup {
 	display: flex;
 	align-items: center;
-	gap: 12px;
+	gap: 10px;
 	min-width: 0;
 }
 
 .brand-mark {
-	width: 40px;
-	height: 32px;
+	width: 35px;
+	height: 28px;
 	flex: 0 0 auto;
 	filter: drop-shadow(0 1px 0 rgba(23, 23, 22, 0.18));
 }
@@ -218,7 +219,7 @@ p {
 }
 
 h1 {
-	font-size: var(--font-size-title);
+	font-size: calc(var(--font-size-title) - 1px);
 	line-height: 1;
 	letter-spacing: 0.02em;
 	text-transform: uppercase;
@@ -243,9 +244,14 @@ h1 {
 	border: 1px solid transparent;
 	background: transparent;
 	color: var(--muted);
+	transition:
+		border-color 140ms ease,
+		background 140ms ease,
+		color 140ms ease;
 }
 
 .activity-bar button:hover,
+.activity-bar button:focus-visible,
 .activity-bar button.active {
 	border-color: color-mix(in srgb, var(--accent) 42%, var(--line-strong));
 	background: linear-gradient(
@@ -254,18 +260,13 @@ h1 {
 		var(--panel-strong)
 	);
 	color: var(--text);
+	outline: none;
 }
 
 .activity-panel-toggle {
 	margin-bottom: 6px;
 	border-color: var(--line);
 	background: var(--panel-soft);
-}
-
-.workbench-shell.explorer-collapsed .activity-panel-toggle {
-	border-color: color-mix(in srgb, var(--accent) 42%, var(--line-strong));
-	background: var(--accent-wash);
-	color: var(--text);
 }
 
 .activity-settings-button {
@@ -286,13 +287,14 @@ h1 {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
+	height: var(--chrome-header-height);
+	flex: 0 0 var(--chrome-header-height);
 	border-bottom: 1px solid var(--line);
 	background: var(--panel-strong);
 	color: var(--muted);
 }
 
 .panel-title {
-	height: 34px;
 	padding: 0 10px;
 }
 
@@ -757,7 +759,6 @@ h1 {
 
 .pane-header {
 	gap: 16px;
-	min-height: 34px;
 	padding: 0 10px;
 }
 
@@ -1199,6 +1200,7 @@ h1 {
 .rail-header h2 {
 	font-size: var(--font-size-lg);
 	letter-spacing: 0.05em;
+	line-height: 1;
 	text-transform: uppercase;
 }
 
@@ -1320,9 +1322,23 @@ h1 {
 }
 
 .rail-header {
-	min-height: 48px;
 	gap: 10px;
-	padding: 7px 10px;
+	padding: 0 10px;
+}
+
+.rail-header > div {
+	display: flex;
+	min-width: 0;
+	align-items: baseline;
+	gap: 10px;
+	white-space: nowrap;
+}
+
+.rail-header h2 {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .model-select {
@@ -1459,8 +1475,9 @@ h1 {
 }
 
 .tool-summary-main {
-	display: grid;
-	gap: 2px;
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
 	min-width: 0;
 }
 
@@ -1472,18 +1489,21 @@ h1 {
 }
 
 .tool-summary-steps {
+	flex: 1 1 auto;
 	color: var(--muted);
 	font-size: var(--font-size-xs);
 	font-weight: 500;
 	text-transform: none;
 }
 
-.tool-message-icon {
-	color: var(--accent-rust);
+.tool-state {
+	grid-column: 2;
+	color: var(--danger);
+	justify-self: end;
 }
 
-.tool-state {
-	color: var(--accent-olive);
+.tool-message-icon {
+	color: var(--accent-rust);
 }
 
 .tool-state.error {
@@ -1491,6 +1511,7 @@ h1 {
 }
 
 .tool-chevron {
+	grid-column: -1;
 	transition: transform 160ms ease;
 }
 
@@ -2025,7 +2046,7 @@ h1 {
 					220px,
 					var(--explorer-width)
 				) 1px minmax(0, 1fr);
-			grid-template-rows: 48px minmax(0, 1fr) 1px var(--chat-dock-height);
+			grid-template-rows: 44px minmax(0, 1fr) 1px var(--chat-dock-height);
 		height: 100dvh;
 		min-height: 0;
 		overflow: hidden;
@@ -2123,8 +2144,7 @@ h1 {
 	}
 
 	.rail-header {
-		min-height: 40px;
-		padding: 5px 8px;
+		padding: 0 8px;
 	}
 
 	.rail-header h2 {
