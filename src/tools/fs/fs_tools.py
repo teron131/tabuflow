@@ -13,7 +13,7 @@ from pathlib import Path
 from langchain.tools import tool
 from langchain_core.tools import BaseTool
 
-from .hashline import HashlineEdit, HashlineReferenceError, edit_hashline, format_hashline_text
+from .hashline import HashlineEdit, edit_hashline, format_hashline_text
 
 PATH_TRAVERSAL_ERROR = "Path traversal not allowed"
 PATH_OUTSIDE_ROOT_ERROR = "Path outside root"
@@ -266,10 +266,7 @@ def make_fs_tools(
         """
 
         _require_write_allowed(fs, path, can_write, write_denied_message)
-        try:
-            return fs.edit_hashline(path, edits)
-        except (HashlineReferenceError, ValueError) as error:
-            return f"Hashline edit failed: {error}"
+        return fs.edit_hashline(path, edits)
 
     tools: list[BaseTool] = []
     if include_discovery:
