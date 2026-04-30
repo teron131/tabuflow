@@ -218,7 +218,10 @@ def run_chat(request: ChatRequest) -> dict[str, Any]:
 
     try:
         result = (
-            Orchestrator(llm=llm)
+            Orchestrator(
+                llm=llm,
+                root_dir=REPO_ROOT,
+            )
             .build_orchestrator_agent()
             .invoke(
                 {

@@ -14,6 +14,7 @@ from langgraph.prebuilt import ToolNode
 from langsmith import traceable
 
 from ...tools import load_skills, search_skills
+from ...tools.fs import allow_sql_or_skill_write, make_fs_tools
 from ..base import ApplicationAgent
 from ..prep_stage import PrepStage
 from ..query_stage import DraftFn, RuntimeRepairFn
@@ -39,6 +40,8 @@ You always receive a brief list of available workspace skills. Use search_skills
 When the user wants to inspect, prepare, analyze, query, compute, compare, or summarize source data, use the stage tools.
 Use prep_stage before query_stage when source files need preparation.
 Use query_stage with the compact state returned by prep_stage when querying already prepared data.
+Use fs_list_files, fs_search_text, fs_read_text, and fs_read_hashline to inspect workspace files when needed.
+Use fs_edit_hashline for requested SQL or workspace SKILL.md edits. Read current hashlines first; writes are tool-scoped to .sql files and skills/**/SKILL.md files.
 Do not invent saved view names, SQL paths, row counts, or artifact details; use tool results for those facts.
 """
 ORCHESTRATOR_SUMMARY_PROMPT = """Write the final user-facing response after tool use.
@@ -277,7 +280,18 @@ class Orchestrator(ApplicationAgent):
 
     def build_orchestrator_agent(self) -> CompiledStateGraph:
         """Build the user-facing orchestrator agent that can summarize tool runs."""
-        tools = [*self.build_stages(), load_skills, search_skills]
+        tools = [
+            *self.build_stages(),
+            *make_fs_tools(
+                root_dir=self.root_dir or Path.cwd(),
+                include_discovery=True,
+                include_write_text=False,
+                can_write=allow_sql_or_skill_write,
+                write_denied_message="Scoped writes are only allowed for .sql files or skills/**/SKILL.md files.",
+            ),
+            load_skills,
+            search_skills,
+        ]
         builder = StateGraph(
             OrchestratorState,
             input_schema=OrchestratorInput,
