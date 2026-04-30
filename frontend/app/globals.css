@@ -850,7 +850,7 @@ h1 {
 	align-items: center;
 	justify-content: center;
 	gap: 7px;
-	min-height: 25px;
+	min-height: 28px;
 	padding: 0 9px;
 	border: 1px solid var(--line-strong);
 	background: transparent;
@@ -861,16 +861,32 @@ h1 {
 }
 
 .primary-button {
-	border-color: var(--text);
-	background: var(--text);
-	color: var(--panel);
 	font-weight: 800;
 }
 
-.outline-button:hover {
-	border-color: var(--accent);
-	color: var(--accent-strong);
-	background: var(--accent-wash);
+.pane-header .primary-button,
+.pane-header .outline-button,
+.composer .send-button {
+	border: 1px solid var(--text);
+	background: var(--text);
+	color: var(--panel);
+}
+
+.pane-header .primary-button:hover,
+.pane-header .primary-button:focus-visible,
+.pane-header .outline-button:hover,
+.pane-header .outline-button:focus-visible,
+.composer .send-button:hover,
+.composer .send-button:focus-visible {
+	border-color: var(--text);
+	background: color-mix(in srgb, var(--accent) 28%, var(--text));
+	color: var(--panel);
+	outline: none;
+}
+
+.pane-header .primary-button:active,
+.pane-header .outline-button:active {
+	transform: translateY(1px) scale(0.98);
 }
 
 .icon-button {
@@ -1960,17 +1976,6 @@ h1 {
 
 .composer .send-button {
 	right: 17px;
-	border: 1px solid var(--text);
-	background: #171716;
-	color: var(--panel);
-}
-
-.composer .send-button:hover,
-.composer .send-button:focus-visible {
-	border: 1px solid var(--text);
-	background: color-mix(in srgb, var(--accent) 28%, var(--text));
-	color: var(--panel);
-	outline: none;
 }
 
 .composer .send-button:active,
