@@ -87,11 +87,12 @@ def _rooted_files(
     max_files: int,
 ) -> list[Path]:
     """Return matching files under one sandboxed directory or file path."""
-    root_path = fs.resolve(path)
+    search_path = path.strip() or "."
+    root_path = fs.resolve(search_path)
     if root_path.is_file():
         return [root_path]
     if not root_path.is_dir():
-        raise FileNotFoundError(f"Directory not found: {path}")
+        raise FileNotFoundError(f"Directory not found: {search_path}")
 
     matches: list[Path] = []
     for candidate in root_path.rglob("*"):
