@@ -1322,28 +1322,14 @@ h1 {
 }
 
 .rail-header {
-	gap: 10px;
+	justify-content: flex-end;
+	gap: 0;
 	padding: 0 10px;
 }
 
-.rail-header > div {
-	display: flex;
-	min-width: 0;
-	align-items: baseline;
-	gap: 10px;
-	white-space: nowrap;
-}
-
-.rail-header h2 {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-
 .model-select {
-	max-width: 168px;
-	height: 27px;
+	width: 150px;
+	height: 26px;
 	border: 1px solid var(--line-strong);
 	background: #fffdf6;
 	color: var(--text);
