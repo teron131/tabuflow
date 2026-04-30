@@ -19,6 +19,7 @@ type _HashlineReplacement = tuple[int, int, list[str]]
 _VISIBLE_HASH_LENGTH = 6
 _HASH_DIGEST_SIZE = 4
 _HASHLINE_REF_RE = re.compile(rf"^(?P<line>\d+)#(?P<hash>[0-9a-f]{{{_VISIBLE_HASH_LENGTH}}})$")
+_HASH_FRAGMENT_REF_RE = re.compile(rf"^#?(?P<hash>[0-9a-f]{{{_VISIBLE_HASH_LENGTH}}})$")
 _WHITESPACE_RE = re.compile(r"\s+")
 _HASHLINE_LINE_RE = re.compile(rf"^(?P<ref>\d+#[0-9a-f]{{{_VISIBLE_HASH_LENGTH}}}):(?P<content>.*)$")
 _MISMATCH_PREVIEW_RADIUS = 1
@@ -97,17 +98,34 @@ def _build_error_message(
 
 def _validate_ref(ref: str, lines: list[str]) -> int:
     """Resolve a hashline ref to its current 1-based line number or raise."""
-    if not (match := _HASHLINE_REF_RE.fullmatch(ref.strip())):
-        raise HashlineReferenceError(f"Invalid hashline ref: {ref!r}")
+    normalized_ref = ref.strip()
+    if not (match := _HASHLINE_REF_RE.fullmatch(normalized_ref)):
+        return _validate_hash_fragment(normalized_ref, lines)
 
     line_number = int(match.group("line"))
     expected_hash = match.group("hash")
     if not 1 <= line_number <= len(lines):
-        raise HashlineReferenceError(_build_error_message(ref=ref, lines=lines, line_number=line_number))
+        raise HashlineReferenceError(_build_error_message(ref=normalized_ref, lines=lines, line_number=line_number))
 
     if _compute_line_hash(line_number, lines[line_number - 1]) != expected_hash:
-        raise HashlineReferenceError(_build_error_message(ref=ref, lines=lines, line_number=line_number))
+        raise HashlineReferenceError(_build_error_message(ref=normalized_ref, lines=lines, line_number=line_number))
     return line_number
+
+
+def _validate_hash_fragment(ref: str, lines: list[str]) -> int:
+    """Resolve a bare six-character hash fragment when it uniquely identifies a current line."""
+    if not (match := _HASH_FRAGMENT_REF_RE.fullmatch(ref)):
+        raise HashlineReferenceError(f"Invalid hashline ref: {ref!r}")
+
+    expected_hash = match.group("hash")
+    matches = [line_number for line_number, line in enumerate(lines, start=1) if _compute_line_hash(line_number, line) == expected_hash]
+
+    if len(matches) == 1:
+        return matches[0]
+    if matches:
+        refs = ", ".join(_render_hashline_line(line_number, lines[line_number - 1]).split(":", 1)[0] for line_number in matches)
+        raise HashlineReferenceError(f"Ambiguous hashline ref: {ref!r}. Use a full LINE#HASH ref. Matches: {refs}")
+    raise HashlineReferenceError(f"Invalid hashline ref: {ref!r}. Use refs from fs_read_hashline, for example '12#ab3f9d'.")
 
 
 def _edit_bounds(edit: HashlineEdit, lines: list[str]) -> tuple[int, int]:

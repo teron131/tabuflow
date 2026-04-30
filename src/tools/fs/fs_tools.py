@@ -13,7 +13,7 @@ from pathlib import Path
 from langchain.tools import tool
 from langchain_core.tools import BaseTool
 
-from .hashline import HashlineEdit, edit_hashline, format_hashline_text
+from .hashline import HashlineEdit, HashlineReferenceError, edit_hashline, format_hashline_text
 
 PATH_TRAVERSAL_ERROR = "Path traversal not allowed"
 PATH_OUTSIDE_ROOT_ERROR = "Path outside root"
@@ -258,6 +258,7 @@ def make_fs_tools(
         """Apply hashline edits to an existing UTF-8 text file.
 
         When can_write is provided, edits are limited by that predicate.
+        Prefer full refs from fs_read_hashline such as `12#ab3f9d`; unique bare hash fragments are accepted as a recovery path.
 
         Args:
             path: File path relative to the sandbox root, or virtual absolute like "/foo.txt".
@@ -265,7 +266,10 @@ def make_fs_tools(
         """
 
         _require_write_allowed(fs, path, can_write, write_denied_message)
-        return fs.edit_hashline(path, edits)
+        try:
+            return fs.edit_hashline(path, edits)
+        except (HashlineReferenceError, ValueError) as error:
+            return f"Hashline edit failed: {error}"
 
     tools: list[BaseTool] = []
     if include_discovery:
