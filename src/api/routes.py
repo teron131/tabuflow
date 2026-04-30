@@ -1,18 +1,27 @@
 """HTTP routes for the data-agentics workbench API."""
 
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 import re
 import shutil
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import StreamingResponse
 
 from ..agents.config import DEFAULT_AGENT_MODEL
 from ..tools import list_skills, load_skills
 from ..tools.tabular.tools import extract_tabular_file
 from ..tools.sql.query import describe_target, list_targets, run_query
-from .chat import ChatConfigurationError, ChatRuntimeError, has_llm_environment, run_chat
+from .chat import (
+    MISSING_LLM_CONFIG_MESSAGE,
+    ChatConfigurationError,
+    ChatRuntimeError,
+    has_llm_environment,
+    run_chat,
+    stream_chat_chunks,
+)
 from .constants import (
     DEFAULT_SQL,
     IMAGE_UPLOAD_EXTENSIONS,
@@ -58,6 +67,32 @@ def _workspace_data_error(exc: WorkspaceDataMissingError) -> HTTPException:
             "status": "error",
             "mode": "missing_workspace_data",
             "message": str(exc),
+        },
+    )
+
+
+def _chat_configuration_error(message: str = MISSING_LLM_CONFIG_MESSAGE) -> HTTPException:
+    """Return the shared model-configuration HTTP error."""
+    return HTTPException(
+        status_code=503,
+        detail={
+            "status": "error",
+            "mode": "missing_llm_config",
+            "message": message,
+            "llm_configured": False,
+        },
+    )
+
+
+def _chat_runtime_error(message: str) -> HTTPException:
+    """Return the shared model runtime HTTP error."""
+    return HTTPException(
+        status_code=502,
+        detail={
+            "status": "error",
+            "mode": "model_error",
+            "message": message,
+            "llm_configured": True,
         },
     )
 
@@ -314,25 +349,22 @@ def chat(request: ChatRequest) -> dict[str, Any]:
     try:
         return run_chat(request)
     except ChatConfigurationError as exc:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "status": "error",
-                "mode": "missing_llm_config",
-                "message": str(exc),
-                "llm_configured": False,
-            },
-        ) from exc
+        raise _chat_configuration_error(str(exc)) from exc
     except ChatRuntimeError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "status": "error",
-                "mode": "model_error",
-                "message": str(exc),
-                "llm_configured": True,
-            },
-        ) from exc
+        raise _chat_runtime_error(str(exc)) from exc
+
+
+@router.post("/chat/stream")
+def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """Stream one chat turn as AI SDK UI-message chunks."""
+    if not has_llm_environment():
+        raise _chat_configuration_error()
+
+    def chunk_lines():
+        for chunk in stream_chat_chunks(request):
+            yield f"{json.dumps(chunk)}\n"
+
+    return StreamingResponse(chunk_lines(), media_type="application/x-ndjson")
 
 
 @router.post("/sql/run")

@@ -216,6 +216,33 @@ function toolTitle(part: WorkbenchToolPart) {
 		: part.type.replace(/^tool-/, "");
 }
 
+function inputToolName(input: unknown) {
+	if (!input || typeof input !== "object") {
+		return null;
+	}
+	const tool = (input as { tool?: unknown }).tool;
+	return typeof tool === "string" && tool.trim() ? tool : null;
+}
+
+function toolHeading(
+	part: WorkbenchToolPart,
+	trace: TraceEntry[],
+	input: unknown,
+) {
+	if (trace.length === 1) {
+		const [item] = trace;
+		return {
+			title: item.name,
+			detail: item.summary ? `${item.status} · ${item.summary}` : item.status,
+		};
+	}
+
+	return {
+		title: inputToolName(input) || toolTitle(part),
+		detail: traceSummary(trace),
+	};
+}
+
 function ToolMessage({ part }: { part: WorkbenchToolPart }) {
 	const input = "input" in part ? part.input : undefined;
 	const output = "output" in part ? part.output : undefined;
@@ -226,6 +253,7 @@ function ToolMessage({ part }: { part: WorkbenchToolPart }) {
 	const isError =
 		state === "output-error" || partRecord.type === "tool-output-error";
 	const trace = backendTrace(output);
+	const heading = toolHeading(part, trace, input);
 	const conversation = conversationTrace(output);
 
 	return (
@@ -235,8 +263,8 @@ function ToolMessage({ part }: { part: WorkbenchToolPart }) {
 					{isError ? <TriangleAlert size={13} /> : <Wrench size={13} />}
 				</span>
 				<span className="tool-summary-main">
-					<span>{toolTitle(part)}</span>
-					<span className="tool-summary-steps">{traceSummary(trace)}</span>
+					<span>{heading.title}</span>
+					<span className="tool-summary-steps">{heading.detail}</span>
 				</span>
 				<span className={isError ? "tool-state error" : "tool-state"}>
 					{state.replaceAll("-", " ")}
@@ -780,17 +808,10 @@ export const ChatRail = memo(function ChatRail({
 					<ChatMessage key={message.id} message={message} />
 				))}
 				{isBusy && (
-					<div className="message ai-message thinking">
-						<div className="message-avatar" aria-hidden="true">
-							<Loader2 size={15} className="spin" />
-						</div>
-						<div className="message-shell">
-							<header className="message-meta">
-								<span>AGENT</span>
-							</header>
-							<p>Dispatching Python workbench call...</p>
-						</div>
-					</div>
+					<output className="stream-status" aria-live="polite">
+						<Loader2 size={14} className="spin" aria-hidden="true" />
+						<span>Dispatching Python workbench call...</span>
+					</output>
 				)}
 			</div>
 

@@ -1,4 +1,5 @@
 import {
+	createUIMessageStream,
 	createUIMessageStreamResponse,
 	type UIMessage,
 	type UIMessageChunk,
@@ -11,6 +12,13 @@ import {
 
 const API_BASE = process.env.DATA_AGENTICS_API_URL || "http://localhost:8017";
 const BACKEND_CHAT_TOOL_NAME = "backendChat";
+
+type BackendChatRequest = {
+	message: string;
+	messages?: unknown;
+	model?: string;
+	source_files?: string[];
+};
 
 function extractTextPart(part: unknown) {
 	if (!part || typeof part !== "object") {
@@ -86,6 +94,54 @@ function responseStream(chunks: UIMessageChunk[], delayMs = 0) {
 	});
 }
 
+async function* readNdjsonUiMessageChunks(
+	body: ReadableStream<Uint8Array>,
+): AsyncGenerator<UIMessageChunk> {
+	const reader = body.getReader();
+	const decoder = new TextDecoder();
+	let buffer = "";
+
+	try {
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) {
+				break;
+			}
+			buffer += decoder.decode(value, { stream: true });
+			const lines = buffer.split("\n");
+			buffer = lines.pop() || "";
+			for (const line of lines) {
+				const trimmedLine = line.trim();
+				if (!trimmedLine) {
+					continue;
+				}
+				yield JSON.parse(trimmedLine) as UIMessageChunk;
+			}
+		}
+
+		buffer += decoder.decode();
+		const trailingLine = buffer.trim();
+		if (trailingLine) {
+			yield JSON.parse(trailingLine) as UIMessageChunk;
+		}
+	} finally {
+		reader.releaseLock();
+	}
+}
+
+function backendStreamResponse(body: ReadableStream<Uint8Array>) {
+	return createUIMessageStreamResponse({
+		stream: createUIMessageStream({
+			execute: async ({ writer }) => {
+				for await (const chunk of readNdjsonUiMessageChunks(body)) {
+					writer.write(chunk);
+				}
+			},
+			onError: () => "Python workbench stream failed.",
+		}),
+	});
+}
+
 async function readPayload(response: Response): Promise<BackendChatResponse> {
 	try {
 		return (await response.json()) as BackendChatResponse;
@@ -97,6 +153,13 @@ async function readPayload(response: Response): Promise<BackendChatResponse> {
 	}
 }
 
+function errorPayload(message: string): BackendChatResponse {
+	return {
+		status: "error",
+		detail: { message },
+	};
+}
+
 function buildMessageChunks({
 	content,
 	request,
@@ -104,12 +167,7 @@ function buildMessageChunks({
 	isError = false,
 }: {
 	content: string;
-	request: {
-		message: string;
-		messages?: unknown;
-		model?: string;
-		source_files?: string[];
-	};
+	request: BackendChatRequest;
 	payload: BackendChatResponse;
 	isError?: boolean;
 }): UIMessageChunk[] {
@@ -143,6 +201,25 @@ function buildMessageChunks({
 		toolOutput,
 		{ type: "finish", finishReason: isError ? "error" : "stop" },
 	];
+}
+
+function backendErrorResponse({
+	content,
+	request,
+	payload,
+}: {
+	content: string;
+	request: BackendChatRequest;
+	payload: BackendChatResponse;
+}) {
+	return responseStream(
+		buildMessageChunks({
+			content,
+			request,
+			payload,
+			isError: true,
+		}),
+	);
 }
 
 export async function POST(request: Request) {
@@ -181,32 +258,29 @@ export async function POST(request: Request) {
 		model: selectedModel,
 		source_files: sourceFiles,
 	};
-	const backendResponse = await fetch(new URL("/api/chat", API_BASE), {
+	const backendResponse = await fetch(new URL("/api/chat/stream", API_BASE), {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(backendRequest),
 	});
-	const payload = await readPayload(backendResponse);
 
 	if (!backendResponse.ok) {
-		const content = detailMessage(payload, backendResponse.status);
-		return responseStream(
-			buildMessageChunks({
-				content,
-				request: backendRequest,
-				payload,
-				isError: true,
-			}),
-		);
-	}
-
-	const content =
-		payload.content?.trim() || "Python workbench returned no text.";
-	return responseStream(
-		buildMessageChunks({
-			content,
+		const payload = await readPayload(backendResponse);
+		return backendErrorResponse({
+			content: detailMessage(payload, backendResponse.status),
 			request: backendRequest,
 			payload,
-		}),
-	);
+		});
+	}
+
+	if (!backendResponse.body) {
+		const payload = errorPayload("Python workbench returned an empty stream.");
+		return backendErrorResponse({
+			content: detailMessage(payload, backendResponse.status),
+			request: backendRequest,
+			payload,
+		});
+	}
+
+	return backendStreamResponse(backendResponse.body);
 }

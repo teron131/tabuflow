@@ -1,8 +1,11 @@
 """Chat response helpers for the workbench API."""
 
+from collections.abc import Iterator
+from dataclasses import dataclass
 import os
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
@@ -21,6 +24,7 @@ MAX_CHAT_IMAGE_ATTACHMENTS = 4
 MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024
 REQUIRED_LLM_ENV_VARS = ("LLM_API_KEY", "LLM_BASE_URL")
 MISSING_LLM_CONFIG_MESSAGE = "LLM_API_KEY and LLM_BASE_URL are required for chat."
+BACKEND_CHAT_TOOL_NAME = "backendChat"
 
 
 def has_llm_environment() -> bool:
@@ -34,6 +38,16 @@ class ChatConfigurationError(RuntimeError):
 
 class ChatRuntimeError(RuntimeError):
     """Raised when model-backed chat fails during execution."""
+
+
+@dataclass(frozen=True)
+class ChatTurnContext:
+    """Resolved runtime inputs shared by sync and streaming chat paths."""
+
+    model_name: str
+    image_paths: list[Path]
+    history: list[BaseMessage]
+    graph_input: dict[str, Any]
 
 
 def _uploaded_source_path(source_file: str) -> Path | None:
@@ -201,8 +215,78 @@ def _stage_trace(result: dict[str, Any]) -> list[dict[str, str]]:
     return entries
 
 
-def run_chat(request: ChatRequest) -> dict[str, Any]:
-    """Run one chat request through the orchestrator."""
+def _chunk_id() -> str:
+    """Return a compact random ID for UI-message stream chunks."""
+    return uuid4().hex
+
+
+def _tool_output_payload(tool_name: str, tool_call_id: str, message: ToolMessage) -> dict[str, Any]:
+    """Build one streamed tool result payload using the existing backend trace shape."""
+    summary = _truncated_summary(message)
+    return {
+        "status": "ok",
+        "mode": "model_stream",
+        "content": summary,
+        "artifact": {
+            "tool_trace": [
+                {
+                    "id": tool_call_id,
+                    "name": tool_name,
+                    "status": "completed",
+                    "summary": summary,
+                }
+            ]
+        },
+    }
+
+
+def _stream_tool_input(tool_call: dict[str, Any]) -> dict[str, Any]:
+    """Return one AI SDK tool-input chunk for a backend tool call."""
+    tool_name = str(tool_call.get("name") or "tool")
+    return {
+        "type": "tool-input-available",
+        "toolCallId": str(tool_call.get("id") or _chunk_id()),
+        "toolName": BACKEND_CHAT_TOOL_NAME,
+        "input": {
+            "tool": tool_name,
+            "args": tool_call.get("args") or {},
+        },
+    }
+
+
+def _stream_tool_output(message: ToolMessage) -> dict[str, Any]:
+    """Return one AI SDK tool-output chunk for a backend tool result."""
+    tool_call_id = str(getattr(message, "tool_call_id", "") or _chunk_id())
+    tool_name = str(message.name or "tool")
+    return {
+        "type": "tool-output-available",
+        "toolCallId": tool_call_id,
+        "output": _tool_output_payload(tool_name, tool_call_id, message),
+    }
+
+
+def _stream_error_output(error_text: str, tool_call_id: str | None = None) -> dict[str, Any]:
+    """Return one AI SDK tool-output-error chunk for a backend chat failure."""
+    return {
+        "type": "tool-output-error",
+        "toolCallId": tool_call_id or _chunk_id(),
+        "errorText": error_text,
+    }
+
+
+def _stream_text_chunks(content: str, text_id: str) -> list[dict[str, Any]]:
+    """Return AI SDK text chunks for a non-empty assistant message."""
+    if not content:
+        return []
+    return [
+        {"type": "text-start", "id": text_id},
+        {"type": "text-delta", "id": text_id, "delta": content},
+        {"type": "text-end", "id": text_id},
+    ]
+
+
+def _chat_turn_context(request: ChatRequest) -> ChatTurnContext:
+    """Resolve request data that both chat execution modes need."""
     if not has_llm_environment():
         raise ChatConfigurationError(MISSING_LLM_CONFIG_MESSAGE)
 
@@ -213,23 +297,90 @@ def run_chat(request: ChatRequest) -> dict[str, Any]:
         latest_message,
         image_paths,
     )
-    model_name = resolve_agent_model(request.model)
+    return ChatTurnContext(
+        model_name=resolve_agent_model(request.model),
+        image_paths=image_paths,
+        history=history,
+        graph_input={
+            "messages": history,
+            "source_files": request.source_files,
+        },
+    )
+
+
+def _chat_graph(model_name: str):
+    """Build the orchestrator graph for one resolved model name."""
     llm = ChatOpenAI(model=model_name, temperature=0, reasoning_effort=DEFAULT_REASONING_EFFORT)
+    return Orchestrator(
+        llm=llm,
+        root_dir=REPO_ROOT,
+    ).build_orchestrator_agent()
+
+
+def _messages_from_update(update: dict[str, Any]) -> Iterator[BaseMessage]:
+    """Yield LangChain messages from one LangGraph update payload."""
+    for node_update in update.values():
+        if not isinstance(node_update, dict):
+            continue
+        for message in node_update.get("messages") or []:
+            if isinstance(message, BaseMessage):
+                yield message
+
+
+def _tool_call_id(tool_call: dict[str, Any]) -> str:
+    """Return the stable tool-call ID when LangChain supplied one."""
+    return str(tool_call.get("id") or "")
+
+
+def stream_chat_chunks(request: ChatRequest) -> Iterator[dict[str, Any]]:
+    """Run one chat request and yield AI SDK chunks as graph updates arrive."""
+    context = _chat_turn_context(request)
+    graph = _chat_graph(context.model_name)
+
+    yield {"type": "start", "messageId": _chunk_id()}
+    text_id = _chunk_id()
+    final_content = ""
+    emitted_tool_inputs: set[str] = set()
+    emitted_tool_outputs: set[str] = set()
 
     try:
-        result = (
-            Orchestrator(
-                llm=llm,
-                root_dir=REPO_ROOT,
-            )
-            .build_orchestrator_agent()
-            .invoke(
-                {
-                    "messages": history,
-                    "source_files": request.source_files,
-                }
-            )
-        )
+        for update in graph.stream(context.graph_input, stream_mode="updates"):
+            for message in _messages_from_update(update):
+                if isinstance(message, AIMessage):
+                    tool_calls = getattr(message, "tool_calls", None) or []
+                    for tool_call in tool_calls:
+                        tool_call_id = _tool_call_id(tool_call)
+                        if tool_call_id in emitted_tool_inputs:
+                            continue
+                        yield _stream_tool_input(tool_call)
+                        if tool_call_id:
+                            emitted_tool_inputs.add(tool_call_id)
+                    content = assistant_content(message)
+                    if content and not tool_calls:
+                        final_content = content
+                elif isinstance(message, ToolMessage):
+                    tool_call_id = str(getattr(message, "tool_call_id", "") or "")
+                    if tool_call_id and tool_call_id in emitted_tool_outputs:
+                        continue
+                    yield _stream_tool_output(message)
+                    if tool_call_id:
+                        emitted_tool_outputs.add(tool_call_id)
+    except Exception as exc:
+        yield _stream_error_output(f"Model-backed chat failed: {exc}")
+        yield {"type": "finish", "finishReason": "error"}
+        return
+
+    yield from _stream_text_chunks(final_content, text_id)
+    yield {"type": "finish", "finishReason": "stop"}
+
+
+def run_chat(request: ChatRequest) -> dict[str, Any]:
+    """Run one chat request through the orchestrator."""
+    context = _chat_turn_context(request)
+    graph = _chat_graph(context.model_name)
+
+    try:
+        result = graph.invoke(context.graph_input)
     except Exception as exc:
         raise ChatRuntimeError(f"Model-backed chat failed: {exc}") from exc
 
@@ -242,13 +393,13 @@ def run_chat(request: ChatRequest) -> dict[str, Any]:
         "mode": "model",
         "content": content,
         "artifact": {
-            "model": model_name,
+            "model": context.model_name,
             "tool_trace": _tool_trace(messages),
             "stage_trace": _stage_trace(result),
-            "conversation_trace": _message_trace(history),
+            "conversation_trace": _message_trace(context.history),
             "message_count": len(messages),
-            "input_message_count": len(history),
+            "input_message_count": len(context.history),
             "source_file_count": len(request.source_files),
-            "image_source_count": len(image_paths),
+            "image_source_count": len(context.image_paths),
         },
     }
