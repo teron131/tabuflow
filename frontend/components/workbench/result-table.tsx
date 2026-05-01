@@ -288,6 +288,7 @@ function ResultGrid({
 				title: profile.name,
 				icon: columnIcon(profile.kind),
 				width: profile.width,
+				grow: 1,
 				hasMenu: false,
 			})),
 		[profiles],
