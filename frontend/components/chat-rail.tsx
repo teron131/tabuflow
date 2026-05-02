@@ -780,6 +780,10 @@ export const ChatRail = memo(function ChatRail({
 	return (
 		<aside className="chat-rail">
 			<header className="rail-header">
+				<div className="rail-title">
+					<Bot size={14} aria-hidden="true" />
+					<span>Agent</span>
+				</div>
 				<select
 					className="model-select"
 					aria-label="Model"
