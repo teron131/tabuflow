@@ -22,6 +22,8 @@ import { type CSSProperties, memo, useEffect, useMemo, useState } from "react";
 import {
 	type BootstrapPayload,
 	type SkillEntry,
+	type SkillResourceEntry,
+	type SkillResourcePayload,
 	type SourceFile,
 	skillLineCount,
 	type Target,
@@ -35,10 +37,12 @@ type ExplorerPanelProps = {
 	bootstrap: BootstrapPayload;
 	isCollapsed: boolean;
 	selectedSkill: SkillEntry | null;
+	selectedSkillResource: SkillResourceEntry | null;
 	selectedSource: SourceFile | null;
 	selectedTarget: Target | null;
 	skills: SkillEntry[];
 	onSelectSkill: (skill: SkillEntry) => void;
+	onSelectSkillResource: (resource: SkillResourceEntry) => void;
 	onSelectSource: (source: SourceFile) => void;
 	onSelectTarget: (target: Target) => void;
 	onToggle: () => void;
@@ -53,6 +57,7 @@ type IconType =
 	| "markdown"
 	| "python"
 	| "raw"
+	| "exampleFolder"
 	| "referenceFolder"
 	| "scriptFolder"
 	| "skillFolder"
@@ -80,11 +85,6 @@ type ExplorerGroup = {
 	rows: ExplorerRow[];
 };
 
-type SkillResource = {
-	relative_path?: string;
-	content?: string;
-};
-
 const groupLabels: Record<ExplorerKey, string> = {
 	files: "Sources",
 	sql: "Extracted tables",
@@ -109,6 +109,7 @@ const groupIcons: Record<ExplorerKey, LucideIcon> = {
 const fileTypeIcons: Record<IconType, FileTypeIconValue> = {
 	csv: "material-icon-theme:table",
 	database: "material-icon-theme:database",
+	exampleFolder: FolderOpen,
 	file: FileText,
 	markdown: "material-icon-theme:markdown",
 	python: "material-icon-theme:python",
@@ -125,10 +126,12 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 	bootstrap,
 	isCollapsed,
 	selectedSkill,
+	selectedSkillResource,
 	selectedSource,
 	selectedTarget,
 	skills,
 	onSelectSkill,
+	onSelectSkillResource,
 	onSelectSource,
 	onSelectTarget,
 	onToggle,
@@ -151,20 +154,24 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 			buildGroups({
 				bootstrap,
 				selectedSkill,
+				selectedSkillResource,
 				selectedSource,
 				selectedTarget,
 				skills,
 				onSelectSkill,
+				onSelectSkillResource,
 				onSelectSource,
 				onSelectTarget,
 			}),
 		[
 			bootstrap,
 			selectedSkill,
+			selectedSkillResource,
 			selectedSource,
 			selectedTarget,
 			skills,
 			onSelectSkill,
+			onSelectSkillResource,
 			onSelectSource,
 			onSelectTarget,
 		],
@@ -359,19 +366,23 @@ function collectRowTypes(rows: ExplorerRow[], values: Set<string>) {
 function buildGroups({
 	bootstrap,
 	selectedSkill,
+	selectedSkillResource,
 	selectedSource,
 	selectedTarget,
 	skills,
 	onSelectSkill,
+	onSelectSkillResource,
 	onSelectSource,
 	onSelectTarget,
 }: {
 	bootstrap: BootstrapPayload;
 	selectedSkill: SkillEntry | null;
+	selectedSkillResource: SkillResourceEntry | null;
 	selectedSource: SourceFile | null;
 	selectedTarget: Target | null;
 	skills: SkillEntry[];
 	onSelectSkill: (skill: SkillEntry) => void;
+	onSelectSkillResource: (resource: SkillResourceEntry) => void;
 	onSelectSource: (source: SourceFile) => void;
 	onSelectTarget: (target: Target) => void;
 }): ExplorerGroup[] {
@@ -430,7 +441,12 @@ function buildGroups({
 			label: groupLabels.skills,
 			rows: skills.map((skill) => {
 				const lineCount = skillLineCount(skill);
-				const children = skillChildRows(skill, onSelectSkill);
+				const children = skillChildRows(
+					skill,
+					selectedSkillResource,
+					onSelectSkill,
+					onSelectSkillResource,
+				);
 				return {
 					id: `skill-${skill.name}`,
 					label: skill.name,
@@ -446,7 +462,8 @@ function buildGroups({
 						.filter(Boolean)
 						.join(" "),
 					iconType: "skillFolder",
-					isActive: selectedSkill?.name === skill.name,
+					isActive:
+						selectedSkill?.name === skill.name && !selectedSkillResource,
 					onSelect: () => onSelectSkill(skill),
 					children,
 				};
@@ -559,7 +576,9 @@ function targetIconType(target: Target) {
 
 function skillChildRows(
 	skill: SkillEntry,
+	selectedSkillResource: SkillResourceEntry | null,
 	onSelectSkill: (skill: SkillEntry) => void,
+	onSelectSkillResource: (resource: SkillResourceEntry) => void,
 ): ExplorerRow[] {
 	const rows: ExplorerRow[] = [
 		{
@@ -575,12 +594,35 @@ function skillChildRows(
 		},
 	];
 
+	const examples = skillResourceRows(
+		skill,
+		skill.examples || [],
+		"EXAMPLE",
+		"example",
+		"examples",
+		selectedSkillResource,
+		onSelectSkillResource,
+	);
+	if (examples.length > 0) {
+		rows.push(
+			skillResourceFolderRow(
+				skill,
+				"examples",
+				examples,
+				"exampleFolder",
+				onSelectSkill,
+			),
+		);
+	}
+
 	const references = skillResourceRows(
 		skill,
 		skill.references || [],
 		"REF",
 		"reference",
-		onSelectSkill,
+		"references",
+		selectedSkillResource,
+		onSelectSkillResource,
 	);
 	if (references.length > 0) {
 		rows.push(
@@ -599,7 +641,9 @@ function skillChildRows(
 		skill.scripts || [],
 		"SCRIPT",
 		"script",
-		onSelectSkill,
+		"scripts",
+		selectedSkillResource,
+		onSelectSkillResource,
 	);
 	if (scripts.length > 0) {
 		rows.push(
@@ -618,13 +662,21 @@ function skillChildRows(
 
 function skillResourceRows(
 	skill: SkillEntry,
-	resources: SkillResource[],
-	type: "REF" | "SCRIPT",
+	resources: SkillResourcePayload[],
+	type: "EXAMPLE" | "REF" | "SCRIPT",
 	fallback: string,
-	onSelectSkill: (skill: SkillEntry) => void,
+	group: "examples" | "references" | "scripts",
+	selectedSkillResource: SkillResourceEntry | null,
+	onSelectSkillResource: (resource: SkillResourceEntry) => void,
 ): ExplorerRow[] {
 	return resources.map((resource) => {
 		const label = skillResourceFileName(resource.relative_path, fallback);
+		const selection: SkillResourceEntry = {
+			...resource,
+			skillName: skill.name,
+			label,
+			group,
+		};
 		return {
 			id: `skill-${type.toLowerCase()}-${skill.name}-${resource.relative_path || label}`,
 			label,
@@ -633,15 +685,18 @@ function skillResourceRows(
 			detail: resource.relative_path || "",
 			metadata: resource.content || resource.relative_path || "",
 			iconType: resourceIconType(label),
-			isActive: false,
-			onSelect: () => onSelectSkill(skill),
+			isActive:
+				selectedSkillResource?.skillName === selection.skillName &&
+				selectedSkillResource?.group === selection.group &&
+				selectedSkillResource?.relative_path === selection.relative_path,
+			onSelect: () => onSelectSkillResource(selection),
 		};
 	});
 }
 
 function skillResourceFolderRow(
 	skill: SkillEntry,
-	label: "references" | "scripts",
+	label: "examples" | "references" | "scripts",
 	children: ExplorerRow[],
 	iconType: IconType,
 	onSelectSkill: (skill: SkillEntry) => void,

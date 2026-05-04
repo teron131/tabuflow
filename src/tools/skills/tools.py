@@ -72,6 +72,7 @@ class SkillsScript:
 
     path: str
     relative_path: str
+    content: str
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,7 @@ class LoadedSkill:
     description: str
     skills_path: str
     instructions: SkillsInstructions
+    examples: list[SkillsScript]
     references: list[SkillsReference]
     scripts: list[SkillsScript]
 
@@ -319,12 +321,17 @@ def _load_script_group(
     paths: list[Path],
     *,
     root_dir: Path,
+    max_chars_per_file: int,
 ) -> list[SkillsScript]:
-    """Load structured script metadata for one resource group."""
+    """Load structured script text for one resource group."""
     return [
         SkillsScript(
             path=str(path),
             relative_path=str(path.relative_to(root_dir)),
+            content=_read_text_file(
+                path,
+                max_chars=max_chars_per_file,
+            ),
         )
         for path in paths
     ]
@@ -342,6 +349,7 @@ def _load_skills_entry(
         return None, error_message
 
     scripts = _iter_resource_paths(skills_file.skills_root, "scripts")
+    examples = _iter_resource_paths(skills_file.skills_root, "examples")
     references = _iter_resource_paths(skills_file.skills_root, "references")
     try:
         loaded_skill = LoadedSkill(
@@ -359,6 +367,11 @@ def _load_skills_entry(
                     label="Skill instructions",
                 ),
             ),
+            examples=_load_script_group(
+                examples,
+                root_dir=root_dir,
+                max_chars_per_file=max_chars_per_file,
+            ),
             references=_load_reference_group(
                 references,
                 root_dir=root_dir,
@@ -367,6 +380,7 @@ def _load_skills_entry(
             scripts=_load_script_group(
                 scripts,
                 root_dir=root_dir,
+                max_chars_per_file=max_chars_per_file,
             ),
         )
     except ValueError as exc:

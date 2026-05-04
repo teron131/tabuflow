@@ -2,7 +2,13 @@ import type { CSSProperties } from "react";
 
 export type ExplorerKey = "files" | "sql" | "views" | "skills";
 export type SidePanel = "explorer" | "settings";
-export type InspectorView = "run" | "results" | "target" | "skill" | "source";
+export type InspectorView =
+	| "run"
+	| "results"
+	| "target"
+	| "skill"
+	| "skillResource"
+	| "source";
 
 export type RoundingSettings = {
 	enabled: boolean;

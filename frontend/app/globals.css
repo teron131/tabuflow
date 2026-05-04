@@ -1235,7 +1235,8 @@ h1 {
 }
 
 .detail-panel,
-.skill-editor {
+.skill-editor,
+.resource-viewer {
 	display: flex;
 	min-height: 100%;
 	flex-direction: column;
@@ -1372,6 +1373,107 @@ h1 {
 .skill-highlight {
 	padding-top: 12px;
 	padding-bottom: 12px;
+}
+
+.resource-viewer {
+	min-width: 0;
+}
+
+.resource-code-viewer {
+	flex: 1;
+	min-height: 0;
+	margin: 0;
+	overflow: auto;
+	border: 1px solid var(--line);
+	background: #fffdf6;
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-md);
+	line-height: var(--editor-line-height);
+	tab-size: 2;
+}
+
+.resource-code-viewer code {
+	display: block;
+	min-width: max-content;
+	white-space: pre;
+}
+
+.resource-code-line {
+	display: flex;
+	min-height: var(--editor-line-height);
+	line-height: var(--editor-line-height);
+}
+
+.resource-code-line-number {
+	box-sizing: border-box;
+	flex: 0 0 46px;
+	width: 46px;
+	padding: 0 9px 0 8px;
+	border-right: 1px solid color-mix(in srgb, var(--line) 56%, transparent);
+	background: color-mix(in srgb, #fffdf6 86%, var(--panel-soft));
+	color: var(--dim);
+	font-variant-numeric: tabular-nums;
+	text-align: right;
+	user-select: none;
+}
+
+.resource-code-line-text {
+	display: block;
+	min-width: 0;
+	flex: 1;
+	padding: 0 16px 0 12px;
+}
+
+.resource-code-line:first-child .resource-code-line-number,
+.resource-code-line:first-child .resource-code-line-text {
+	padding-top: 14px;
+}
+
+.resource-code-line:last-child .resource-code-line-number,
+.resource-code-line:last-child .resource-code-line-text {
+	padding-bottom: 14px;
+}
+
+.resource-code-viewer .hljs-comment,
+.resource-code-viewer .hljs-quote {
+	color: var(--dim);
+	font-style: italic;
+}
+
+.resource-code-viewer .hljs-keyword,
+.resource-code-viewer .hljs-selector-tag,
+.resource-code-viewer .hljs-section,
+.resource-code-viewer .hljs-title {
+	color: var(--accent-rust);
+	font-weight: 600;
+}
+
+.resource-code-viewer .hljs-string,
+.resource-code-viewer .hljs-doctag,
+.resource-code-viewer .hljs-regexp {
+	color: var(--accent-olive);
+}
+
+.resource-code-viewer .hljs-number,
+.resource-code-viewer .hljs-literal,
+.resource-code-viewer .hljs-variable,
+.resource-code-viewer .hljs-template-variable {
+	color: var(--amber);
+}
+
+.resource-code-viewer .hljs-attribute,
+.resource-code-viewer .hljs-name,
+.resource-code-viewer .hljs-type,
+.resource-code-viewer .hljs-built_in,
+.resource-code-viewer .hljs-builtin-name {
+	color: #2f7f8f;
+}
+
+.resource-code-viewer .hljs-link {
+	color: #2f7f8f;
+	text-decoration: underline;
+	text-underline-offset: 2px;
 }
 
 .chat-rail {

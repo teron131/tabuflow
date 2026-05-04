@@ -434,6 +434,7 @@ def skills() -> dict[str, Any]:
                     "modified_at": modified_at,
                     "instructions": instructions,
                     "content": raw_content,
+                    "examples": loaded_skill.get("examples", []),
                     "references": loaded_skill.get("references", []),
                     "scripts": loaded_skill.get("scripts", []),
                 }

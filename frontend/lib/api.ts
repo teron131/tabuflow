@@ -83,6 +83,19 @@ export type SqlResult = {
 	message?: string;
 };
 
+export type SkillResourcePayload = {
+	path?: string;
+	relative_path?: string;
+	kind?: string;
+	content?: string;
+};
+
+export type SkillResourceEntry = SkillResourcePayload & {
+	skillName: string;
+	label: string;
+	group: "instructions" | "examples" | "references" | "scripts";
+};
+
 export type SkillEntry = {
 	name: string;
 	description?: string;
@@ -95,8 +108,9 @@ export type SkillEntry = {
 		relative_path?: string;
 		content?: string;
 	};
-	references?: Array<{ relative_path?: string; content?: string }>;
-	scripts?: Array<{ relative_path?: string }>;
+	references?: SkillResourcePayload[];
+	scripts?: SkillResourcePayload[];
+	examples?: SkillResourcePayload[];
 };
 
 export const emptyBootstrap: BootstrapPayload = {

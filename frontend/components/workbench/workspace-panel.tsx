@@ -21,6 +21,7 @@ import { useCallback, useState } from "react";
 import {
 	type BootstrapPayload,
 	type SkillEntry,
+	type SkillResourceEntry,
 	type SourceFile,
 	type SqlResult,
 	skillLineCount,
@@ -29,6 +30,12 @@ import {
 import { CodeEditor } from "./code-editor";
 import { downloadResult } from "./download";
 import { ResultTable } from "./result-table";
+import {
+	isCsvSkillResource,
+	SkillResourceViewer,
+	skillResourceIcon,
+} from "./skill-resource-viewer";
+import { SourceViewer } from "./source-viewer";
 import { renderHighlightedSql } from "./sql";
 import { isTargetView } from "./targets";
 import type { InspectorView, RoundingSettings } from "./types";
@@ -40,12 +47,15 @@ type WorkspacePanelProps = {
 	centerRef: RefObject<HTMLElement | null>;
 	inspectorView: InspectorView;
 	isPreviewingTarget: boolean;
+	isPreviewingSource: boolean;
 	isRunningSql: boolean;
 	isSkillSaved: boolean;
 	rounding: RoundingSettings;
 	selectedSkill: SkillEntry | null;
+	selectedSkillResource: SkillResourceEntry | null;
 	selectedSource: SourceFile | null;
 	selectedTarget: Target | null;
+	sourcePreviewResult: SqlResult | null;
 	skillText: string;
 	sql: string;
 	sqlResult: SqlResult | null;
@@ -65,12 +75,15 @@ export function WorkspacePanel({
 	centerRef,
 	inspectorView,
 	isPreviewingTarget,
+	isPreviewingSource,
 	isRunningSql,
 	isSkillSaved,
 	rounding,
 	selectedSkill,
+	selectedSkillResource,
 	selectedSource,
 	selectedTarget,
+	sourcePreviewResult,
 	skillText,
 	sql,
 	sqlResult,
@@ -105,8 +118,10 @@ export function WorkspacePanel({
 		bootstrap,
 		inspectorView,
 		selectedSkill,
+		selectedSkillResource,
 		selectedSource,
 		selectedTarget,
+		sourcePreviewResult,
 		sqlResult,
 		targetPreviewResult,
 		targetSourceFileName,
@@ -215,7 +230,8 @@ export function WorkspacePanel({
 						<div
 							id="output-pane-body"
 							className={
-								inspectorView === "results"
+								inspectorView === "results" ||
+								isCsvSkillResource(selectedSkillResource, inspectorView)
 									? "pane-body result-pane-body"
 									: "pane-body"
 							}
@@ -302,25 +318,19 @@ export function WorkspacePanel({
 									/>
 								</div>
 							)}
+							{inspectorView === "skillResource" && (
+								<SkillResourceViewer
+									resource={selectedSkillResource}
+									rounding={rounding}
+								/>
+							)}
 							{inspectorView === "source" && (
-								<div className="detail-panel">
-									<h3>{selectedSource?.name || "No source selected"}</h3>
-									<p>
-										{selectedSource
-											? `${selectedSource.kind} source is ${selectedSource.status}.`
-											: "Pick a source in Explorer."}
-									</p>
-									<dl>
-										<dt>type</dt>
-										<dd>{selectedSource?.kind || "-"}</dd>
-										<dt>source</dt>
-										<dd>{selectedSource?.source_path || "-"}</dd>
-										<dt>destination</dt>
-										<dd>{selectedSource?.destination_path || "-"}</dd>
-										<dt>table</dt>
-										<dd>{selectedSource?.table_name || "-"}</dd>
-									</dl>
-								</div>
+								<SourceViewer
+									isPreviewingSource={isPreviewingSource}
+									rounding={rounding}
+									selectedSource={selectedSource}
+									sourcePreviewResult={sourcePreviewResult}
+								/>
 							)}
 						</div>
 					) : null}
@@ -334,8 +344,10 @@ function inspectorState({
 	bootstrap,
 	inspectorView,
 	selectedSkill,
+	selectedSkillResource,
 	selectedSource,
 	selectedTarget,
+	sourcePreviewResult,
 	sqlResult,
 	targetPreviewResult,
 	targetSourceFileName,
@@ -344,8 +356,10 @@ function inspectorState({
 	bootstrap: BootstrapPayload;
 	inspectorView: InspectorView;
 	selectedSkill: SkillEntry | null;
+	selectedSkillResource: SkillResourceEntry | null;
 	selectedSource: SourceFile | null;
 	selectedTarget: Target | null;
+	sourcePreviewResult: SqlResult | null;
 	sqlResult: SqlResult | null;
 	targetPreviewResult: SqlResult | null;
 	targetSourceFileName: string | null;
@@ -374,10 +388,19 @@ function inspectorState({
 			icon: ScrollText,
 		};
 	}
+	if (inspectorView === "skillResource") {
+		return {
+			title: selectedSkillResource?.label || "No skill file selected",
+			detail: selectedSkillResource
+				? `${selectedSkillResource.skillName} / ${selectedSkillResource.group}`
+				: "skill file",
+			icon: skillResourceIcon(selectedSkillResource),
+		};
+	}
 	if (inspectorView === "source") {
 		return {
 			title: selectedSource?.name || "No source selected",
-			detail: selectedSource?.kind || "source",
+			detail: sourceDetail(selectedSource, sourcePreviewResult),
 			icon: FileText,
 		};
 	}
@@ -394,6 +417,18 @@ function resultDetail(result: SqlResult | null) {
 	if (result.row_count != null) return `${result.row_count} rows`;
 	if (result.columns?.length) return `${result.columns.length} columns`;
 	return result.summary || result.status;
+}
+
+function sourceDetail(
+	source: SourceFile | null,
+	previewResult: SqlResult | null,
+) {
+	if (!source) return "source";
+	if (previewResult?.status === "error") return "preview error";
+	if (previewResult?.row_count != null) {
+		return `preview ${previewResult.row_count} rows`;
+	}
+	return source.kind || "source";
 }
 
 function targetDetail(target: Target | null, previewResult: SqlResult | null) {
