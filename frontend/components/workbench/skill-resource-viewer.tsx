@@ -5,11 +5,25 @@ import sqlLanguage from "highlight.js/lib/languages/sql";
 import {
 	FileCode2,
 	type LucideIcon,
+	RefreshCcw,
 	ScrollText,
 	Table2,
 } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
-import type { SkillResourceEntry, SqlResult } from "@/lib/api";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import {
+	explainWorkspaceFile,
+	type FileExplanation,
+	type SkillResourceEntry,
+	type SqlResult,
+} from "@/lib/api";
+import { MarkdownContent, MarkdownViewer } from "./markdown-viewer";
 import { ResultTable } from "./result-table";
 import type { InspectorView, RoundingSettings } from "./types";
 
@@ -19,21 +33,107 @@ type HighlightedResourceLine = {
 	nodes: ReactNode[];
 };
 
+type ResourceTab = "summary" | "code";
+
+type SkillResourceViewerProps = {
+	model: string;
+	refreshNonce?: number;
+	resource: SkillResourceEntry | null;
+	rounding: RoundingSettings;
+	showSummaryHeader?: boolean;
+	showTabs?: boolean;
+	viewMode?: ResourceTab;
+};
+
+type ResourceSummaryProps = {
+	explanation: FileExplanation | null;
+	onRegenerate: () => void;
+	resource: SkillResourceEntry;
+	showHeader: boolean;
+	status: string;
+};
+
+const EXPLAINABLE_EXTENSIONS = new Set(["md", "markdown", "py", "sql"]);
+const RESOURCE_LANGUAGE_BY_EXTENSION: Record<string, string> = {
+	markdown: "markdown",
+	md: "markdown",
+	py: "python",
+	sql: "sql",
+};
+const RESOURCE_ICON_BY_EXTENSION: Record<string, LucideIcon> = {
+	csv: Table2,
+	py: FileCode2,
+	sql: Table2,
+};
+
 hljs.registerLanguage("markdown", markdownLanguage);
 hljs.registerLanguage("python", pythonLanguage);
 hljs.registerLanguage("sql", sqlLanguage);
 
 export function SkillResourceViewer({
+	model,
+	refreshNonce = 0,
 	resource,
 	rounding,
-}: {
-	resource: SkillResourceEntry | null;
-	rounding: RoundingSettings;
-}) {
+	showSummaryHeader = true,
+	showTabs = true,
+	viewMode,
+}: SkillResourceViewerProps) {
+	const [activeTab, setActiveTab] = useState<ResourceTab>("summary");
+	const [explanation, setExplanation] = useState<FileExplanation | null>(null);
+	const [summaryStatus, setSummaryStatus] = useState("");
+	const previousRefreshNonce = useRef(refreshNonce);
 	const csvResult = useMemo(
 		() => (resource && isCsvResource(resource) ? csvToResult(resource) : null),
 		[resource],
 	);
+	const canExplain = isExplainableResource(resource);
+	const selectedTab = viewMode || activeTab;
+
+	const loadExplanation = useCallback(
+		async ({ force = false }: { force?: boolean } = {}) => {
+			const path = resourcePath(resource);
+			if (!path || !canExplain) {
+				return;
+			}
+			setSummaryStatus(force ? "Regenerating summary" : "Loading summary");
+			try {
+				const nextExplanation = await explainWorkspaceFile({
+					path,
+					force,
+					model,
+				});
+				setExplanation(nextExplanation);
+				setSummaryStatus("");
+			} catch (error) {
+				setSummaryStatus((error as Error).message);
+				setExplanation(null);
+			}
+		},
+		[canExplain, model, resource],
+	);
+
+	useEffect(() => {
+		if (!viewMode) {
+			setActiveTab(canExplain ? "summary" : "code");
+		}
+		setExplanation(null);
+		setSummaryStatus("");
+		if (canExplain && selectedTab === "summary") {
+			void loadExplanation();
+		}
+	}, [canExplain, loadExplanation, selectedTab, viewMode]);
+
+	useEffect(() => {
+		const didChange = refreshNonce !== previousRefreshNonce.current;
+		previousRefreshNonce.current = refreshNonce;
+		if (!didChange || refreshNonce === 0) {
+			return;
+		}
+		if (canExplain && selectedTab === "summary") {
+			void loadExplanation({ force: true });
+		}
+	}, [canExplain, loadExplanation, refreshNonce, selectedTab]);
 
 	if (!resource) {
 		return <div className="empty-state">Select a skill file in Explorer.</div>;
@@ -56,8 +156,67 @@ export function SkillResourceViewer({
 	}
 	return (
 		<div className="resource-viewer">
-			<ResourceCodeViewer resource={resource} />
+			{canExplain && showTabs ? (
+				<ResourceTabs
+					activeTab={selectedTab}
+					contentLabel={resourceContentTabLabel(resource)}
+					onRegenerate={() => loadExplanation({ force: true })}
+					onSelectTab={setActiveTab}
+				/>
+			) : null}
+			{selectedTab === "summary" && canExplain ? (
+				<ResourceSummary
+					explanation={explanation}
+					onRegenerate={() => loadExplanation({ force: true })}
+					resource={resource}
+					showHeader={showSummaryHeader}
+					status={summaryStatus}
+				/>
+			) : (
+				<ResourceContentViewer resource={resource} />
+			)}
 		</div>
+	);
+}
+
+function ResourceTabs({
+	activeTab,
+	contentLabel,
+	onRegenerate,
+	onSelectTab,
+}: {
+	activeTab: ResourceTab;
+	contentLabel: string;
+	onRegenerate: () => void;
+	onSelectTab: (tab: ResourceTab) => void;
+}) {
+	return (
+		<fieldset className="resource-tabs">
+			<legend className="sr-only">File preview mode</legend>
+			<button
+				className={activeTab === "summary" ? "active" : ""}
+				onClick={() => onSelectTab("summary")}
+				type="button"
+			>
+				Summary
+			</button>
+			<button
+				className={activeTab === "code" ? "active" : ""}
+				onClick={() => onSelectTab("code")}
+				type="button"
+			>
+				{contentLabel}
+			</button>
+			<button
+				aria-label="Regenerate summary"
+				className="icon-button outline-button"
+				onClick={onRegenerate}
+				title="Regenerate summary"
+				type="button"
+			>
+				<RefreshCcw size={13} />
+			</button>
+		</fieldset>
 	);
 }
 
@@ -65,10 +224,7 @@ export function skillResourceIcon(
 	resource: SkillResourceEntry | null,
 ): LucideIcon {
 	const extension = resource ? resourceExtension(resource).toLowerCase() : "";
-	if (extension === "csv") return Table2;
-	if (extension === "py") return FileCode2;
-	if (extension === "sql") return Table2;
-	return ScrollText;
+	return RESOURCE_ICON_BY_EXTENSION[extension] || ScrollText;
 }
 
 export function isCsvSkillResource(
@@ -78,6 +234,22 @@ export function isCsvSkillResource(
 	return inspectorView === "skillResource" && resource
 		? isCsvResource(resource)
 		: false;
+}
+
+export function isMarkdownSkillResource(resource: SkillResourceEntry | null) {
+	return resource ? isMarkdownResource(resource) : false;
+}
+
+function ResourceContentViewer({ resource }: { resource: SkillResourceEntry }) {
+	if (isMarkdownResource(resource)) {
+		return (
+			<MarkdownViewer
+				content={resource.content || ""}
+				keyPrefix={resource.relative_path || resource.label}
+			/>
+		);
+	}
+	return <ResourceCodeViewer resource={resource} />;
 }
 
 function ResourceCodeViewer({ resource }: { resource: SkillResourceEntry }) {
@@ -95,6 +267,67 @@ function ResourceCodeViewer({ resource }: { resource: SkillResourceEntry }) {
 				))}
 			</code>
 		</pre>
+	);
+}
+
+function ResourceSummary({
+	explanation,
+	onRegenerate,
+	resource,
+	showHeader,
+	status,
+}: ResourceSummaryProps) {
+	if (status) {
+		return <ResourceSummaryStatus status={status} />;
+	}
+	if (!explanation) {
+		return <ResourceSummaryStatus status="Preparing summary" />;
+	}
+	return (
+		<article className="resource-summary-panel">
+			{showHeader ? (
+				<header>
+					<strong>{resource.relative_path || resource.label}</strong>
+					<button
+						aria-label="Regenerate summary"
+						className="icon-button outline-button"
+						onClick={onRegenerate}
+						title="Regenerate summary"
+						type="button"
+					>
+						<RefreshCcw size={13} />
+					</button>
+				</header>
+			) : null}
+			<MarkdownContent
+				content={explanation.summary}
+				keyPrefix={explanation.content_hash}
+			/>
+		</article>
+	);
+}
+
+function ResourceSummaryStatus({ status }: { status: string }) {
+	const isPending = /summary$/i.test(status);
+	return (
+		<article className="resource-summary-panel">
+			<div
+				className={
+					isPending
+						? "resource-summary-status"
+						: "resource-summary-status error"
+				}
+			>
+				<span>{status}</span>
+				{isPending ? (
+					<div className="resource-summary-status-lines" aria-hidden="true">
+						<i />
+						<i />
+						<i />
+					</div>
+				) : null}
+			</div>
+		</article>
 	);
 }
 
@@ -175,20 +408,43 @@ function decodeHighlightHtml(html: string) {
 
 function resourceLanguage(resource: SkillResourceEntry) {
 	const extension = resourceExtension(resource).toLowerCase();
-	if (extension === "py") return "python";
-	if (extension === "sql") return "sql";
-	if (extension === "md" || extension === "markdown") return "markdown";
-	return "plaintext";
+	return RESOURCE_LANGUAGE_BY_EXTENSION[extension] || "plaintext";
 }
 
 function isCsvResource(resource: SkillResourceEntry) {
 	return resourceExtension(resource).toLowerCase() === "csv";
 }
 
+function isMarkdownResource(resource: SkillResourceEntry) {
+	const extension = resourceExtension(resource).toLowerCase();
+	return extension === "md" || extension === "markdown";
+}
+
+export function isExplainableSkillResource(
+	resource: SkillResourceEntry | null,
+	inspectorView: InspectorView,
+) {
+	return inspectorView === "skillResource" && isExplainableResource(resource);
+}
+
+function isExplainableResource(resource: SkillResourceEntry | null) {
+	if (!resource) return false;
+	const extension = resourceExtension(resource).toLowerCase();
+	return EXPLAINABLE_EXTENSIONS.has(extension);
+}
+
 function resourceExtension(resource: SkillResourceEntry) {
 	const name = resource.relative_path || resource.label;
 	const extension = name.split(".").at(-1);
 	return extension && extension !== name ? extension : "";
+}
+
+function resourcePath(resource: SkillResourceEntry | null) {
+	return resource?.path || resource?.relative_path || "";
+}
+
+function resourceContentTabLabel(resource: SkillResourceEntry) {
+	return isMarkdownResource(resource) ? "Markdown Viewer" : "Code";
 }
 
 function csvToResult(resource: SkillResourceEntry): SqlResult {

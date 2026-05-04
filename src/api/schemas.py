@@ -28,6 +28,14 @@ class SqlRunRequest(BaseModel):
     max_rows: int = Field(default=100, ge=1, le=500)
 
 
+class FileExplanationRequest(BaseModel):
+    """Request body for model-backed file explanations."""
+
+    path: str = Field(min_length=1)
+    force: bool = False
+    model: str | None = None
+
+
 class SkillSaveRequest(BaseModel):
     """Request body for saving skill editor content."""
 

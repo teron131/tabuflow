@@ -7,9 +7,11 @@ import {
 	FileText,
 	type LucideIcon,
 	Play,
+	RefreshCcw,
 	RotateCcw,
 	Save,
 	ScrollText,
+	Star,
 	Table2,
 } from "lucide-react";
 import type {
@@ -32,6 +34,8 @@ import { downloadResult } from "./download";
 import { ResultTable } from "./result-table";
 import {
 	isCsvSkillResource,
+	isExplainableSkillResource,
+	isMarkdownSkillResource,
 	SkillResourceViewer,
 	skillResourceIcon,
 } from "./skill-resource-viewer";
@@ -40,7 +44,7 @@ import { renderHighlightedSql } from "./sql";
 import { isTargetView } from "./targets";
 import type { InspectorView, RoundingSettings } from "./types";
 
-type CollapsiblePane = "query" | "output";
+type CollapsiblePane = "top" | "output";
 
 type WorkspacePanelProps = {
 	bootstrap: BootstrapPayload;
@@ -48,11 +52,13 @@ type WorkspacePanelProps = {
 	inspectorView: InspectorView;
 	isPreviewingTarget: boolean;
 	isPreviewingSource: boolean;
+	isQueryVisible: boolean;
 	isRunningSql: boolean;
 	isSkillSaved: boolean;
 	rounding: RoundingSettings;
 	selectedSkill: SkillEntry | null;
 	selectedSkillResource: SkillResourceEntry | null;
+	selectedModel: string;
 	selectedSource: SourceFile | null;
 	selectedTarget: Target | null;
 	sourcePreviewResult: SqlResult | null;
@@ -76,11 +82,13 @@ export function WorkspacePanel({
 	inspectorView,
 	isPreviewingTarget,
 	isPreviewingSource,
+	isQueryVisible,
 	isRunningSql,
 	isSkillSaved,
 	rounding,
 	selectedSkill,
 	selectedSkillResource,
+	selectedModel,
 	selectedSource,
 	selectedTarget,
 	sourcePreviewResult,
@@ -97,8 +105,16 @@ export function WorkspacePanel({
 	onSqlChange,
 	onVerticalResize,
 }: WorkspacePanelProps) {
-	const [queryCollapsed, setQueryCollapsed] = useState(false);
+	const [topCollapsed, setTopCollapsed] = useState(false);
 	const [outputCollapsed, setOutputCollapsed] = useState(false);
+	const [summaryRefreshNonce, setSummaryRefreshNonce] = useState(0);
+	const hasSummaryPane = isExplainableSkillResource(
+		selectedSkillResource,
+		inspectorView,
+	);
+	const hasTopPane = isQueryVisible || hasSummaryPane;
+	const summaryResourcePath =
+		selectedSkillResource?.relative_path || selectedSkillResource?.label || "";
 	const renderSqlLine = useCallback(
 		(line: string) => renderHighlightedSql(line),
 		[],
@@ -108,11 +124,14 @@ export function WorkspacePanel({
 		[],
 	);
 	const togglePane = useCallback((pane: CollapsiblePane) => {
-		if (pane === "query") {
-			setQueryCollapsed((collapsed) => !collapsed);
+		if (pane === "top") {
+			setTopCollapsed((collapsed) => !collapsed);
 			return;
 		}
 		setOutputCollapsed((collapsed) => !collapsed);
+	}, []);
+	const regenerateSummary = useCallback(() => {
+		setSummaryRefreshNonce((nonce) => nonce + 1);
 	}, []);
 	const inspector = inspectorState({
 		bootstrap,
@@ -134,60 +153,97 @@ export function WorkspacePanel({
 			<div
 				className={[
 					"workspace-grid",
-					queryCollapsed ? "query-collapsed" : "",
+					!hasTopPane ? "query-hidden" : "",
+					topCollapsed ? "query-collapsed" : "",
 					outputCollapsed ? "output-collapsed" : "",
 				]
 					.filter(Boolean)
 					.join(" ")}
 			>
-				<section className="query-pane">
-					<header className="pane-header collapsible-pane-header">
-						<button
-							aria-controls="query-pane-body"
-							aria-expanded={!queryCollapsed}
-							className="pane-toggle"
-							onClick={() => togglePane("query")}
-							type="button"
-						>
-							{queryCollapsed ? (
-								<ChevronRight size={14} aria-hidden="true" />
-							) : (
-								<ChevronDown size={14} aria-hidden="true" />
-							)}
-							QUERY BUFFER
-						</button>
-						<div className="button-cluster">
+				{hasTopPane ? (
+					<section className="query-pane">
+						<header className="pane-header collapsible-pane-header">
 							<button
-								className="primary-button"
+								aria-controls="query-pane-body"
+								aria-expanded={!topCollapsed}
+								className="pane-toggle"
+								onClick={() => togglePane("top")}
 								type="button"
-								onClick={onRunSql}
-								disabled={isRunningSql}
 							>
-								<Play size={13} />
-								{isRunningSql ? "Running" : "Run"}
+								{topCollapsed ? (
+									<ChevronRight size={14} aria-hidden="true" />
+								) : (
+									<ChevronDown size={14} aria-hidden="true" />
+								)}
+								{isQueryVisible ? (
+									"QUERY BUFFER"
+								) : (
+									<>
+										<Star size={14} aria-hidden="true" />
+										<span className="inspector-title">AI SUMMARY</span>
+										<span className="inspector-detail">
+											{summaryResourcePath}
+										</span>
+									</>
+								)}
 							</button>
-						</div>
-					</header>
-					{!queryCollapsed ? (
-						<div id="query-pane-body" className="query-pane-body">
-							<CodeEditor
-								ariaLabel="SQL editor"
-								className="sql-editor-wrap"
-								highlightClassName="sql-highlight"
-								renderLine={renderSqlLine}
-								value={sql}
-								onChange={onSqlChange}
-							/>
-						</div>
-					) : null}
-				</section>
+							{isQueryVisible ? (
+								<div className="button-cluster">
+									<button
+										className="primary-button"
+										type="button"
+										onClick={onRunSql}
+										disabled={isRunningSql}
+									>
+										<Play size={13} />
+										{isRunningSql ? "Running" : "Run"}
+									</button>
+								</div>
+							) : (
+								<button
+									aria-label="Regenerate AI summary"
+									className="outline-button icon-button"
+									onClick={regenerateSummary}
+									title="Regenerate AI summary"
+									type="button"
+								>
+									<RefreshCcw size={13} />
+								</button>
+							)}
+						</header>
+						{!topCollapsed ? (
+							<div id="query-pane-body" className="query-pane-body">
+								{isQueryVisible ? (
+									<CodeEditor
+										ariaLabel="SQL editor"
+										className="sql-editor-wrap"
+										highlightClassName="sql-highlight"
+										renderLine={renderSqlLine}
+										value={sql}
+										onChange={onSqlChange}
+									/>
+								) : (
+									<SkillResourceViewer
+										model={selectedModel}
+										resource={selectedSkillResource}
+										rounding={rounding}
+										refreshNonce={summaryRefreshNonce}
+										showSummaryHeader={false}
+										showTabs={false}
+										viewMode="summary"
+									/>
+								)}
+							</div>
+						) : null}
+					</section>
+				) : null}
 
-				{!queryCollapsed && !outputCollapsed ? (
+				{hasTopPane && !topCollapsed && !outputCollapsed ? (
 					<button
 						className="resize-handle vertical-handle"
 						onPointerDown={onVerticalResize}
 						type="button"
-						aria-label="Resize query pane"
+						aria-label="Resize workspace panes"
 					/>
 				) : null}
 
@@ -231,7 +287,8 @@ export function WorkspacePanel({
 							id="output-pane-body"
 							className={
 								inspectorView === "results" ||
-								isCsvSkillResource(selectedSkillResource, inspectorView)
+								isCsvSkillResource(selectedSkillResource, inspectorView) ||
+								hasSummaryPane
 									? "pane-body result-pane-body"
 									: "pane-body"
 							}
@@ -320,8 +377,11 @@ export function WorkspacePanel({
 							)}
 							{inspectorView === "skillResource" && (
 								<SkillResourceViewer
+									model={selectedModel}
 									resource={selectedSkillResource}
 									rounding={rounding}
+									showTabs={!hasSummaryPane}
+									viewMode={hasSummaryPane ? "code" : undefined}
 								/>
 							)}
 							{inspectorView === "source" && (
@@ -390,10 +450,8 @@ function inspectorState({
 	}
 	if (inspectorView === "skillResource") {
 		return {
-			title: selectedSkillResource?.label || "No skill file selected",
-			detail: selectedSkillResource
-				? `${selectedSkillResource.skillName} / ${selectedSkillResource.group}`
-				: "skill file",
+			title: skillResourceTitle(selectedSkillResource),
+			detail: skillResourceDetail(selectedSkillResource),
 			icon: skillResourceIcon(selectedSkillResource),
 		};
 	}
@@ -409,6 +467,19 @@ function inspectorState({
 		detail: `${bootstrap.stage_cards.length} stages`,
 		icon: Activity,
 	};
+}
+
+function skillResourceTitle(resource: SkillResourceEntry | null) {
+	if (!resource) return "No skill file selected";
+	return isMarkdownSkillResource(resource) ? "Markdown Viewer" : resource.label;
+}
+
+function skillResourceDetail(resource: SkillResourceEntry | null) {
+	if (!resource) return "skill file";
+	const parts = isMarkdownSkillResource(resource)
+		? [resource.label, resource.skillName, resource.group]
+		: [resource.skillName, resource.group];
+	return parts.filter(Boolean).join(" / ");
 }
 
 function resultDetail(result: SqlResult | null) {

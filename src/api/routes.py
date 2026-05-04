@@ -11,6 +11,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from ..agents.config import DEFAULT_AGENT_MODEL
+from ..explainer import MissingExplainerModelError, explain_file
 from ..tools import list_skills, load_skills
 from ..tools.tabular.tools import extract_tabular_file
 from ..tools.sql.query import describe_target, list_targets, run_query
@@ -32,7 +33,7 @@ from .constants import (
     UPLOAD_EXTENSIONS,
     UPLOADS_DIR,
 )
-from .schemas import ChatRequest, SkillSaveRequest, SqlRunRequest
+from .schemas import ChatRequest, FileExplanationRequest, SkillSaveRequest, SqlRunRequest
 from .workspace_data import (
     WorkspaceDataMissingError,
     default_database_path,
@@ -402,6 +403,26 @@ def sql_target(target_name: str) -> dict[str, Any]:
     if payload.get("status") == "error" and payload.get("error_type") == "missing_target":
         raise HTTPException(status_code=404, detail=payload)
     return payload
+
+
+@router.post("/explainer/summary")
+def file_explanation(request: FileExplanationRequest) -> dict[str, Any]:
+    """Return cached or newly generated non-technical file explanation metadata."""
+    try:
+        return explain_file(
+            path=request.path,
+            repo_root=REPO_ROOT,
+            force=request.force,
+            model=request.model,
+        ).to_payload()
+    except MissingExplainerModelError as exc:
+        raise _chat_configuration_error(str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={"status": "error", "message": str(exc)}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail={"status": "error", "message": str(exc)}) from exc
+    except Exception as exc:
+        raise _chat_runtime_error(str(exc)) from exc
 
 
 @router.get("/skills")

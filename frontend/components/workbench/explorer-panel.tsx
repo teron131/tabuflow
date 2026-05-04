@@ -580,17 +580,32 @@ function skillChildRows(
 	onSelectSkill: (skill: SkillEntry) => void,
 	onSelectSkillResource: (resource: SkillResourceEntry) => void,
 ): ExplorerRow[] {
+	const skillInstructionResource: SkillResourceEntry = {
+		content: skill.instructions?.content || skill.content || "",
+		group: "instructions",
+		kind: "markdown",
+		label: "SKILL.md",
+		path: skill.instructions?.path || skill.path,
+		relative_path: skill.instructions?.relative_path || skill.path,
+		skillName: skill.name,
+	};
 	const rows: ExplorerRow[] = [
 		{
 			id: `skill-doc-${skill.name}`,
-			label: "SKILL.md",
+			label: skillInstructionResource.label,
 			type: "MD",
 			status: "",
-			detail: skill.instructions?.relative_path || skill.path || "",
-			metadata: skill.instructions?.content || skill.content || "",
+			detail: skillInstructionResource.relative_path || "",
+			metadata:
+				skillInstructionResource.content ||
+				skillInstructionResource.relative_path ||
+				"",
 			iconType: "markdown",
-			isActive: false,
-			onSelect: () => onSelectSkill(skill),
+			isActive:
+				selectedSkillResource?.skillName ===
+					skillInstructionResource.skillName &&
+				selectedSkillResource?.group === skillInstructionResource.group,
+			onSelect: () => onSelectSkillResource(skillInstructionResource),
 		},
 	];
 

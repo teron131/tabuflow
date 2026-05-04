@@ -480,9 +480,11 @@ export function Workbench() {
 				isPreviewingTarget={isPreviewingTarget}
 				isPreviewingSource={isPreviewingSource}
 				isRunningSql={isRunningSql}
+				isQueryVisible={shouldShowQueryPane(inspectorView, selectedTarget)}
 				rounding={rounding}
 				selectedSkill={selectedSkill}
 				selectedSkillResource={selectedSkillResource}
+				selectedModel={selectedModel}
 				selectedSource={selectedSource}
 				selectedTarget={selectedTarget}
 				sourcePreviewResult={sourcePreviewResult}
@@ -593,4 +595,16 @@ function uploadedWorkspaceFile(
 		contentType: upload.content_type || file.type || undefined,
 		targetBackend: upload.target_backend,
 	};
+}
+
+function shouldShowQueryPane(
+	inspectorView: InspectorView,
+	selectedTarget: Target | null,
+) {
+	if (inspectorView === "results") {
+		return true;
+	}
+	return inspectorView === "target" && selectedTarget
+		? isTargetView(selectedTarget)
+		: false;
 }

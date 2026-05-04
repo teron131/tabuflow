@@ -96,6 +96,17 @@ export type SkillResourceEntry = SkillResourcePayload & {
 	group: "instructions" | "examples" | "references" | "scripts";
 };
 
+export type FileExplanation = {
+	status: string;
+	path: string;
+	relative_path: string;
+	content_hash: string;
+	summary: string;
+	model: string;
+	generated_at: string;
+	cached: boolean;
+};
+
 export type SkillEntry = {
 	name: string;
 	description?: string;
@@ -187,6 +198,21 @@ export function skillLineCount(skill: SkillEntry): number {
 		return 0;
 	}
 	return trimmedContent.split(/\r\n|\r|\n/).length;
+}
+
+export async function explainWorkspaceFile({
+	path,
+	force = false,
+	model,
+}: {
+	path: string;
+	force?: boolean;
+	model?: string;
+}): Promise<FileExplanation> {
+	return fetchJson<FileExplanation>("/api/explainer/summary", {
+		method: "POST",
+		body: JSON.stringify({ path, force, model }),
+	});
 }
 
 export function toCsv(result: SqlResult): string {
