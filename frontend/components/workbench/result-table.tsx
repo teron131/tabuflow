@@ -353,7 +353,7 @@ function ResultGrid({
 					className="result-data-grid"
 					columns={gridColumns}
 					copyHeaders
-					freezeColumns={columns.length > 1 ? 1 : 0}
+					freezeColumns={0}
 					getCellContent={getCellContent}
 					getCellsForSelection
 					gridSelection={gridSelection}
