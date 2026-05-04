@@ -1,17 +1,24 @@
-import { Icon } from "@iconify/react";
+import { Icon as IconifyIcon } from "@iconify/react";
 import {
 	ArrowDownAZ,
 	ArrowUpAZ,
+	BookOpenCheck,
+	Braces,
+	BrainCircuit,
 	ChevronDown,
 	ChevronRight,
+	Files,
+	FileText,
 	Folder,
 	FolderOpen,
+	LayoutGrid,
 	ListFilter,
+	type LucideIcon,
 	PanelLeft,
 	Search,
 	Table2,
 } from "lucide-react";
-import { memo, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, memo, useEffect, useMemo, useState } from "react";
 import {
 	type BootstrapPayload,
 	type SkillEntry,
@@ -39,6 +46,18 @@ type ExplorerPanelProps = {
 
 type SortKey = "name" | "type" | "status";
 type SortDirection = "asc" | "desc";
+type IconType =
+	| "csv"
+	| "database"
+	| "file"
+	| "markdown"
+	| "python"
+	| "raw"
+	| "referenceFolder"
+	| "scriptFolder"
+	| "skillFolder"
+	| "sqlite"
+	| "view";
 
 type ExplorerRow = {
 	id: string;
@@ -47,15 +66,23 @@ type ExplorerRow = {
 	status: string;
 	detail: string;
 	metadata: string;
-	iconType: string;
+	iconType: IconType;
 	isActive: boolean;
 	onSelect: () => void;
+	children?: ExplorerRow[];
 };
+
+type FileTypeIconValue = LucideIcon | string;
 
 type ExplorerGroup = {
 	key: ExplorerKey;
 	label: string;
 	rows: ExplorerRow[];
+};
+
+type SkillResource = {
+	relative_path?: string;
+	content?: string;
 };
 
 const groupLabels: Record<ExplorerKey, string> = {
@@ -72,12 +99,25 @@ const defaultOpenGroups: Record<ExplorerKey, boolean> = {
 	skills: true,
 };
 
-const fileTypeIcons: Record<string, string> = {
+const groupIcons: Record<ExplorerKey, LucideIcon> = {
+	files: Files,
+	sql: LayoutGrid,
+	views: BookOpenCheck,
+	skills: BrainCircuit,
+};
+
+const fileTypeIcons: Record<IconType, FileTypeIconValue> = {
 	csv: "material-icon-theme:table",
-	file: "material-icon-theme:document",
-	skill: "material-icon-theme:skill",
+	database: "material-icon-theme:database",
+	file: FileText,
+	markdown: "material-icon-theme:markdown",
+	python: "material-icon-theme:python",
+	raw: Table2,
+	referenceFolder: FolderOpen,
+	scriptFolder: FolderOpen,
+	skillFolder: FolderOpen,
 	sqlite: "material-icon-theme:database",
-	view: "material-icon-theme:json-schema",
+	view: Braces,
 };
 
 export const ExplorerPanel = memo(function ExplorerPanel({
@@ -98,6 +138,9 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 	const [sortKey, setSortKey] = useState<SortKey>("name");
 	const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 	const [openGroups, setOpenGroups] = useState(defaultOpenGroups);
+	const [openSkillRows, setOpenSkillRows] = useState<Record<string, boolean>>(
+		{},
+	);
 
 	useEffect(() => {
 		setOpenGroups((groups) => ({ ...groups, [activeExplorer]: true }));
@@ -130,9 +173,7 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 	const typeOptions = useMemo(() => {
 		const values = new Set<string>();
 		for (const group of groups) {
-			for (const row of group.rows) {
-				values.add(row.type);
-			}
+			collectRowTypes(group.rows, values);
 		}
 		return [
 			"all",
@@ -153,6 +194,56 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 		? visibleGroups.filter((group) => group.rows.length > 0)
 		: visibleGroups;
 	const hasVisibleRows = visibleGroups.some((group) => group.rows.length > 0);
+
+	const renderTreeRow = (row: ExplorerRow, depth = 0) => {
+		const hasChildren = Boolean(row.children?.length);
+		const rowOpen = openSkillRows[row.id] ?? true;
+		return (
+			<div
+				className="tree-branch"
+				key={row.id}
+				style={
+					{
+						"--tree-indent": `${5 + depth * 10}px`,
+					} as CSSProperties
+				}
+			>
+				<button
+					className={treeRowClass(row, depth > 0 ? "child" : undefined)}
+					onClick={() => {
+						if (row.type === "SKILL" || !hasChildren) {
+							row.onSelect();
+						}
+						if (hasChildren) {
+							setOpenSkillRows((rows) => ({
+								...rows,
+								[row.id]: !rowOpen,
+							}));
+						}
+					}}
+					title={row.detail || row.label}
+					type="button"
+					aria-expanded={hasChildren ? rowOpen : undefined}
+				>
+					{hasChildren ? (
+						rowOpen ? (
+							<ChevronDown className="tree-nest-toggle" size={13} />
+						) : (
+							<ChevronRight className="tree-nest-toggle" size={13} />
+						)
+					) : (
+						<span className="tree-spacer" />
+					)}
+					<FileTypeIcon type={row.iconType} />
+					<span className="tree-label">{row.label}</span>
+					{row.status ? <small>{row.status}</small> : null}
+				</button>
+				{hasChildren && rowOpen
+					? row.children?.map((child) => renderTreeRow(child, depth + 1))
+					: null}
+			</div>
+		);
+	};
 
 	return (
 		<aside className={isCollapsed ? "explorer collapsed" : "explorer"}>
@@ -223,7 +314,8 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 				{displayedGroups.map((group) => {
 					const isOpen = openGroups[group.key];
 					const isActiveGroup = activeExplorer === group.key;
-					const FolderIcon = isOpen ? FolderOpen : Folder;
+					const GroupIcon =
+						groupIcons[group.key] ?? (isOpen ? FolderOpen : Folder);
 					return (
 						<section className="tree-group" key={group.key}>
 							<button
@@ -241,24 +333,13 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 								) : (
 									<ChevronRight size={13} />
 								)}
-								<FolderIcon size={15} />
+								<GroupIcon size={15} />
 								<span>{group.label}</span>
 							</button>
 							{isOpen &&
-								group.rows.map((row) => (
-									<button
-										key={row.id}
-										className={row.isActive ? "tree-row active" : "tree-row"}
-										onClick={row.onSelect}
-										title={row.detail || row.label}
-										type="button"
-									>
-										<span className="tree-spacer" />
-										<FileTypeIcon type={row.iconType} />
-										<span className="tree-label">{row.label}</span>
-										{row.status ? <small>{row.status}</small> : null}
-									</button>
-								))}
+								group.rows.map((row) =>
+									renderTreeRow(row, group.key === "skills" ? 1 : 0),
+								)}
 						</section>
 					);
 				})}
@@ -267,6 +348,13 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 		</aside>
 	);
 });
+
+function collectRowTypes(rows: ExplorerRow[], values: Set<string>) {
+	for (const row of rows) {
+		values.add(row.type);
+		collectRowTypes(row.children || [], values);
+	}
+}
 
 function buildGroups({
 	bootstrap,
@@ -342,38 +430,84 @@ function buildGroups({
 			label: groupLabels.skills,
 			rows: skills.map((skill) => {
 				const lineCount = skillLineCount(skill);
+				const children = skillChildRows(skill, onSelectSkill);
 				return {
 					id: `skill-${skill.name}`,
 					label: skill.name,
 					type: "SKILL",
 					status: lineCount ? String(lineCount) : "",
 					detail: skill.description || skill.path || "",
-					metadata: [skill.path, skill.skills_path, lineCount]
+					metadata: [
+						skill.path,
+						skill.skills_path,
+						lineCount,
+						...children.map((child) => child.metadata),
+					]
 						.filter(Boolean)
 						.join(" "),
-					iconType: "skill",
+					iconType: "skillFolder",
 					isActive: selectedSkill?.name === skill.name,
 					onSelect: () => onSelectSkill(skill),
+					children,
 				};
 			}),
 		},
 	];
 }
 
-function filterRows(rows: ExplorerRow[], query: string, typeFilter: string) {
+function treeRowClass(row: ExplorerRow, modifier?: string) {
+	return [
+		"tree-row",
+		row.isActive ? "active" : "",
+		modifier ? `tree-row-${modifier}` : "",
+	]
+		.filter(Boolean)
+		.join(" ");
+}
+
+function filterRows(
+	rows: ExplorerRow[],
+	query: string,
+	typeFilter: string,
+): ExplorerRow[] {
 	const normalizedQuery = query.trim().toLowerCase();
-	return rows.filter((row) => {
-		if (typeFilter !== "all" && row.type !== typeFilter) {
-			return false;
+	return filterNestedRows(rows, normalizedQuery, typeFilter);
+}
+
+function filterNestedRows(
+	rows: ExplorerRow[],
+	normalizedQuery: string,
+	typeFilter: string,
+): ExplorerRow[] {
+	const nextRows: ExplorerRow[] = [];
+	for (const row of rows) {
+		const children = filterNestedRows(
+			row.children || [],
+			normalizedQuery,
+			typeFilter,
+		);
+		if (rowMatches(row, normalizedQuery, typeFilter) || children.length > 0) {
+			nextRows.push({ ...row, children });
 		}
-		if (!normalizedQuery) {
-			return true;
-		}
-		return [row.label, row.type, row.status, row.detail, row.metadata]
-			.join(" ")
-			.toLowerCase()
-			.includes(normalizedQuery);
-	});
+	}
+	return nextRows;
+}
+
+function rowMatches(
+	row: ExplorerRow,
+	normalizedQuery: string,
+	typeFilter: string,
+) {
+	if (typeFilter !== "all" && row.type !== typeFilter) {
+		return false;
+	}
+	if (!normalizedQuery) {
+		return true;
+	}
+	return [row.label, row.type, row.status, row.detail, row.metadata]
+		.join(" ")
+		.toLowerCase()
+		.includes(normalizedQuery);
 }
 
 function sortRows(
@@ -423,15 +557,152 @@ function targetIconType(target: Target) {
 	return isTargetView(target) ? "view" : "raw";
 }
 
-function FileTypeIcon({ type }: { type: string }) {
-	if (type === "raw") {
-		return <Table2 className="file-type-icon raw" aria-hidden="true" />;
+function skillChildRows(
+	skill: SkillEntry,
+	onSelectSkill: (skill: SkillEntry) => void,
+): ExplorerRow[] {
+	const rows: ExplorerRow[] = [
+		{
+			id: `skill-doc-${skill.name}`,
+			label: "SKILL.md",
+			type: "MD",
+			status: "",
+			detail: skill.instructions?.relative_path || skill.path || "",
+			metadata: skill.instructions?.content || skill.content || "",
+			iconType: "markdown",
+			isActive: false,
+			onSelect: () => onSelectSkill(skill),
+		},
+	];
+
+	const references = skillResourceRows(
+		skill,
+		skill.references || [],
+		"REF",
+		"reference",
+		onSelectSkill,
+	);
+	if (references.length > 0) {
+		rows.push(
+			skillResourceFolderRow(
+				skill,
+				"references",
+				references,
+				"referenceFolder",
+				onSelectSkill,
+			),
+		);
 	}
-	const iconType = type in fileTypeIcons ? type : "file";
+
+	const scripts = skillResourceRows(
+		skill,
+		skill.scripts || [],
+		"SCRIPT",
+		"script",
+		onSelectSkill,
+	);
+	if (scripts.length > 0) {
+		rows.push(
+			skillResourceFolderRow(
+				skill,
+				"scripts",
+				scripts,
+				"scriptFolder",
+				onSelectSkill,
+			),
+		);
+	}
+
+	return rows;
+}
+
+function skillResourceRows(
+	skill: SkillEntry,
+	resources: SkillResource[],
+	type: "REF" | "SCRIPT",
+	fallback: string,
+	onSelectSkill: (skill: SkillEntry) => void,
+): ExplorerRow[] {
+	return resources.map((resource) => {
+		const label = skillResourceFileName(resource.relative_path, fallback);
+		return {
+			id: `skill-${type.toLowerCase()}-${skill.name}-${resource.relative_path || label}`,
+			label,
+			type,
+			status: "",
+			detail: resource.relative_path || "",
+			metadata: resource.content || resource.relative_path || "",
+			iconType: resourceIconType(label),
+			isActive: false,
+			onSelect: () => onSelectSkill(skill),
+		};
+	});
+}
+
+function skillResourceFolderRow(
+	skill: SkillEntry,
+	label: "references" | "scripts",
+	children: ExplorerRow[],
+	iconType: IconType,
+	onSelectSkill: (skill: SkillEntry) => void,
+): ExplorerRow {
+	return {
+		id: `skill-${label}-folder-${skill.name}`,
+		label,
+		type: "FOLDER",
+		status: "",
+		detail: `${skill.name} ${label}`,
+		metadata: children.map((child) => child.metadata).join(" "),
+		iconType,
+		isActive: false,
+		onSelect: () => onSelectSkill(skill),
+		children,
+	};
+}
+
+function skillResourceFileName(
+	relativePath: string | undefined,
+	fallback: string,
+) {
+	if (!relativePath) {
+		return fallback;
+	}
+	return relativePath.split("/").filter(Boolean).at(-1) || fallback;
+}
+
+function resourceExtension(label: string) {
+	const extension = label.split(".").at(-1);
+	return extension && extension !== label ? extension : "";
+}
+
+function resourceIconType(label: string): IconType {
+	const extension = resourceExtension(label).toLowerCase();
+	if (extension === "csv") return "csv";
+	if (extension === "md" || extension === "markdown") return "markdown";
+	if (extension === "py") return "python";
+	if (extension === "sql" || extension === "sqlite" || extension === "db") {
+		return "database";
+	}
+	return "file";
+}
+
+function FileTypeIcon({ type }: { type: string }) {
+	const iconType = type in fileTypeIcons ? (type as IconType) : "file";
+	const Icon = fileTypeIcons[iconType];
+	if (typeof Icon === "string") {
+		return (
+			<IconifyIcon
+				className={`file-type-icon ${iconType}`}
+				icon={Icon}
+				aria-hidden="true"
+			/>
+		);
+	}
 	return (
 		<Icon
 			className={`file-type-icon ${iconType}`}
-			icon={fileTypeIcons[iconType]}
+			size={18}
+			strokeWidth={1.9}
 			aria-hidden="true"
 		/>
 	);

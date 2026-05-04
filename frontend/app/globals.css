@@ -454,17 +454,20 @@ h1 {
 }
 
 .tree-row {
+	position: relative;
 	display: grid;
 	grid-template-columns: 14px 20px minmax(0, 1fr) minmax(34px, auto);
 	align-items: center;
 	width: 100%;
 	min-height: 29px;
 	column-gap: 5px;
-	padding: 2px 5px;
+	padding: 2px 5px 2px var(--tree-indent, 5px);
 	border: 1px solid transparent;
 	background: transparent;
 	color: var(--text);
+	font-family: var(--font-mono);
 	text-align: left;
+	z-index: 1;
 }
 
 .tree-row:hover {
@@ -482,11 +485,17 @@ h1 {
 	color: var(--accent-strong);
 }
 
-.tree-row span:nth-child(3) {
+.tree-row-child {
+	min-height: 25px;
+	color: var(--muted);
+}
+
+.tree-label {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: var(--font-size-md);
+	font-size: var(--font-size-xs);
+	font-weight: 400;
 }
 
 .tree-row small {
@@ -505,17 +514,50 @@ h1 {
 	height: 1px;
 }
 
+.tree-nest-toggle {
+	color: var(--dim);
+}
+
 .file-type-icon {
 	display: block;
 	width: 20px;
 	height: 20px;
 	flex: 0 0 20px;
 	overflow: visible;
+	stroke-width: 1.9;
+}
+
+.file-type-icon.csv {
+	color: var(--accent-olive);
+}
+
+.file-type-icon.file {
+	color: var(--accent-smoke);
 }
 
 .file-type-icon.raw {
 	color: var(--accent-table);
-	stroke-width: 2;
+}
+
+.file-type-icon.database,
+.file-type-icon.sqlite {
+	color: var(--accent);
+}
+
+.file-type-icon.markdown {
+	color: var(--accent-olive);
+}
+
+.file-type-icon.python {
+	color: #4a86a8;
+}
+
+.file-type-icon.skillFolder {
+	color: var(--accent-strong);
+}
+
+.file-type-icon.view {
+	color: var(--accent-rust);
 }
 
 .explorer-empty {
