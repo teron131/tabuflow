@@ -471,7 +471,7 @@ function inspectorState({
 
 function skillResourceTitle(resource: SkillResourceEntry | null) {
 	if (!resource) return "No skill file selected";
-	return isMarkdownSkillResource(resource) ? "Markdown Viewer" : resource.label;
+	return resource.label;
 }
 
 function skillResourceDetail(resource: SkillResourceEntry | null) {

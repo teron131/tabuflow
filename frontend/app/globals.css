@@ -945,7 +945,8 @@ h1 {
 	padding: 0;
 }
 
-.sql-editor-wrap {
+.sql-editor-wrap,
+.resource-editor-wrap {
 	position: relative;
 	min-height: 0;
 	flex: 1;
@@ -956,6 +957,8 @@ h1 {
 
 .sql-editor-wrap textarea,
 .sql-highlight,
+.resource-editor-wrap textarea,
+.resource-highlight,
 .skill-editor textarea,
 .skill-highlight {
 	position: absolute;
@@ -973,7 +976,8 @@ h1 {
 	overflow-wrap: anywhere;
 }
 
-.sql-editor-wrap textarea {
+.sql-editor-wrap textarea,
+.resource-editor-wrap textarea {
 	z-index: 2;
 	color: transparent;
 	caret-color: var(--text);
@@ -982,6 +986,12 @@ h1 {
 }
 
 .sql-highlight {
+	z-index: 1;
+	color: var(--text);
+	pointer-events: none;
+}
+
+.resource-highlight {
 	z-index: 1;
 	color: var(--text);
 	pointer-events: none;
@@ -1006,6 +1016,7 @@ h1 {
 }
 
 .sql-editor-wrap[data-active-line="true"] .editor-active-line,
+.resource-editor-wrap[data-active-line="true"] .editor-active-line,
 .skill-editor-wrap[data-active-line="true"] .editor-active-line {
 	display: block;
 }
@@ -1043,6 +1054,18 @@ h1 {
 	padding-left: 10px;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
+}
+
+.editor-nowrap textarea,
+.editor-nowrap .editor-content,
+.editor-nowrap .editor-line-text {
+	white-space: pre;
+	overflow-wrap: normal;
+}
+
+.editor-nowrap .editor-line {
+	width: max-content;
+	min-width: 100%;
 }
 
 .sql-comment {
@@ -1594,97 +1617,47 @@ h1 {
 	padding: 14px 16px;
 }
 
-.resource-code-viewer {
+.resource-editor-wrap {
 	flex: 1;
 	min-height: 0;
-	margin: 0;
-	overflow: auto;
-	background: #fffdf6;
-	color: var(--text);
-	font-family: var(--font-mono);
-	font-size: var(--font-size-md);
-	line-height: var(--editor-line-height);
-	tab-size: 2;
 }
 
-.resource-code-viewer code {
-	display: block;
-	min-width: max-content;
-	white-space: pre;
-}
-
-.resource-code-line {
-	display: flex;
-	min-height: var(--editor-line-height);
-	line-height: var(--editor-line-height);
-}
-
-.resource-code-line-number {
-	box-sizing: border-box;
-	flex: 0 0 46px;
-	width: 46px;
-	padding: 0 9px 0 8px;
-	border-right: 1px solid color-mix(in srgb, var(--line) 56%, transparent);
-	background: color-mix(in srgb, #fffdf6 86%, var(--panel-soft));
-	color: var(--dim);
-	font-variant-numeric: tabular-nums;
-	text-align: right;
-	user-select: none;
-}
-
-.resource-code-line-text {
-	display: block;
-	min-width: 0;
-	flex: 1;
-	padding: 0 16px 0 12px;
-}
-
-.resource-code-line:first-child .resource-code-line-number,
-.resource-code-line:first-child .resource-code-line-text {
-	padding-top: 14px;
-}
-
-.resource-code-line:last-child .resource-code-line-number,
-.resource-code-line:last-child .resource-code-line-text {
-	padding-bottom: 14px;
-}
-
-.resource-code-viewer .hljs-comment,
-.resource-code-viewer .hljs-quote {
+.resource-highlight .hljs-comment,
+.resource-highlight .hljs-quote {
 	color: var(--dim);
 	font-style: italic;
 }
 
-.resource-code-viewer .hljs-keyword,
-.resource-code-viewer .hljs-selector-tag,
-.resource-code-viewer .hljs-section,
-.resource-code-viewer .hljs-title {
+.resource-highlight .hljs-keyword,
+.resource-highlight .hljs-selector-tag,
+.resource-highlight .hljs-section,
+.resource-highlight .hljs-title {
 	color: var(--accent-rust);
 	font-weight: 600;
 }
 
-.resource-code-viewer .hljs-string,
-.resource-code-viewer .hljs-doctag,
-.resource-code-viewer .hljs-regexp {
+.resource-highlight .hljs-string,
+.resource-highlight .hljs-doctag,
+.resource-highlight .hljs-regexp {
 	color: var(--accent-olive);
 }
 
-.resource-code-viewer .hljs-number,
-.resource-code-viewer .hljs-literal,
-.resource-code-viewer .hljs-variable,
-.resource-code-viewer .hljs-template-variable {
+.resource-highlight .hljs-number,
+.resource-highlight .hljs-literal,
+.resource-highlight .hljs-variable,
+.resource-highlight .hljs-template-variable {
 	color: var(--amber);
 }
 
-.resource-code-viewer .hljs-attribute,
-.resource-code-viewer .hljs-name,
-.resource-code-viewer .hljs-type,
-.resource-code-viewer .hljs-built_in,
-.resource-code-viewer .hljs-builtin-name {
+.resource-highlight .hljs-attribute,
+.resource-highlight .hljs-name,
+.resource-highlight .hljs-type,
+.resource-highlight .hljs-built_in,
+.resource-highlight .hljs-builtin-name {
 	color: #2f7f8f;
 }
 
-.resource-code-viewer .hljs-link {
+.resource-highlight .hljs-link {
 	color: #2f7f8f;
 	text-decoration: underline;
 	text-underline-offset: 2px;

@@ -23,15 +23,10 @@ import {
 	type SkillResourceEntry,
 	type SqlResult,
 } from "@/lib/api";
-import { MarkdownContent, MarkdownViewer } from "./markdown-viewer";
+import { CodeEditor } from "./code-editor";
+import { MarkdownContent } from "./markdown-viewer";
 import { ResultTable } from "./result-table";
 import type { InspectorView, RoundingSettings } from "./types";
-
-type HighlightedResourceLine = {
-	key: string;
-	number: number;
-	nodes: ReactNode[];
-};
 
 type ResourceTab = "summary" | "code";
 
@@ -241,32 +236,31 @@ export function isMarkdownSkillResource(resource: SkillResourceEntry | null) {
 }
 
 function ResourceContentViewer({ resource }: { resource: SkillResourceEntry }) {
-	if (isMarkdownResource(resource)) {
-		return (
-			<MarkdownViewer
-				content={resource.content || ""}
-				keyPrefix={resource.relative_path || resource.label}
-			/>
-		);
-	}
 	return <ResourceCodeViewer resource={resource} />;
 }
 
 function ResourceCodeViewer({ resource }: { resource: SkillResourceEntry }) {
-	const lines = useMemo(() => highlightedResourceLines(resource), [resource]);
+	const [draftContent, setDraftContent] = useState(resource.content || "");
+	const language = resourceLanguage(resource);
+	const renderLine = useCallback(
+		(line: string) => renderHighlightedResourceText(line, language),
+		[language],
+	);
+
+	useEffect(() => {
+		setDraftContent(resource.content || "");
+	}, [resource]);
+
 	return (
-		<pre className="resource-code-viewer">
-			<code className={`hljs language-${resourceLanguage(resource)}`}>
-				{lines.map((line) => (
-					<span className="resource-code-line" key={line.key}>
-						<span className="resource-code-line-number">{line.number}</span>
-						<span className="resource-code-line-text">
-							{line.nodes.length ? line.nodes : "\u00a0"}
-						</span>
-					</span>
-				))}
-			</code>
-		</pre>
+		<CodeEditor
+			ariaLabel={`${resource.label} editor`}
+			className="resource-editor-wrap editor-nowrap"
+			highlightClassName={`resource-highlight language-${language}`}
+			renderLine={renderLine}
+			value={draftContent}
+			wrap="off"
+			onChange={setDraftContent}
+		/>
 	);
 }
 
@@ -331,44 +325,15 @@ function ResourceSummaryStatus({ status }: { status: string }) {
 	);
 }
 
-function highlightedResourceLines(
-	resource: SkillResourceEntry,
-): HighlightedResourceLine[] {
-	const language = resourceLanguage(resource);
-	return rawResourceLines(resource.content || "").map((line) => {
-		if (language === "plaintext") {
-			return {
-				...line,
-				nodes: line.text ? [line.text] : [],
-			};
-		}
-		const highlighted = hljs.highlight(line.text, {
-			language,
-			ignoreIllegals: true,
-		}).value;
-		return {
-			...line,
-			nodes: highlighted ? renderHighlightNodes(highlighted, line.key) : [],
-		};
-	});
-}
-
-function rawResourceLines(text: string) {
-	const matches = text.matchAll(/[^\r\n]*(?:\r\n|\r|\n|$)/g);
-	const lines: Array<{ key: string; number: number; text: string }> = [];
-	for (const match of matches) {
-		if (match.index === text.length && match[0] === "") {
-			continue;
-		}
-		lines.push({
-			key: `resource-line-${match.index}`,
-			number: lines.length + 1,
-			text: match[0].replace(/\r\n|\r|\n$/, ""),
-		});
+function renderHighlightedResourceText(line: string, language: string) {
+	if (language === "plaintext") {
+		return line;
 	}
-	return lines.length
-		? lines
-		: [{ key: "resource-line-0", number: 1, text: "" }];
+	const highlighted = hljs.highlight(line, {
+		language,
+		ignoreIllegals: true,
+	}).value;
+	return highlighted ? renderHighlightNodes(highlighted, line) : line;
 }
 
 function renderHighlightNodes(html: string, keyPrefix: string) {
@@ -444,7 +409,7 @@ function resourcePath(resource: SkillResourceEntry | null) {
 }
 
 function resourceContentTabLabel(resource: SkillResourceEntry) {
-	return isMarkdownResource(resource) ? "Markdown Viewer" : "Code";
+	return isMarkdownResource(resource) ? "Markdown" : "Code";
 }
 
 function csvToResult(resource: SkillResourceEntry): SqlResult {

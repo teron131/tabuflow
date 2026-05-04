@@ -5,12 +5,15 @@ type EditorLine = {
 	text: string;
 };
 
+const FALLBACK_EDITOR_LINE_HEIGHT = 19;
+
 type CodeEditorProps = {
 	ariaLabel?: string;
 	className: string;
 	highlightClassName: string;
 	renderLine: (line: string) => ReactNode;
 	value: string;
+	wrap?: "soft" | "off";
 	onChange: (value: string) => void;
 };
 
@@ -20,6 +23,7 @@ export const CodeEditor = memo(function CodeEditor({
 	highlightClassName,
 	renderLine,
 	value,
+	wrap = "soft",
 	onChange,
 }: CodeEditorProps) {
 	const editorRef = useRef<HTMLDivElement | null>(null);
@@ -99,7 +103,7 @@ export const CodeEditor = memo(function CodeEditor({
 				}}
 				onSelect={(event) => scheduleActiveLineUpdate(event.currentTarget)}
 				spellCheck={false}
-				wrap="soft"
+				wrap={wrap}
 			/>
 		</div>
 	);
@@ -131,6 +135,10 @@ function updateEditorActiveLine(
 	const lineNumber = editor.value
 		.slice(0, editor.selectionStart)
 		.split(/\r\n|\r|\n/).length;
+	if (editor.wrap === "off") {
+		updateUnwrappedEditorActiveLine(editor, container, contentLayer, lineNumber);
+		return;
+	}
 	const activeLine = contentLayer.children.item(lineNumber - 1);
 	if (!(activeLine instanceof HTMLElement)) {
 		delete container.dataset.activeLine;
@@ -143,6 +151,29 @@ function updateEditorActiveLine(
 		"--editor-active-line-height",
 		`${activeLine.offsetHeight}px`,
 	);
+}
+
+function updateUnwrappedEditorActiveLine(
+	editor: HTMLTextAreaElement,
+	container: HTMLDivElement,
+	contentLayer: HTMLPreElement,
+	lineNumber: number,
+) {
+	const editorStyle = getComputedStyle(editor);
+	const measuredLineHeight =
+		contentLayer.children.item(0)?.getBoundingClientRect().height || 0;
+	const lineHeight =
+		Number.parseFloat(editorStyle.lineHeight) ||
+		measuredLineHeight ||
+		FALLBACK_EDITOR_LINE_HEIGHT;
+	const paddingTop = Number.parseFloat(editorStyle.paddingTop) || 0;
+
+	container.dataset.activeLine = "true";
+	container.style.setProperty(
+		"--editor-active-line-top",
+		`${paddingTop + (lineNumber - 1) * lineHeight - editor.scrollTop}px`,
+	);
+	container.style.setProperty("--editor-active-line-height", `${lineHeight}px`);
 }
 
 function syncEditorScroll(
