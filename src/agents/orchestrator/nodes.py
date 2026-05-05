@@ -53,7 +53,7 @@ def build_skill_context_update(
     trace: list[str],
     config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
-    """Build the deterministic skill-context update for data_workflow."""
+    """Build the deterministic skill-context update for stage tools."""
     skill_payload = build_worker_skill_payload(
         message,
         config=config,
@@ -416,62 +416,6 @@ class OrchestratorNodes:
                 )
             ],
         }
-
-    def answer(self, state: OrchestratorState) -> dict[str, Any]:
-        """Build or return the terminal user-facing orchestrator answer."""
-        if state.content and state.artifact:
-            return {
-                "content": state.content,
-                "artifact": state.artifact,
-                "stage_artifacts": state.stage_artifacts,
-                "messages": [stage_report_message("answer", "Answer reused the existing terminal result.")],
-            }
-
-        run = orchestrator_run_from_state(state)
-        prep_output = None if state.prep_output is None else PrepStageOutput.model_validate(state.prep_output)
-        if prep_output is None or prep_output.status != "prepared":
-            content, artifact = run.result(
-                status="error",
-                outcome="failed",
-                completion_reason="prep_failed",
-                selected_targets=[],
-                candidate_sql=None,
-                sql_result=None,
-                saved_view_name=None,
-                saved_view=None,
-                sql_path=None,
-                last_error=(None if prep_output is None else prep_output.last_error) or "Preparation failed.",
-                validation_feedback=None,
-                validation_attempts=0,
-            )
-            return {
-                "content": content,
-                "artifact": artifact,
-                "stage_artifacts": state.stage_artifacts,
-                "messages": [stage_report_message("answer", f"Answered prep failure: {artifact.get('last_error')}")],
-            }
-
-        content, artifact = build_sql_failure_result(
-            run,
-            loop=sql_loop_from_state(state),
-        )
-        return {
-            "content": content,
-            "artifact": artifact,
-            "stage_artifacts": state.stage_artifacts,
-            "messages": [
-                stage_report_message(
-                    "answer",
-                    f"Answered query-stage result with status={artifact.get('status')} and completion_reason={artifact.get('completion_reason')}.",
-                )
-            ],
-        }
-
-
-def route_after_prep_stage(state: OrchestratorState) -> str:
-    """Route to SQL only after prep produces a usable database target."""
-    prep_output = None if state.prep_output is None else PrepStageOutput.model_validate(state.prep_output)
-    return "query_stage" if prep_output is not None and prep_output.status == "prepared" else "answer"
 
 
 def route_after_execute_sql(state: OrchestratorState) -> str:

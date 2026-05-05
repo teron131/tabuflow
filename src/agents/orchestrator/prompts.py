@@ -39,7 +39,8 @@ def build_prep_stage_message(
             skill_refs=skill_refs,
             previous_attempts=[],
             retry_instructions=[],
-        )
+        ),
+        name="prep_stage",
     )
 
 

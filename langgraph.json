@@ -2,7 +2,6 @@
 	"dependencies": ["."],
 	"graphs": {
 		"orchestrator": "./src/agents/orchestrator/app.py:graph",
-		"data_workflow": "./src/agents/orchestrator/app.py:data_workflow_graph",
 		"prep": "./src/agents/orchestrator/app.py:prep_graph",
 		"query": "./src/agents/orchestrator/app.py:query_graph"
 	},

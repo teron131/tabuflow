@@ -6,6 +6,5 @@ from src.agents.prep_stage import PrepStage
 
 orchestrator = Orchestrator()
 graph = orchestrator.build_orchestrator_agent()
-data_workflow_graph = orchestrator.data_workflow_graph
 prep_graph = PrepStage().graph
 query_graph = build_query_stage_graph(llm=orchestrator.llm)

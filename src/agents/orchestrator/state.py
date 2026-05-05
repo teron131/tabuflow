@@ -101,8 +101,13 @@ def message_text(message: BaseMessage | dict[str, Any]) -> str:
 def latest_user_message(messages: list[AnyMessage]) -> str:
     """Return the latest user-authored message text from chat state."""
     for message in reversed(messages):
-        if isinstance(message, HumanMessage):
+        if isinstance(message, HumanMessage) and message.name == "user":
             return message_text(message)
-        if isinstance(message, dict) and message.get("role") in {"user", "human"}:
+        if isinstance(message, dict) and message.get("role") in {"user", "human"} and message.get("name") == "user":
+            return message_text(message)
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage) and message.name != "prep_stage":
+            return message_text(message)
+        if isinstance(message, dict) and message.get("role") in {"user", "human"} and message.get("name") != "prep_stage":
             return message_text(message)
     return ""

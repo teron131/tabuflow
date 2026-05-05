@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage
-from langchain_core.runnables import RunnableConfig
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables.config import patch_config
-from langchain_core.tools import BaseTool, StructuredTool
-from pydantic import BaseModel, Field
+from langchain_core.tools import BaseTool, InjectedToolCallId, tool
+from langgraph.prebuilt import InjectedState
+from langgraph.types import Command
 
 from ..prep_stage import PrepStage
 from ..query_stage import DraftFn, RuntimeRepairFn
@@ -21,30 +22,6 @@ from .state import OrchestratorState
 PREP_RECURSION_LIMIT_PER_SOURCE_FILE = 30
 MIN_PREP_RECURSION_LIMIT = PREP_RECURSION_LIMIT_PER_SOURCE_FILE * 3
 TOOL_STATE_EXCLUDE = {"messages", "structured_response"}
-
-
-class PrepStageArgs(BaseModel):
-    """Input for the prep-stage tool."""
-
-    message: str = Field(description="User request that needs source-file preparation.")
-    source_files: list[str] = Field(default_factory=list, description="Source files to inspect and prepare.")
-    max_validation_retries: int = Field(default=2, description="Retry budget to carry into later query-stage calls.")
-
-
-class QueryStageArgs(BaseModel):
-    """Input for the query-stage tool."""
-
-    message: str = Field(description="User request to answer using already prepared data.")
-    prepared_state: dict[str, Any] = Field(description="Compact state returned by the prep_stage tool.")
-    max_validation_retries: int | None = Field(default=None, description="Optional retry budget override for this query.")
-
-
-def _prep_recursion_limit(source_files: list[str]) -> int:
-    """Return the prep-stage recursion budget for one tool call."""
-    return max(
-        MIN_PREP_RECURSION_LIMIT,
-        PREP_RECURSION_LIMIT_PER_SOURCE_FILE * len(source_files),
-    )
 
 
 def _merge_state_update(state: OrchestratorState, update: dict[str, Any]) -> OrchestratorState:
@@ -61,6 +38,57 @@ def _merge_state_update(state: OrchestratorState, update: dict[str, Any]) -> Orc
 def _compact_state(state: OrchestratorState | dict[str, Any]) -> dict[str, Any]:
     """Return a JSON-safe state payload suitable for tool results."""
     return OrchestratorState.model_validate(state).model_dump(mode="json", exclude=TOOL_STATE_EXCLUDE)
+
+
+def _tool_command(
+    *,
+    tool_name: str,
+    tool_call_id: str,
+    state_payload: dict[str, Any],
+    visible_payload: dict[str, Any],
+) -> Command:
+    """Return a tool result that updates graph state without exposing full state."""
+    return Command(
+        update={
+            **state_payload,
+            "messages": [
+                ToolMessage(
+                    content=json.dumps(visible_payload, ensure_ascii=True),
+                    name=tool_name,
+                    tool_call_id=tool_call_id,
+                )
+            ],
+        }
+    )
+
+
+def _prep_visible_payload(state_payload: dict[str, Any]) -> dict[str, Any]:
+    """Return the compact prep result shown to the model."""
+    extracted_targets = state_payload.get("extracted_targets") or []
+    target_names = [str(target.get("typed_view_name") or target.get("table_name")) for target in extracted_targets if target.get("typed_view_name") or target.get("table_name")]
+    prep_output = state_payload.get("prep_output") or {}
+    return {
+        "status": prep_output.get("status") or ("prepared" if target_names else "error"),
+        "database_path": state_payload.get("database_path"),
+        "prepared_state_available": bool(target_names),
+        "target_count": len(target_names),
+        "preferred_targets": state_payload.get("preferred_targets") or target_names,
+    }
+
+
+def _query_visible_payload(state_payload: dict[str, Any]) -> dict[str, Any]:
+    """Return the compact query result shown to the model."""
+    artifact = state_payload.get("artifact") or {}
+    return {
+        "status": artifact.get("status") or state_payload.get("status"),
+        "outcome": artifact.get("outcome"),
+        "completion_reason": artifact.get("completion_reason"),
+        "content": state_payload.get("content"),
+        "saved_view_name": artifact.get("saved_view_name"),
+        "sql_path": artifact.get("sql_path") or state_payload.get("sql_path"),
+        "sql_result": artifact.get("sql_result"),
+        "last_error": artifact.get("last_error") or state_payload.get("last_error"),
+    }
 
 
 def _reset_query_fields(payload: dict[str, Any]) -> dict[str, Any]:
@@ -107,61 +135,66 @@ def make_orchestrator_stages(
     prep_graph = nodes.prep_stage_graph()
     query_graph = nodes.query_stage_graph()
 
+    @tool("prep_stage")
     def prep_stage(
         message: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        orchestrator_state: Annotated[Any, InjectedState],
         source_files: list[str] | None = None,
         max_validation_retries: int = 2,
-        config: RunnableConfig | None = None,
-    ) -> dict[str, Any]:
-        """Prepare source files and return compact state for later query_stage calls."""
-        safe_source_files = source_files or []
+    ) -> Command:
+        """Prepare source files and store compact state for later query_stage calls."""
+        current_state = OrchestratorState.model_validate(orchestrator_state)
+        safe_source_files = source_files or current_state.source_files
         state = OrchestratorState(
-            messages=[HumanMessage(content=message)],
+            messages=[HumanMessage(content=message, name="user")],
             source_files=safe_source_files,
             max_validation_retries=max_validation_retries,
         )
         state = _merge_state_update(
             state,
-            nodes.skill_context(state, config=config),
+            nodes.skill_context(state),
         )
         result = prep_graph.invoke(
             state.model_dump(mode="python"),
             config=patch_config(
-                config,
-                recursion_limit=_prep_recursion_limit(safe_source_files),
+                None,
+                recursion_limit=max(
+                    MIN_PREP_RECURSION_LIMIT,
+                    PREP_RECURSION_LIMIT_PER_SOURCE_FILE * len(safe_source_files),
+                ),
             ),
         )
-        return _compact_state(result)
+        state_payload = _compact_state(result)
+        return _tool_command(
+            tool_name="prep_stage",
+            tool_call_id=tool_call_id,
+            state_payload=state_payload,
+            visible_payload=_prep_visible_payload(state_payload),
+        )
 
+    @tool("query_stage")
     def query_stage(
         message: str,
-        prepared_state: dict[str, Any],
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        orchestrator_state: Annotated[Any, InjectedState],
         max_validation_retries: int | None = None,
-        config: RunnableConfig | None = None,
-    ) -> dict[str, Any]:
-        """Query prepared data, validate the result, save a view, and return compact state."""
-        payload = _reset_query_fields(dict(prepared_state))
-        payload["messages"] = [HumanMessage(content=message)]
+    ) -> Command:
+        """Query prepared data, validate the result, save a view, and store result state."""
+        payload = _reset_query_fields(_compact_state(orchestrator_state))
+        payload["messages"] = [HumanMessage(content=message, name="user")]
         payload.setdefault("source_files", [])
         if max_validation_retries is not None:
             payload["max_validation_retries"] = max_validation_retries
         result = query_graph.invoke(
             OrchestratorState.model_validate(payload).model_dump(mode="python"),
-            config=config,
         )
-        return _compact_state(result)
+        state_payload = _compact_state(result)
+        return _tool_command(
+            tool_name="query_stage",
+            tool_call_id=tool_call_id,
+            state_payload=state_payload,
+            visible_payload=_query_visible_payload(state_payload),
+        )
 
-    return [
-        StructuredTool.from_function(
-            prep_stage,
-            name="prep_stage",
-            description="Prepare source files for later SQL/data analysis. Returns compact prepared state.",
-            args_schema=PrepStageArgs,
-        ),
-        StructuredTool.from_function(
-            query_stage,
-            name="query_stage",
-            description="Run SQL analysis on prepared state, validate it, save a view, and return compact result state.",
-            args_schema=QueryStageArgs,
-        ),
-    ]
+    return [prep_stage, query_stage]
