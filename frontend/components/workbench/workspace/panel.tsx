@@ -32,7 +32,7 @@ import {
 import { isTargetView } from "../targets";
 import type { InspectorView, RoundingSettings, ThemeMode } from "../types";
 import { CodeEditor } from "./code-editor";
-import { downloadResult } from "./download";
+import { downloadResult, downloadTargetView } from "./download";
 import { renderHighlightedMarkdownLine } from "./markdown-highlight";
 import { ResultTable } from "./result-table";
 import {
@@ -129,6 +129,11 @@ export function WorkspacePanel({
 		inspectorView === "skillResource" &&
 		selectedSkillResource &&
 		!isCsvSkillResource(selectedSkillResource, inspectorView);
+	const canDownloadTargetView =
+		inspectorView === "target" &&
+		!!selectedTarget &&
+		isTargetView(selectedTarget) &&
+		!!targetPreviewResult?.columns?.length;
 	const hasResultLikeBody =
 		inspectorView === "results" ||
 		isCsvSkillResource(selectedSkillResource, inspectorView) ||
@@ -294,6 +299,17 @@ export function WorkspacePanel({
 								className="outline-button"
 								type="button"
 								onClick={() => downloadResult(sqlResult)}
+							>
+								<Download size={13} />
+								CSV
+							</button>
+						) : null}
+						{canDownloadTargetView && selectedTarget ? (
+							<button
+								aria-label={`Download ${selectedTarget.name} as CSV`}
+								className="outline-button"
+								type="button"
+								onClick={() => downloadTargetView(selectedTarget.name)}
 							>
 								<Download size={13} />
 								CSV

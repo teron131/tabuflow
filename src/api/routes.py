@@ -1,10 +1,13 @@
 """HTTP routes for the data-agentics workbench API."""
 
+import csv
 from datetime import UTC, datetime
+import io
 import json
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -21,6 +24,7 @@ from ..config import (
 from ..explainer import MissingExplainerModelError, explain_file
 from ..tools import list_skills, load_skills
 from ..tools.sql.query import describe_target, list_targets, run_query
+from ..tools.tabular.storage import quote_identifier
 from ..tools.tabular.tools import extract_tabular_file
 from .chat import ChatConfigurationError, ChatRuntimeError, run_chat, stream_chat_chunks
 from .constants import (
@@ -182,6 +186,35 @@ def _safe_upload_name(filename: str, *, content_type: str | None = None) -> str:
         return clean_name
     extension = DEFAULT_IMAGE_EXTENSION_BY_TYPE.get(content_type or "", "")
     return f"upload{extension}"
+
+
+def _safe_download_name(name: str) -> str:
+    """Return a stable CSV filename for a SQL view export."""
+    clean_name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip(".-")
+    return f"{clean_name or 'view'}.csv"
+
+
+def _csv_buffer_value(buffer: io.StringIO) -> str:
+    """Return buffered CSV text and reset the buffer for streaming."""
+    value = buffer.getvalue()
+    buffer.seek(0)
+    buffer.truncate(0)
+    return value
+
+
+def _stream_view_csv(database_path: Path, view_name: str):
+    """Yield one SQLite view as CSV chunks."""
+    buffer = io.StringIO(newline="")
+    writer = csv.writer(buffer)
+    connection_url = f"file:{database_path}?mode=ro"
+    with sqlite3.connect(connection_url, uri=True) as connection:
+        cursor = connection.execute(f"SELECT * FROM {quote_identifier(view_name)}")
+        columns = [column[0] for column in cursor.description or []]
+        writer.writerow(columns)
+        yield _csv_buffer_value(buffer)
+        while rows := cursor.fetchmany(1000):
+            writer.writerows(rows)
+            yield _csv_buffer_value(buffer)
 
 
 def _source_files_payload(database_path: Path) -> list[dict[str, Any]]:
@@ -427,6 +460,36 @@ def sql_targets() -> dict[str, Any]:
         return _public_sql_payload(list_targets(database_path=resolve_database_path()))
     except WorkspaceDataMissingError as exc:
         raise _workspace_data_error(exc) from exc
+
+
+@router.get("/sql/targets/{target_name}/download")
+def download_sql_view(target_name: str) -> StreamingResponse:
+    """Download one saved SQLite view as a CSV file."""
+    try:
+        database_path = default_database_path()
+        target = describe_target(target_name, database_path=database_path)
+    except WorkspaceDataMissingError as exc:
+        raise _workspace_data_error(exc) from exc
+    if target.get("status") == "error" and target.get("error_type") == "missing_target":
+        raise HTTPException(status_code=404, detail=target)
+    if target.get("status") == "error":
+        raise HTTPException(status_code=400, detail=target)
+    if target.get("type") != "view" or target.get("kind") == "typed_content_view":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "mode": "not_downloadable_view",
+                "message": "Only saved SQLite views can be downloaded as CSV.",
+            },
+        )
+
+    filename = _safe_download_name(target_name)
+    return StreamingResponse(
+        _stream_view_csv(database_path, target_name),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/sql/targets/{target_name}")
