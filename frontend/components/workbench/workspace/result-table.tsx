@@ -386,7 +386,8 @@ function ResultGrid({
 		[profiles, rounding, rows],
 	);
 	const visibleRows = resultRowCount ?? rows.length;
-	const statusText = `${visibleRows.toLocaleString()} row${visibleRows === 1 ? "" : "s"} x ${columns.length.toLocaleString()} column${columns.length === 1 ? "" : "s"}`;
+	const rowLabel = `${visibleRows.toLocaleString()}${truncated ? "+" : ""}`;
+	const statusText = `${rowLabel} row${visibleRows === 1 && !truncated ? "" : "s"} x ${columns.length.toLocaleString()} column${columns.length === 1 ? "" : "s"}`;
 
 	return (
 		<div className="result-grid-shell" data-testid="result-grid">
@@ -445,7 +446,6 @@ function ResultGrid({
 							) : null}
 						</>
 					) : null}
-					{truncated ? <span className="selection-stat">truncated</span> : null}
 				</div>
 			</footer>
 		</div>

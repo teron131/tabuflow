@@ -52,6 +52,7 @@ import {
 } from "@/lib/api";
 
 const themeStorageKey = "data-agentics-theme";
+const previewRowLimit = 250;
 
 function isThemeMode(value: string | null): value is ThemeMode {
 	return value === "light" || value === "dark";
@@ -207,7 +208,7 @@ export function Workbench() {
 		try {
 			const result = await fetchJson<SqlResult>("/api/sql/run", {
 				method: "POST",
-				body: JSON.stringify({ sql, max_rows: 100 }),
+				body: JSON.stringify({ sql, max_rows: previewRowLimit }),
 			});
 			setSqlResult(result);
 		} catch (error) {
@@ -288,7 +289,7 @@ export function Workbench() {
 						method: "POST",
 						body: JSON.stringify({
 							sql: targetPreviewSql(target.name),
-							max_rows: 100,
+							max_rows: previewRowLimit,
 						}),
 					}),
 					isView
@@ -347,7 +348,7 @@ export function Workbench() {
 					method: "POST",
 					body: JSON.stringify({
 						sql: targetPreviewSql(previewTarget.name),
-						max_rows: 100,
+						max_rows: previewRowLimit,
 					}),
 				});
 				if (sourcePreviewRequestId.current === requestId) {
@@ -706,7 +707,7 @@ function preferredTarget(targets: Target[]) {
 }
 
 function targetPreviewSql(targetName: string) {
-	return `SELECT * FROM ${quoteSqlIdentifier(targetName)} LIMIT 100;`;
+	return `SELECT * FROM ${quoteSqlIdentifier(targetName)};`;
 }
 
 function quoteSqlIdentifier(identifier: string) {

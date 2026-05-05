@@ -25,7 +25,7 @@ class SqlRunRequest(BaseModel):
     """Request body for read-only SQL execution."""
 
     sql: str = Field(min_length=1)
-    max_rows: int = Field(default=100, ge=1, le=500)
+    max_rows: int = Field(default=250, ge=1, le=500)
 
 
 class FileExplanationRequest(BaseModel):
