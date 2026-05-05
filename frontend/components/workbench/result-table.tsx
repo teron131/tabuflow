@@ -10,6 +10,7 @@ import {
 	type Rectangle,
 	type Theme,
 } from "@glideapps/glide-data-grid";
+import { AlertTriangle, Table2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import type { SqlResult } from "@/lib/api";
 import type { RoundingSettings } from "./types";
@@ -232,19 +233,31 @@ export function ResultTable({
 }) {
 	if (!result) {
 		return (
-			<div className="empty-state">Run SQL to populate the result grid.</div>
+			<div className="empty-state">
+				<Table2 size={22} aria-hidden="true" />
+				<strong>Run SQL to populate the grid</strong>
+				<span>The current query buffer will render here.</span>
+			</div>
 		);
 	}
 	if (result.status === "error") {
 		return (
-			<div className="error-state">{result.message || result.error_type}</div>
+			<div className="error-state">
+				<AlertTriangle size={22} aria-hidden="true" />
+				<strong>Query failed</strong>
+				<span>{result.message || result.error_type}</span>
+			</div>
 		);
 	}
 	const columns = result.columns || [];
 	const rows = result.rows || [];
 	if (!columns.length) {
 		return (
-			<div className="empty-state">{result.summary || "Query completed."}</div>
+			<div className="empty-state">
+				<Table2 size={22} aria-hidden="true" />
+				<strong>{result.summary || "Query completed"}</strong>
+				<span>No columns were returned.</span>
+			</div>
 		);
 	}
 	return (

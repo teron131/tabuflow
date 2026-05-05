@@ -346,7 +346,14 @@ export function WorkspacePanel({
 								<div className="target-viewer">
 									<div className="target-preview-grid">
 										{isPreviewingTarget ? (
-											<div className="empty-state">Loading preview</div>
+											<div className="loading-state">
+												<strong>Loading preview</strong>
+												<div className="state-lines" aria-hidden="true">
+													<i />
+													<i />
+													<i />
+												</div>
+											</div>
 										) : targetPreviewResult ? (
 											<ResultTable
 												result={targetPreviewResult}
@@ -354,7 +361,8 @@ export function WorkspacePanel({
 											/>
 										) : (
 											<div className="empty-state">
-												Select a table or view to preview rows.
+												<strong>Select a table or view</strong>
+												<span>Preview rows and lineage here.</span>
 											</div>
 										)}
 									</div>

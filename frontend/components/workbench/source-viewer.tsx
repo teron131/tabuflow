@@ -14,7 +14,16 @@ export function SourceViewer({
 	sourcePreviewResult: SqlResult | null;
 }) {
 	if (isPreviewingSource) {
-		return <div className="empty-state">Loading preview</div>;
+		return (
+			<div className="loading-state">
+				<strong>Loading preview</strong>
+				<div className="state-lines" aria-hidden="true">
+					<i />
+					<i />
+					<i />
+				</div>
+			</div>
+		);
 	}
 	if (sourcePreviewResult) {
 		return (

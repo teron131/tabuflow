@@ -413,6 +413,7 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 								)}
 								<GroupIcon size={15} />
 								<span>{group.label}</span>
+								<small>{group.rows.length}</small>
 							</button>
 							{isOpen &&
 								group.rows.map((row) =>
@@ -421,7 +422,12 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 						</section>
 					);
 				})}
-				{!hasVisibleRows && <div className="explorer-empty">No matches</div>}
+				{!hasVisibleRows && (
+					<div className="explorer-empty">
+						<strong>No matches</strong>
+						<span>Adjust the filter or type.</span>
+					</div>
+				)}
 			</div>
 		</aside>
 	);

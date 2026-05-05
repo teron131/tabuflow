@@ -136,12 +136,20 @@ export function SkillResourceViewer({
 	}, [canExplain, loadExplanation, refreshNonce, selectedTab]);
 
 	if (!resource) {
-		return <div className="empty-state">Select a skill file in Explorer.</div>;
+		return (
+			<div className="empty-state">
+				<ScrollText size={22} aria-hidden="true" />
+				<strong>Select a skill file</strong>
+				<span>Use Explorer to inspect instructions, examples, or scripts.</span>
+			</div>
+		);
 	}
 	if (!resource.content) {
 		return (
 			<div className="empty-state">
-				{resource.relative_path || resource.label} has no preview content.
+				<ScrollText size={22} aria-hidden="true" />
+				<strong>No preview content</strong>
+				<span>{resource.relative_path || resource.label}</span>
 			</div>
 		);
 	}
