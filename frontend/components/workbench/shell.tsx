@@ -71,9 +71,9 @@ export function Workbench() {
 	const targetPreviewRequestId = useRef(0);
 	const sourcePreviewRequestId = useRef(0);
 	const didSkipInitialThemePersist = useRef(false);
-	const [activeExplorer, setActiveExplorer] = useState<ExplorerKey>("sql");
+	const [activeExplorer, setActiveExplorer] = useState<ExplorerKey>("files");
 	const [explorerRailMode, setExplorerRailMode] =
-		useState<ExplorerRailMode>("sql");
+		useState<ExplorerRailMode>("all");
 	const [sidePanel, setSidePanel] = useState<SidePanel>("explorer");
 	const [isAgentPanelCollapsed, setIsAgentPanelCollapsed] = useState(false);
 	const [explorerJumpToken, setExplorerJumpToken] = useState(0);
@@ -155,6 +155,31 @@ export function Workbench() {
 				status: "error",
 				message: `Workbench API failed: ${(error as Error).message}`,
 			});
+		}
+	}, []);
+
+	const refreshExplorerData = useCallback(async () => {
+		try {
+			const payload = await fetchJson<BootstrapPayload>("/api/bootstrap");
+			setBootstrap(payload);
+			setSelectedSource((currentSource) =>
+				currentSource
+					? payload.source_files.find(
+							(source) => source.id === currentSource.id,
+						) ||
+						payload.source_files[0] ||
+						null
+					: payload.source_files[0] || null,
+			);
+			setSelectedTarget((currentTarget) =>
+				currentTarget
+					? payload.targets.find(
+							(target) => target.name === currentTarget.name,
+						) || preferredTarget(payload.targets)
+					: preferredTarget(payload.targets),
+			);
+		} catch {
+			// Keep the current explorer state when a transient refresh races the backend.
 		}
 	}, []);
 
@@ -498,7 +523,8 @@ export function Workbench() {
 				if (latestBootstrap) {
 					applyBootstrap(latestBootstrap);
 				}
-				setExplorerSection("files");
+				setActiveExplorer("files");
+				setExplorerRailMode("all");
 				setSidePanel("explorer");
 				setIsExplorerCollapsed(false);
 				setUploadStatus("");
@@ -508,7 +534,7 @@ export function Workbench() {
 				throw error;
 			}
 		},
-		[applyBootstrap, setExplorerSection, setIsExplorerCollapsed],
+		[applyBootstrap, setIsExplorerCollapsed],
 	);
 
 	const startExplorerResize = useCallback(
@@ -661,6 +687,7 @@ export function Workbench() {
 				modelOptions={modelOptions}
 				selectedModel={selectedModel}
 				uploadStatus={uploadStatus}
+				onChatSettled={refreshExplorerData}
 				onModelChange={setSelectedModel}
 				onToggle={toggleAgentPanel}
 				onUploadFiles={uploadFiles}

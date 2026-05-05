@@ -66,6 +66,7 @@ type AgentPanelProps = {
 	selectedModel: string;
 	uploadStatus: string;
 	onModelChange: (model: string) => void;
+	onChatSettled: () => void;
 	onToggle: () => void;
 	onUploadFiles: (
 		files: File[],
@@ -535,6 +536,7 @@ export const AgentPanel = memo(function AgentPanel({
 	selectedModel,
 	uploadStatus,
 	onModelChange,
+	onChatSettled,
 	onToggle,
 	onUploadFiles,
 }: AgentPanelProps) {
@@ -569,7 +571,18 @@ export const AgentPanel = memo(function AgentPanel({
 		messages: initialMessages,
 		transport,
 	});
+	const previousStatusRef = useRef(status);
 	const isBusy = status === "submitted" || status === "streaming";
+
+	useEffect(() => {
+		const wasBusy =
+			previousStatusRef.current === "submitted" ||
+			previousStatusRef.current === "streaming";
+		if (wasBusy && !isBusy) {
+			onChatSettled();
+		}
+		previousStatusRef.current = status;
+	}, [isBusy, onChatSettled, status]);
 	const commandText = input.trimStart();
 	const commandMenuOpen = commandText.startsWith("/") && !isBusy;
 	const commandQuery = commandMenuOpen
