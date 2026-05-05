@@ -19,7 +19,6 @@ class SQLDraft(BaseModel):
     """Structured SQL draft output."""
 
     sql: str = Field(description="Read-only SQL query to write into the SQL artifact file.")
-    filename_hint: str | None = Field(default=None, description="Short noun-focused filename hint for the SQL artifact.")
     selected_targets: list[str] = Field(default_factory=list, description="Allowed targets used by the draft.")
 
 

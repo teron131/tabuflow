@@ -2,32 +2,13 @@
 
 from dataclasses import dataclass
 from pathlib import Path
-import re
 from typing import Any
 
+from ..pipelines.namer import name_sql_artifact
 from ..tools.fs import HashlineEdit, SandboxFS
 
 DEFAULT_SQL_DIR = "data/sql"
 DEFAULT_SQL_DESCRIPTION = "SQL query artifact."
-MAX_SQL_SLUG_WORDS = 4
-SQL_SLUG_PATTERN = re.compile(r"[a-z0-9]+")
-SQL_SLUG_STOP_WORDS = {
-    "a",
-    "an",
-    "and",
-    "by",
-    "for",
-    "from",
-    "get",
-    "give",
-    "in",
-    "of",
-    "on",
-    "show",
-    "the",
-    "to",
-    "with",
-}
 
 
 @dataclass(frozen=True)
@@ -54,11 +35,8 @@ def _sql_user_path(
 ) -> str:
     """Return the SQL artifact path in sandbox user-path form."""
     if sql_path is None:
-        filename = _sql_filename(
-            run_id=run_id,
-            description=filename_hint or description,
-        )
-        return f"{DEFAULT_SQL_DIR}/{filename}"
+        stem = name_sql_artifact(filename_hint or description, run_id)
+        return f"{DEFAULT_SQL_DIR}/{stem}.sql"
 
     path = Path(sql_path).expanduser()
     if not path.is_absolute():
@@ -75,22 +53,6 @@ def _sql_user_path(
 def _sandbox(root_dir: str | Path | None = None) -> SandboxFS:
     """Return the sandboxed filesystem wrapper for SQL artifacts."""
     return SandboxFS(_root_path(root_dir))
-
-
-def _sql_slug(description: str) -> str:
-    """Return a short semantic slug for a SQL artifact."""
-    tokens = SQL_SLUG_PATTERN.findall(description.lower())
-    semantic_tokens = [token for token in tokens if token not in SQL_SLUG_STOP_WORDS]
-    slug_tokens = semantic_tokens[:MAX_SQL_SLUG_WORDS] or tokens[:MAX_SQL_SLUG_WORDS]
-    return "-".join(slug_tokens)
-
-
-def _sql_filename(*, run_id: str, description: str) -> str:
-    """Return the default traceable SQL artifact filename."""
-    slug = _sql_slug(description)
-    if not slug:
-        return f"{run_id}.sql"
-    return f"{slug}-{run_id}.sql"
 
 
 def _sql_location(

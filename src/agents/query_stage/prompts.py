@@ -21,13 +21,11 @@ Rules:
 - `target_context` is shared graph state from the orchestrator/prep stage; use its exact column names and quote identifiers that contain spaces, punctuation, or mixed case.
 - Do not invent normalized columns such as `account`, `account_id`, or `cost_usd` unless the target schema already exposes them or you define them in an earlier CTE from exact source columns.
 - Treat loaded skill references inside `worker_context` as the source of truth for domain SQL. If a skill SQL reference uses placeholders, preserve its raw-column mapping pattern and replace only placeholders with discovered target names/literals.
-- If a skill asks for one saved result view such as `analysis_result`, draft the full SELECT/WITH body that will become that view. Do not select from the future saved view name unless that name is already present in `allowed_targets`.
+- If a skill asks for one saved result view, draft the full SELECT/WITH body that will become that view. Do not select from the future saved view name unless that name is already present in `allowed_targets`.
 - If the message or skill asks for multiple result grains, such as summary, category, and account/customer rows, the SQL must produce all requested row types from real source data. Do not satisfy missing grains with empty UNION arms, `WHERE 1 = 0`, duplicated total rows, or placeholder labels.
 - Treat `message` as the user request and `validation_feedback` as semantic retry guidance from the validation stage.
 - If `validation_feedback` is present, revise the query to address it directly.
 - Do not ask clarifying questions, discover targets, or judge final request fulfillment.
-- Set `filename_hint` to 3-4 kebab-case noun words that describe the query artifact, for example `gcp-group-totals-sep`.
-- Focus `filename_hint` on concrete nouns from the metric, entity, grouping, source, and period. Avoid verbs like show/get/list and filler words.
 """
 
 SQL_RUNTIME_REPAIR_SYSTEM_PROMPT = """Repair a SQL file so SQLite can execute it.

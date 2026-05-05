@@ -1,21 +1,19 @@
 """Runtime state adapters and graph-update helpers for orchestrator stages."""
 
 from dataclasses import dataclass, field
-import re
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ...pipelines.namer import name_sql_artifact
 from ...tools.sql.query import save_view
 from ..trace_utils import SAVE_STAGE, append_stage_trace
 from .payloads import build_result_artifact, build_result_message
 from .state import OrchestratorState, SQLArtifactState, latest_user_message
 
-DEFAULT_VIEW_NAME = "analysis_result"
-MAX_VIEW_REQUEST_SLUG_CHARS = 48
 PREP_STAGE_NAME = "prep_stage"
 QUERY_STAGE_NAME = "query_stage"
 VALIDATION_STAGE_NAME = "validation_stage"
-VIEW_MESSAGE_SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
 @dataclass
@@ -145,16 +143,13 @@ def preferred_sql_targets(extracted_targets: list[dict[str, Any]]) -> list[str]:
     return list(dict.fromkeys(preferred_targets))
 
 
-def request_view_slug(message: str) -> str:
-    """Return a SQLite-safe slug for an orchestrator message."""
-    slug = VIEW_MESSAGE_SLUG_PATTERN.sub("_", message.lower()).strip("_")
-    bounded_slug = slug[:MAX_VIEW_REQUEST_SLUG_CHARS].strip("_")
-    return bounded_slug or "run"
-
-
-def orchestrator_view_name(run: OrchestratorRun) -> str:
+def orchestrator_view_name(
+    run: OrchestratorRun,
+    *,
+    sql_path: str | None = None,
+) -> str:
     """Return the per-run saved result view name."""
-    return f"{DEFAULT_VIEW_NAME}_{request_view_slug(run.message)}_{run.run_id}"
+    return Path(sql_path).stem if sql_path else name_sql_artifact(run.message, run.run_id)
 
 
 def _sql_output_result_fields(
@@ -182,7 +177,7 @@ def save_sql_result(
     validation_attempts: int,
 ) -> tuple[str, dict]:
     """Persist one completed SQL result as a SQLite view and return the final result."""
-    view_name = orchestrator_view_name(run)
+    view_name = orchestrator_view_name(run, sql_path=sql_output.sql_path)
     saved_view = save_view(
         sql_output.candidate_sql,
         view_name,

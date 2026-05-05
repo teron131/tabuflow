@@ -8,12 +8,11 @@ from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 import sqlite3
-from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from ..config import MISSING_LLM_CONFIG_MESSAGE, has_llm_environment, resolve_agent_model
 from ..clients.openai import ChatOpenAI
+from ..config import MISSING_LLM_CONFIG_MESSAGE, has_llm_environment, resolve_agent_model
 
 EXPLAINABLE_EXTENSIONS = {".md", ".markdown", ".py", ".sql"}
 MAX_EXPLAINER_CHARS = 80_000
@@ -36,19 +35,6 @@ class FileExplanation:
     generated_at: str
     cached: bool
 
-    def to_payload(self) -> dict[str, Any]:
-        """Return the API payload shape."""
-        return {
-            "status": "ok",
-            "path": self.path,
-            "relative_path": self.relative_path,
-            "content_hash": self.content_hash,
-            "summary": self.summary,
-            "model": self.model,
-            "generated_at": self.generated_at,
-            "cached": self.cached,
-        }
-
 
 def explain_file(
     *,
@@ -58,7 +44,10 @@ def explain_file(
     model: str | None = None,
 ) -> FileExplanation:
     """Return a cached or newly generated explanation for a supported text file."""
-    resolved_path = _resolve_explainable_path(path=path, repo_root=repo_root)
+    resolved_path = _resolve_explainable_path(
+        path=path,
+        repo_root=repo_root,
+    )
     text = _read_explainable_text(resolved_path)
     content_hash = sha256(text.encode("utf-8")).hexdigest()
     relative_path = str(resolved_path.relative_to(repo_root.resolve()))
@@ -66,7 +55,11 @@ def explain_file(
     _ensure_metadata_store(metadata_path)
 
     if not force:
-        cached = _load_cached_explanation(metadata_path, relative_path=relative_path, content_hash=content_hash)
+        cached = _load_cached_explanation(
+            metadata_path,
+            relative_path=relative_path,
+            content_hash=content_hash,
+        )
         if cached is not None:
             return FileExplanation(
                 path=str(resolved_path),
@@ -79,8 +72,13 @@ def explain_file(
             )
 
     resolved_model = resolve_agent_model(model)
-    _require_model_environment()
-    summary = _generate_summary(path=relative_path, text=text, model=resolved_model)
+    if not has_llm_environment():
+        raise MissingExplainerModelError(MISSING_LLM_CONFIG_MESSAGE)
+    summary = _generate_summary(
+        path=relative_path,
+        text=text,
+        model=resolved_model,
+    )
     generated_at = datetime.now(tz=UTC).isoformat()
     _save_explanation(
         metadata_path,
@@ -134,12 +132,6 @@ def _metadata_database_path(repo_root: Path) -> Path:
     path = repo_root / "data" / METADATA_FILENAME
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
-
-
-def _require_model_environment() -> None:
-    """Fail before generation when the OpenAI-compatible model is unavailable."""
-    if not has_llm_environment():
-        raise MissingExplainerModelError(MISSING_LLM_CONFIG_MESSAGE)
 
 
 def _ensure_metadata_store(database_path: Path) -> None:

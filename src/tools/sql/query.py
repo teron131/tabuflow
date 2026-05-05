@@ -46,7 +46,7 @@ _AMBIGUOUS_COLUMN_ERROR_PREFIX = "ambiguous column name:"
 _MISSING_COLUMN_ERROR_PREFIX = "no such column:"
 _MISSING_TABLE_ERROR_PREFIX = "no such table:"
 _SUGGESTION_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "how", "in", "is", "me", "of", "on", "show", "the", "to", "what", "which", "with"}
-_VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$")
 
 
 class CatalogMetadataError(RuntimeError):
@@ -203,11 +203,6 @@ def _is_view_sql(sql: str) -> bool:
 def _normalized_sql(sql: str) -> str:
     """Normalize one SQL statement for validation and embedding."""
     return sql.strip().rstrip(";").strip()
-
-
-def _is_valid_view_name(view_name: str) -> bool:
-    """Return whether a SQLite view name is safe to create."""
-    return bool(_VIEW_NAME_PATTERN.fullmatch(view_name))
 
 
 def _sqlite_object_names(connection: sqlite3.Connection) -> set[str]:
@@ -872,11 +867,11 @@ def save_view(
                 message="View name must not be empty.",
                 replace=replace,
             )
-        if not _is_valid_view_name(normalized_view_name):
+        if not _VIEW_NAME_PATTERN.fullmatch(normalized_view_name):
             return _error_result(
                 database_path=requested_path,
                 error_type="invalid_view_name",
-                message="View name must start with a letter or underscore and contain only letters, digits, and underscores.",
+                message="View name must start with a letter and contain only letters, digits, and hyphen-separated words.",
                 view_name=normalized_view_name,
                 replace=replace,
             )

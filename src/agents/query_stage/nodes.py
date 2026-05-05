@@ -10,6 +10,7 @@ from langchain.agents.structured_output import ToolStrategy
 from langchain_core.language_models import BaseChatModel
 
 from ...file_management import edit_sql_file, read_sql_file, read_sql_hashlines, write_sql_file
+from ...pipelines.namer import ArtifactNamerFn
 from ...tools.sql.query import run_query, suggest_sql_error_repair
 from ..base import ApplicationAgent
 from ..orchestrator.state import latest_user_message
@@ -167,6 +168,8 @@ def _file_error_update(
 
 def make_write_node(
     drafter: DraftFn,
+    *,
+    artifact_namer: ArtifactNamerFn | None = None,
 ) -> Callable[
     [QueryStageState],
     QueryStageUpdate,
@@ -192,12 +195,23 @@ def make_write_node(
             )
 
         selected_targets = draft.selected_targets or target_names
+        filename_hint = None
+        if artifact_namer is not None:
+            filename_hint = artifact_namer(
+                "\n".join(
+                    [
+                        f"User request: {latest_user_message(state.messages)}",
+                        f"Selected targets: {', '.join(selected_targets)}",
+                        f"SQL:\n{draft.sql}",
+                    ]
+                )
+            )
         write_result = write_sql_file(
             draft.sql,
             state.sql_path,
             run_id=state.run_id,
             description=latest_user_message(state.messages),
-            filename_hint=draft.filename_hint,
+            filename_hint=filename_hint,
             selected_targets=selected_targets,
         )
         if write_result["status"] != "ok":

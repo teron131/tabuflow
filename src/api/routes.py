@@ -1,6 +1,7 @@
 """HTTP routes for the data-agentics workbench API."""
 
 import csv
+from dataclasses import asdict
 from datetime import UTC, datetime
 import io
 import json
@@ -21,7 +22,7 @@ from ..config import (
     UPLOADS_DIR,
     has_llm_environment,
 )
-from ..explainer import MissingExplainerModelError, explain_file
+from ..pipelines.explainer import MissingExplainerModelError, explain_file
 from ..tools import list_skills, load_skills
 from ..tools.sql.query import describe_target, list_targets, run_query
 from ..tools.tabular.storage import quote_identifier
@@ -508,12 +509,13 @@ def sql_target(target_name: str) -> dict[str, Any]:
 def file_explanation(request: FileExplanationRequest) -> dict[str, Any]:
     """Return cached or newly generated non-technical file explanation metadata."""
     try:
-        return explain_file(
+        explanation = explain_file(
             path=request.path,
             repo_root=REPO_ROOT,
             force=request.force,
             model=request.model,
-        ).to_payload()
+        )
+        return {"status": "ok", **asdict(explanation)}
     except MissingExplainerModelError as exc:
         raise _chat_configuration_error(str(exc)) from exc
     except FileNotFoundError as exc:

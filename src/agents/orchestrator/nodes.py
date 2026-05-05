@@ -9,6 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
+from ...pipelines.namer import build_sql_artifact_namer
 from ..prep_stage import PrepStage, PrepStageOutput
 from ..prep_stage.payloads import collect_extracted_targets
 from ..prep_stage.prep_stage import collect_prep_trial_result
@@ -221,7 +222,10 @@ class OrchestratorNodes:
             raise ValueError("SQL stage model functions require the orchestrator's shared llm.")
         self.sql_drafter = sql_drafter or build_sql_drafter(llm)
         self.sql_runtime_repairer = sql_runtime_repairer or build_sql_runtime_repairer(llm)
-        self.sql_write_node = make_write_node(self.sql_drafter)
+        self.sql_write_node = make_write_node(
+            self.sql_drafter,
+            artifact_namer=build_sql_artifact_namer(llm) if llm is not None else None,
+        )
         self.repair_sql_node = make_repair_sql_node(self.sql_runtime_repairer)
         self.validation_stage = validation_stage or (ValidationStage(llm=llm) if llm is not None else ValidationStage())
 
