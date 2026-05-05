@@ -790,3 +790,94 @@ For this repo, the upstream lesson is still:
 - borrow LangChain's explicit inspect -> query loop,
 - borrow LlamaIndex's grounding and narrowing ideas,
 - keep the local implementation thin and deterministic.
+
+## Current State: GCP CSV To One Result View
+
+Updated on `2026-05-05` after reworking the GCP cost-table skill around the intended output examples:
+
+- `examples/gcp/aggregated_cost_table.xlsx`
+- `examples/gcp/aggregated_cost_table2.xlsx`
+
+### Decision
+
+The intended user-facing artifact is one saved SQLite view named `analysis_result`, not a visible stack of raw, typed, account, category, and summary views.
+
+The deterministic pipeline still has stages, but they now belong inside SQL CTEs:
+
+1. scope the current raw cost export,
+2. normalize account ID/name, credit type, and numeric cost fields,
+3. aggregate by billing account,
+4. join account category and special-discount rules,
+5. emit one combined result containing summary, category, and account rows.
+
+This matches the two aggregated spreadsheets conceptually even though their layouts and labels differ. The common shape is:
+
+- category/customer rows,
+- usage before reseller margin,
+- actual cost,
+- discount,
+- revenue / customer charge,
+- HKD revenue,
+- gross profit,
+- gross profit percent.
+
+### Skill Shape
+
+The durable instructions now live in:
+
+- `skills/gcp-cost-pipeline/SKILL.md`
+- `skills/gcp-cost-pipeline/references/gcp-cost-view-contract.md`
+- `skills/gcp-cost-pipeline/references/gcp-cost-view-stack.sql`
+
+There is intentionally no `skills/gcp-cost-pipeline/examples/csv_to_result.py`.
+Future runs should use the SQL reference as the contract and save it through `sql_save` as `analysis_result`.
+
+The SQL reference is a single saveable `WITH ... SELECT` statement with placeholders for:
+
+- the current source path literal,
+- the discovered raw GCP cost table,
+- the discovered account-category rule table,
+- the discovered special-discount rule table,
+- the explicit HKD-per-USD business rate.
+
+### Current Fixture Result
+
+Using the current `examples/gcp/cost_table.csv` fixture and the legacy `7.85` HKD fallback, the summary row validates as:
+
+- `usage_before_reseller_margin_usd = 601929.276546`
+- `cost_usd = 595825.436286`
+- `revenue_usd = 601927.846716`
+- `revenue_hkd = 4725133.596724`
+- `gross_profit_usd = 6102.410430`
+- `gross_profit_pct = 0.010138`
+- `item_count = 19057`
+
+Category rows validate as:
+
+- `edp`: `revenue_usd = 597312.645435`, `item_count = 18259`
+- `external`: `revenue_usd = 4598.619416`, `item_count = 778`
+- `internal`: `revenue_usd = 16.581865`, `item_count = 20`
+
+### Workbench UI Boundary
+
+The app default should remain generic. Do not bake GCP-specific result columns into backend defaults.
+
+Current default bootstrap SQL is intentionally neutral:
+
+```sql
+SELECT
+  'ready' AS status,
+  'Select a source, table, or saved result to inspect.' AS message;
+```
+
+The browser should display relative/source-safe paths such as `examples/gcp/cost_table.csv` and `data/tabular.sqlite`, not absolute local paths.
+
+The API hides auto-generated `typed_content_view` targets from the browser target list so raw tables do not appear to have duplicate view versions. The saved `analysis_result` is the one user-facing view.
+
+### Verification Used
+
+- `uv run ruff check .`
+- `pnpm --dir frontend exec tsc --noEmit`
+- `pnpm build`
+- direct `_bootstrap_payload(default_database_path())` check
+- live `http://localhost:5174/api/bootstrap` check
