@@ -3,6 +3,8 @@
 :root {
 	--font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 	--font-mono: var(--font-geist-mono), "SFMono-Regular", Consolas, monospace;
+	--font-code: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas,
+		"Liberation Mono", monospace;
 	--bg: #f4f2ed;
 	--panel: #fffef9;
 	--panel-strong: #ebe7dd;
@@ -968,7 +970,11 @@ h1 {
 	overflow: auto;
 	border: 0;
 	background: transparent;
-	font-family: var(--font-mono);
+	font-family: var(--font-code);
+	font-variant-ligatures: none;
+	font-feature-settings:
+		"liga" 0,
+		"calt" 0;
 	font-size: var(--font-size-md);
 	line-height: var(--editor-line-height);
 	tab-size: 2;
@@ -1023,6 +1029,11 @@ h1 {
 
 .editor-content {
 	padding-left: 0;
+	font-family: var(--font-code);
+	font-variant-ligatures: none;
+	font-feature-settings:
+		"liga" 0,
+		"calt" 0;
 }
 
 .editor-line {
@@ -1054,6 +1065,11 @@ h1 {
 	padding-left: 10px;
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
+	font-family: var(--font-code);
+	font-variant-ligatures: none;
+	font-feature-settings:
+		"liga" 0,
+		"calt" 0;
 }
 
 .editor-no-wrap textarea,

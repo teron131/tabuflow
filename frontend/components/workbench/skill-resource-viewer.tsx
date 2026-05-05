@@ -355,33 +355,65 @@ function renderHighlightedResourceText(line: string, language: string) {
 		language,
 		ignoreIllegals: true,
 	}).value;
-	return highlighted ? renderHighlightNodes(highlighted, line) : line;
+	return highlighted ? renderHighlightNodes(highlighted) : line;
 }
 
-function renderHighlightNodes(html: string, keyPrefix: string) {
-	const nodes: ReactNode[] = [];
-	const tokenPattern = /<span class="([^"]+)">([\s\S]*?)<\/span>/g;
+type HighlightFrame = {
+	children: ReactNode[];
+	className: string;
+	key: string;
+};
+
+function renderHighlightNodes(html: string) {
+	const rootNodes: ReactNode[] = [];
+	const stack: HighlightFrame[] = [];
+	const tagPattern = /<\/?span(?:\s+class="([^"]+)")?>/g;
 	let cursor = 0;
-	for (const token of html.matchAll(tokenPattern)) {
-		const start = token.index;
-		if (start > cursor) {
-			nodes.push(decodeHighlightHtml(html.slice(cursor, start)));
+	for (const tag of html.matchAll(tagPattern)) {
+		const start = tag.index;
+		appendHighlightText(html.slice(cursor, start), stack, rootNodes);
+		if (tag[0].startsWith("</")) {
+			closeHighlightFrame(stack, rootNodes);
+		} else {
+			stack.push({
+				children: [],
+				className: tag[1] || "",
+				key: `hl-${start}`,
+			});
 		}
-		nodes.push(
-			<span className={token[1]} key={`${keyPrefix}-token-${start}`}>
-				{decodeHighlightHtml(stripHighlightTags(token[2]))}
-			</span>,
-		);
-		cursor = start + token[0].length;
+		cursor = start + tag[0].length;
 	}
-	if (cursor < html.length) {
-		nodes.push(decodeHighlightHtml(html.slice(cursor)));
+	appendHighlightText(html.slice(cursor), stack, rootNodes);
+	while (stack.length > 0) {
+		closeHighlightFrame(stack, rootNodes);
 	}
-	return nodes;
+	return rootNodes.length ? rootNodes : decodeHighlightHtml(html);
 }
 
-function stripHighlightTags(html: string) {
-	return html.replaceAll(/<\/?span(?:\s+class="[^"]+")?>/g, "");
+function appendHighlightText(
+	text: string,
+	stack: HighlightFrame[],
+	rootNodes: ReactNode[],
+) {
+	if (!text) {
+		return;
+	}
+	const target = stack.at(-1)?.children || rootNodes;
+	target.push(decodeHighlightHtml(text));
+}
+
+function closeHighlightFrame(stack: HighlightFrame[], rootNodes: ReactNode[]) {
+	const frame = stack.pop();
+	if (!frame) {
+		return;
+	}
+	const node = (
+		<span className={frame.className} key={frame.key}>
+			{frame.children}
+		</span>
+	);
+	const target = stack.at(-1)?.children || rootNodes;
+	target.push(node);
 }
 
 function decodeHighlightHtml(html: string) {
@@ -389,6 +421,8 @@ function decodeHighlightHtml(html: string) {
 		.replaceAll("&lt;", "<")
 		.replaceAll("&gt;", ">")
 		.replaceAll("&quot;", '"')
+		.replaceAll("&#x27;", "'")
+		.replaceAll("&#X27;", "'")
 		.replaceAll("&#039;", "'")
 		.replaceAll("&amp;", "&");
 }
