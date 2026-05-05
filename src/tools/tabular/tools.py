@@ -28,7 +28,7 @@ from .storage import fingerprint, fingerprint_from_samples, load_tables_into_sql
 
 
 def inspect_tabular_file(
-    path: Path,
+    path: str | Path,
     *,
     start_row: int = 1,
     limit: int = 5,
@@ -37,6 +37,7 @@ def inspect_tabular_file(
     sheet: str | None = None,
 ) -> dict[str, Any]:
     """Return a bounded raw grid window from a tabular file."""
+    path = Path(path)
     safe_start = max(1, start_row)
     safe_limit = max(1, limit)
     safe_start_col = max(1, start_col)
@@ -92,12 +93,13 @@ def inspect_tabular_file(
 
 
 def profile_tabular_file(
-    path: Path,
+    path: str | Path,
     *,
     max_sample_rows: int = MAX_SAMPLE_ROWS,
     sheet: str | None = None,
 ) -> dict[str, Any]:
     """Profile a tabular file with read-only structural hints."""
+    path = Path(path)
     if path.suffix.lower() == ".csv" and path.stat().st_size > MAX_FULL_PROFILE_BYTES:
         summary = stream_csv_profile(path, max_sample_rows=max_sample_rows)
         profile_fingerprint = fingerprint_from_samples(
@@ -161,7 +163,7 @@ def _recover_tabular_blocks(
 
 
 def extract_tabular_file(
-    path: Path,
+    path: str | Path,
     *,
     root_dir: str | Path | None = None,
     sample_rows: int = MAX_SAMPLE_ROWS,
@@ -169,6 +171,9 @@ def extract_tabular_file(
     sheet: str | None = None,
 ) -> dict[str, Any]:
     """Extract tables and load them into the shared SQLite cache."""
+    path = Path(path)
+    if not path.is_absolute() and root_dir is not None:
+        path = resolve_root_dir(root_dir=root_dir) / path
     if path.suffix.lower() == ".csv" and path.stat().st_size > MAX_FULL_EXTRACT_BYTES:
         raise ValueError(f"CSV extraction currently requires a full in-memory layout pass and is capped at {MAX_FULL_EXTRACT_BYTES} bytes for safety: {path}")
 
@@ -203,6 +208,10 @@ def make_tabular_tools(*, root_dir: str | Path | None = None):
     """Create tabular inspect/profile/extract/query tools for CSV and XLSX files."""
     resolved_root_dir = resolve_root_dir(root_dir=root_dir)
 
+    def source_path(path: str) -> Path:
+        resolved_path = Path(path).expanduser()
+        return resolved_path if resolved_path.is_absolute() else resolved_root_dir / resolved_path
+
     @tool(parse_docstring=True)
     def inspect_tabular(
         path: str,
@@ -223,7 +232,7 @@ def make_tabular_tools(*, root_dir: str | Path | None = None):
             sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
         return inspect_tabular_file(
-            Path(path),
+            source_path(path),
             start_row=start_row,
             limit=limit,
             start_col=start_col,
@@ -245,7 +254,7 @@ def make_tabular_tools(*, root_dir: str | Path | None = None):
             sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
         return profile_tabular_file(
-            Path(path),
+            source_path(path),
             max_sample_rows=max_sample_rows,
             sheet=sheet,
         )

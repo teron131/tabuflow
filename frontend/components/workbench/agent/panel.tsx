@@ -151,6 +151,25 @@ function attachmentPrompt(attachments: ComposerAttachment[]) {
 	return names ? `Attached files: ${names}` : "";
 }
 
+function attachmentReferenceText(attachments: ComposerAttachment[]) {
+	const references = attachedSourceFiles(attachments);
+	if (references.length === 0) {
+		return "";
+	}
+	return `Attached files:\n${references.map((reference) => `- ${reference}`).join("\n")}`;
+}
+
+function messageTextWithAttachments(
+	text: string,
+	attachments: ComposerAttachment[],
+) {
+	const attachmentText = attachmentReferenceText(attachments);
+	if (!attachmentText) {
+		return text;
+	}
+	return text ? `${text}\n\n${attachmentText}` : attachmentText;
+}
+
 function attachedSourceFiles(attachments: ComposerAttachment[]) {
 	return attachments
 		.filter((attachment) => attachment.status === "attached")
@@ -160,17 +179,12 @@ function attachedSourceFiles(attachments: ComposerAttachment[]) {
 
 function messageFileParts(attachments: ComposerAttachment[]): FileUIPart[] {
 	return attachments
-		.filter(
-			(attachment) =>
-				attachment.status === "attached" &&
-				attachment.previewUrl &&
-				attachment.type.startsWith("image/"),
-		)
+		.filter((attachment) => attachment.status === "attached")
 		.map((attachment) => ({
 			type: "file",
-			mediaType: attachment.type,
+			mediaType: attachment.type || "application/octet-stream",
 			filename: attachment.name,
-			url: attachment.previewUrl || "",
+			url: attachment.previewUrl || attachment.sourcePath || attachment.name,
 		}));
 }
 
@@ -847,7 +861,9 @@ export const AgentPanel = memo(function AgentPanel({
 					const text = input.trim();
 					const currentSourceFiles = attachedSourceFiles(attachments);
 					const currentFileParts = messageFileParts(attachments);
-					const messageText = text || attachmentPrompt(attachments);
+					const messageText =
+						messageTextWithAttachments(text, attachments) ||
+						attachmentPrompt(attachments);
 					if (!messageText) {
 						return;
 					}
