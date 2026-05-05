@@ -35,9 +35,9 @@ import {
 	skillLineCount,
 	type Target,
 } from "@/lib/api";
+import { isTargetView } from "../targets";
+import type { ExplorerKey, ExplorerRailMode, InspectorView } from "../types";
 import { fileBadge, targetBadge } from "./badges";
-import { isTargetView } from "./targets";
-import type { ExplorerKey, ExplorerRailMode, InspectorView } from "./types";
 
 type ExplorerPanelProps = {
 	activeExplorer: ExplorerKey;

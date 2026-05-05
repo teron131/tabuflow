@@ -1,6 +1,6 @@
 import type { SourceFile, SqlResult } from "@/lib/api";
+import type { RoundingSettings, ThemeMode } from "../types";
 import { ResultTable } from "./result-table";
-import type { RoundingSettings, ThemeMode } from "./types";
 
 export function SourceViewer({
 	isPreviewingSource,

@@ -32,6 +32,7 @@ import {
 	useState,
 } from "react";
 import { FaRobot } from "react-icons/fa";
+import type { UploadedWorkspaceFile } from "@/components/workbench/types";
 import type { WorkbenchMessage } from "@/lib/chat-contracts";
 
 type WorkbenchPart = WorkbenchMessage["parts"][number];
@@ -59,14 +60,7 @@ type ComposerAttachment = {
 	sourcePath?: string;
 	status: "uploading" | "attached" | "error";
 };
-type UploadedWorkspaceFile = {
-	name: string;
-	path: string;
-	contentType?: string;
-	targetBackend?: string;
-};
-
-type ChatRailProps = {
+type AgentPanelProps = {
 	isCollapsed: boolean;
 	modelOptions: string[];
 	selectedModel: string;
@@ -521,7 +515,7 @@ function ComposerAttachmentPreview({
 	);
 }
 
-export const ChatRail = memo(function ChatRail({
+export const AgentPanel = memo(function AgentPanel({
 	isCollapsed,
 	modelOptions,
 	selectedModel,
@@ -529,7 +523,7 @@ export const ChatRail = memo(function ChatRail({
 	onModelChange,
 	onToggle,
 	onUploadFiles,
-}: ChatRailProps) {
+}: AgentPanelProps) {
 	const [input, setInput] = useState("");
 	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
 	const [isDragActive, setIsDragActive] = useState(false);

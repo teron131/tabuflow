@@ -13,7 +13,7 @@ import {
 import { AlertTriangle, Table2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import type { SqlResult } from "@/lib/api";
-import type { RoundingSettings, ThemeMode } from "./types";
+import type { RoundingSettings, ThemeMode } from "../types";
 
 type ColumnKind = "boolean" | "number" | "uri" | "text";
 

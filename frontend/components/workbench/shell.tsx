@@ -8,14 +8,14 @@ import {
 	useState,
 } from "react";
 import { FaRobot } from "react-icons/fa";
-import { ChatRail } from "@/components/chat-rail";
 import { ActivityBar } from "@/components/workbench/activity-bar";
+import { AgentPanel } from "@/components/workbench/agent/panel";
 import { BrandMark } from "@/components/workbench/brand-mark";
 import {
 	defaultRounding,
 	modelOptions,
 } from "@/components/workbench/constants";
-import { ExplorerPanel } from "@/components/workbench/explorer-panel";
+import { ExplorerPanel } from "@/components/workbench/explorer/panel";
 import { SettingsPanel } from "@/components/workbench/settings-panel";
 import { isTargetView } from "@/components/workbench/targets";
 import type {
@@ -25,13 +25,14 @@ import type {
 	RoundingSettings,
 	SidePanel,
 	ThemeMode,
+	UploadedWorkspaceFile,
 } from "@/components/workbench/types";
 import {
 	workbenchScale,
 	workbenchScaleStyle,
 } from "@/components/workbench/ui-scale";
 import { usePaneLayout } from "@/components/workbench/use-pane-layout";
-import { WorkspacePanel } from "@/components/workbench/workspace-panel";
+import { WorkspacePanel } from "@/components/workbench/workspace/panel";
 import {
 	type BootstrapPayload,
 	emptyBootstrap,
@@ -49,13 +50,6 @@ import {
 	type UploadPayload,
 	uploadWorkspaceFile,
 } from "@/lib/api";
-
-export type UploadedWorkspaceFile = {
-	name: string;
-	path: string;
-	contentType?: string;
-	targetBackend?: string;
-};
 
 const themeStorageKey = "data-agentics-theme";
 
@@ -654,7 +648,7 @@ export function Workbench() {
 				type="button"
 				aria-label="Resize chat"
 			/>
-			<ChatRail
+			<AgentPanel
 				isCollapsed={isAgentPanelCollapsed}
 				modelOptions={modelOptions}
 				selectedModel={selectedModel}

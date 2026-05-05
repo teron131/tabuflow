@@ -5,8 +5,8 @@ import {
 	useEffect,
 	useState,
 } from "react";
-import { clamp, queryContentHeight } from "./sql";
 import type { ShellStyle } from "./types";
+import { clamp, queryContentHeight } from "./workspace/sql";
 
 const DEFAULT_EXPLORER_WIDTH = 240;
 const DEFAULT_CHAT_WIDTH = 450;

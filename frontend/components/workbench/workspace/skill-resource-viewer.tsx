@@ -23,11 +23,11 @@ import {
 	type SkillResourceEntry,
 	type SqlResult,
 } from "@/lib/api";
+import type { InspectorView, RoundingSettings, ThemeMode } from "../types";
 import { CodeEditor } from "./code-editor";
 import { renderHighlightedMarkdownLine } from "./markdown-highlight";
 import { MarkdownContent } from "./markdown-viewer";
 import { ResultTable } from "./result-table";
-import type { InspectorView, RoundingSettings, ThemeMode } from "./types";
 
 type ResourceTab = "summary" | "code";
 

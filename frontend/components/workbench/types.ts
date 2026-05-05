@@ -17,6 +17,13 @@ export type RoundingSettings = {
 	digits: number;
 };
 
+export type UploadedWorkspaceFile = {
+	name: string;
+	path: string;
+	contentType?: string;
+	targetBackend?: string;
+};
+
 export type ShellStyle = CSSProperties & {
 	"--explorer-width": string;
 	"--chat-width": string;

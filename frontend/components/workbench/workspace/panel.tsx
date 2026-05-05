@@ -29,6 +29,8 @@ import {
 	skillLineCount,
 	type Target,
 } from "@/lib/api";
+import { isTargetView } from "../targets";
+import type { InspectorView, RoundingSettings, ThemeMode } from "../types";
 import { CodeEditor } from "./code-editor";
 import { downloadResult } from "./download";
 import { renderHighlightedMarkdownLine } from "./markdown-highlight";
@@ -41,8 +43,6 @@ import {
 } from "./skill-resource-viewer";
 import { SourceViewer } from "./source-viewer";
 import { renderHighlightedSql } from "./sql";
-import { isTargetView } from "./targets";
-import type { InspectorView, RoundingSettings, ThemeMode } from "./types";
 
 type CollapsiblePane = "top" | "output";
 
