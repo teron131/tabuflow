@@ -24,7 +24,7 @@ from openai import APIConnectionError, BadRequestError
 from pydantic import BaseModel, ConfigDict, Field
 import pymupdf
 
-from src.agents.config import resolve_agent_model
+from src.config import resolve_agent_model
 from src.clients.openai import ChatOpenAI
 from src.tools.fixer import fix_file
 

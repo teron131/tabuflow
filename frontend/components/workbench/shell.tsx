@@ -116,13 +116,28 @@ export function Workbench() {
 	} = usePaneLayout({ centerRef, sql });
 
 	const hydrate = useCallback(async () => {
+		const [healthResult, skillsResult] = await Promise.allSettled([
+			fetchJson<HealthPayload>("/api/health"),
+			fetchJson<{ skills?: SkillEntry[] }>("/api/skills"),
+		]);
+		if (healthResult.status === "fulfilled") {
+			setSelectedModel(healthResult.value.model);
+		}
+		if (
+			skillsResult.status === "fulfilled" &&
+			skillsResult.value.skills?.length
+		) {
+			const firstSkill = skillsResult.value.skills[0];
+			const firstSkillContent = skillContent(firstSkill);
+			setSkills(skillsResult.value.skills);
+			setSelectedSkill(firstSkill);
+			setSkillEditorText(firstSkillContent);
+			setSavedSkillText(firstSkillContent);
+		}
+
 		try {
-			const [healthPayload, bootstrapPayload, skillsPayload] =
-				await Promise.all([
-					fetchJson<HealthPayload>("/api/health"),
-					fetchJson<BootstrapPayload>("/api/bootstrap"),
-					fetchJson<{ skills?: SkillEntry[] }>("/api/skills"),
-				]);
+			const bootstrapPayload =
+				await fetchJson<BootstrapPayload>("/api/bootstrap");
 			setBootstrap(bootstrapPayload);
 			setSql(bootstrapPayload.sample_sql);
 			setSqlResult(bootstrapPayload.initial_result || null);
@@ -131,18 +146,11 @@ export function Workbench() {
 			setTargetSourceName(null);
 			setTargetSourceFileName(null);
 			setSelectedSkillResource(null);
-			setSelectedModel(healthPayload.model);
 			setSelectedSource(bootstrapPayload.source_files[0] || null);
 			setSelectedTarget(preferredTarget(bootstrapPayload.targets));
-			if (skillsPayload.skills?.length) {
-				const firstSkill = skillsPayload.skills[0];
-				const firstSkillContent = skillContent(firstSkill);
-				setSkills(skillsPayload.skills);
-				setSelectedSkill(firstSkill);
-				setSkillEditorText(firstSkillContent);
-				setSavedSkillText(firstSkillContent);
-			}
 		} catch (error) {
+			setBootstrap(emptyBootstrap);
+			setSql(emptyBootstrap.sample_sql);
 			setSqlResult({
 				status: "error",
 				message: `Workbench API failed: ${(error as Error).message}`,

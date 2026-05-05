@@ -10,28 +10,26 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
-from ..agents.config import DEFAULT_AGENT_MODEL
+from ..config import (
+    DEFAULT_AGENT_MODEL,
+    MISSING_LLM_CONFIG_MESSAGE,
+    REPO_ROOT,
+    SKILLS_DIR,
+    UPLOADS_DIR,
+    has_llm_environment,
+)
 from ..explainer import MissingExplainerModelError, explain_file
 from ..tools import list_skills, load_skills
 from ..tools.tabular.tools import extract_tabular_file
 from ..tools.sql.query import describe_target, list_targets, run_query
-from .chat import (
-    MISSING_LLM_CONFIG_MESSAGE,
-    ChatConfigurationError,
-    ChatRuntimeError,
-    has_llm_environment,
-    run_chat,
-    stream_chat_chunks,
-)
+from .chat import ChatConfigurationError, ChatRuntimeError, run_chat, stream_chat_chunks
 from .constants import (
     DEFAULT_SQL,
     IMAGE_UPLOAD_EXTENSIONS,
-    REPO_ROOT,
     STAGE_CARDS,
     SUGGESTED_QUESTIONS,
     TABULAR_UPLOAD_EXTENSIONS,
     UPLOAD_EXTENSIONS,
-    UPLOADS_DIR,
 )
 from .schemas import (
     ChatRequest,
@@ -273,7 +271,7 @@ def _skill_modified_at(skills_file: Path) -> str:
 
 def _writable_skill_path(skill_name: str) -> Path:
     """Resolve the workspace skill file path or raise an HTTP error."""
-    loaded_payload = load_skills.func(path="skills", skills=skill_name)
+    loaded_payload = load_skills.func(path=str(SKILLS_DIR), skills=skill_name)
     loaded_skills = loaded_payload.get("skills", [])
     if not loaded_skills:
         raise HTTPException(
@@ -299,7 +297,7 @@ def _writable_skill_resource_path(resource_path: str) -> Path:
     if not path.is_absolute():
         path = REPO_ROOT / path
     resolved_path = path.resolve()
-    skills_root = (REPO_ROOT / "skills").resolve()
+    skills_root = SKILLS_DIR.resolve()
     if not resolved_path.is_file():
         raise HTTPException(
             status_code=404,
@@ -462,7 +460,7 @@ def file_explanation(request: FileExplanationRequest) -> dict[str, Any]:
 @router.get("/skills")
 def skills() -> dict[str, Any]:
     """List workspace skills with full instruction content for the browser UI."""
-    payload = list_skills.func(path="skills", max_files=50)
+    payload = list_skills.func(path=str(SKILLS_DIR), max_files=50)
     enriched_skills: list[dict[str, Any]] = []
     diagnostics = list(payload.get("diagnostics", []))
     for skill in payload.get("skills", []):
@@ -470,7 +468,7 @@ def skills() -> dict[str, Any]:
         if not isinstance(skill_name, str):
             enriched_skills.append(skill)
             continue
-        loaded_payload = load_skills.func(path="skills", skills=skill_name)
+        loaded_payload = load_skills.func(path=str(SKILLS_DIR), skills=skill_name)
         loaded_skills = loaded_payload.get("skills", [])
         if loaded_skills:
             loaded_skill = loaded_skills[0]

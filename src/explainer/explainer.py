@@ -6,14 +6,13 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
-import os
 from pathlib import Path
 import sqlite3
 from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from ..agents.config import resolve_agent_model
+from ..config import MISSING_LLM_CONFIG_MESSAGE, has_llm_environment, resolve_agent_model
 from ..clients.openai import ChatOpenAI
 
 EXPLAINABLE_EXTENSIONS = {".md", ".markdown", ".py", ".sql"}
@@ -139,8 +138,8 @@ def _metadata_database_path(repo_root: Path) -> Path:
 
 def _require_model_environment() -> None:
     """Fail before generation when the OpenAI-compatible model is unavailable."""
-    if not os.getenv("LLM_API_KEY") or not os.getenv("LLM_BASE_URL"):
-        raise MissingExplainerModelError("LLM_API_KEY and LLM_BASE_URL must be set to generate a file summary.")
+    if not has_llm_environment():
+        raise MissingExplainerModelError(MISSING_LLM_CONFIG_MESSAGE)
 
 
 def _ensure_metadata_store(database_path: Path) -> None:

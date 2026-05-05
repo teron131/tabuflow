@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from ..clients.openai import ChatOpenAI
 from ..utils import write_langgraph_artifacts
-from .config import DEFAULT_REASONING_EFFORT, resolve_agent_model
+from ..config import DEFAULT_REASONING_EFFORT, resolve_agent_model
 
 StructuredResponse = TypeVar("StructuredResponse", bound=BaseModel)
 

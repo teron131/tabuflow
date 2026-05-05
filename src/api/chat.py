@@ -2,19 +2,25 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
-import os
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
-from ..agents.config import DEFAULT_REASONING_EFFORT, resolve_agent_model
 from ..agents.orchestrator.orchestrator import Orchestrator
 from ..agents.orchestrator.state import message_text
 from ..clients.multimodal import MediaMessage
 from ..clients.openai import ChatOpenAI
-from .constants import IMAGE_UPLOAD_EXTENSIONS, REPO_ROOT, UPLOADS_DIR
+from ..config import (
+    DEFAULT_REASONING_EFFORT,
+    MISSING_LLM_CONFIG_MESSAGE,
+    REPO_ROOT,
+    UPLOADS_DIR,
+    has_llm_environment,
+    resolve_agent_model,
+)
+from .constants import IMAGE_UPLOAD_EXTENSIONS
 from .schemas import ChatHistoryMessage, ChatRequest
 
 MAX_CHAT_HISTORY_MESSAGES = 16
@@ -22,14 +28,7 @@ MAX_TRACE_CONTENT_CHARS = 500
 MAX_TOOL_TRACE_SUMMARY_CHARS = 220
 MAX_CHAT_IMAGE_ATTACHMENTS = 4
 MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024
-REQUIRED_LLM_ENV_VARS = ("LLM_API_KEY", "LLM_BASE_URL")
-MISSING_LLM_CONFIG_MESSAGE = "LLM_API_KEY and LLM_BASE_URL are required for chat."
 BACKEND_CHAT_TOOL_NAME = "backendChat"
-
-
-def has_llm_environment() -> bool:
-    """Return whether model-backed chat can be attempted."""
-    return all(os.getenv(name) for name in REQUIRED_LLM_ENV_VARS)
 
 
 class ChatConfigurationError(RuntimeError):

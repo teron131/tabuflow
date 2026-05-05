@@ -4,12 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .constants import FRONTEND_DIST
+from ..config import DEV_FRONTEND_ORIGINS, FRONTEND_DIST
 from .routes import router
-
-DEV_FRONTEND_ORIGINS = [
-    "http://localhost:5174",
-]
 
 
 def create_app() -> FastAPI:

@@ -15,13 +15,14 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 import pymupdf
 
-from src.agents.config import DEFAULT_AGENT_MODEL, resolve_agent_model
+from src.config import DEFAULT_AGENT_MODEL, SKILLS_DIR, resolve_agent_model
 from src.tools.fixer import fix_text
 from src.tools.skills import load_skills
 from src.tools.tabular.storage import fingerprint, load_tables_into_sqlite
 
 DEFAULT_PDF_LANGEXTRACT_MODEL = DEFAULT_AGENT_MODEL
 DEFAULT_OUTPUT_DIR = Path("data/langextract")
+SKILLS_PATH = str(SKILLS_DIR)
 DEFAULT_MAX_TEXT_CHARS = 12_000
 
 DEFAULT_LANGEXTRACT_PROMPT = """Extract structured facts and table-like rows from the document text.
@@ -178,7 +179,7 @@ def _loaded_skills_context(skill_names: list[str]) -> str:
     loaded_blocks: list[str] = []
     diagnostics: list[str] = []
     for skill_name in skill_names:
-        payload = load_skills.func(path="skills", skills=skill_name)
+        payload = load_skills.func(path=SKILLS_PATH, skills=skill_name)
         diagnostics.extend(str(item) for item in payload.get("diagnostics", []))
         loaded = payload.get("skills", [])
         if not loaded:

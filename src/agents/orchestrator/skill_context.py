@@ -7,9 +7,10 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from ...config import SKILLS_DIR
 from ...tools import list_skills, load_skills, search_skills
 
-SKILLS_PATH = "skills"
+SKILLS_PATH = str(SKILLS_DIR)
 MAX_SKILL_REF_PREVIEW = 8
 MAX_SQL_REFERENCE_PREVIEW = 4
 MAX_SQL_REFERENCE_CHARS = 12_000

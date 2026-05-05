@@ -6,12 +6,10 @@ from pathlib import Path
 import hashlib
 import sqlite3
 
+from ..config import PREPARED_DATABASE_PATH, UPLOADS_DIR, WORKBENCH_SOURCE_ROOT
 from ..tools.tabular.storage import SQLITE_SOURCES_TABLE
 from .constants import (
-    PREPARED_DATABASE_PATH,
     UPLOAD_EXTENSIONS,
-    UPLOADS_DIR,
-    WORKBENCH_SOURCE_ROOT,
 )
 
 
