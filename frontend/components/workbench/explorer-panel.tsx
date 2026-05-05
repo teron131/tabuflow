@@ -18,7 +18,14 @@ import {
 	Search,
 	Table2,
 } from "lucide-react";
-import { type CSSProperties, memo, useEffect, useMemo, useState } from "react";
+import {
+	type CSSProperties,
+	memo,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import {
 	type BootstrapPayload,
 	type SkillEntry,
@@ -30,13 +37,15 @@ import {
 } from "@/lib/api";
 import { fileBadge, targetBadge } from "./badges";
 import { isTargetView } from "./targets";
-import type { ExplorerKey, InspectorView } from "./types";
+import type { ExplorerKey, ExplorerRailMode, InspectorView } from "./types";
 
 type ExplorerPanelProps = {
 	activeExplorer: ExplorerKey;
 	bootstrap: BootstrapPayload;
 	inspectorView: InspectorView;
 	isCollapsed: boolean;
+	jumpToken: number;
+	railMode: ExplorerRailMode;
 	selectedSkill: SkillEntry | null;
 	selectedSkillResource: SkillResourceEntry | null;
 	selectedSource: SourceFile | null;
@@ -155,6 +164,8 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 	bootstrap,
 	inspectorView,
 	isCollapsed,
+	jumpToken,
+	railMode,
 	selectedSkill,
 	selectedSkillResource,
 	selectedSource,
@@ -174,10 +185,32 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 	const [openSkillRows, setOpenSkillRows] = useState<Record<string, boolean>>(
 		{},
 	);
+	const groupRefs = useRef<Record<string, HTMLElement | null>>({});
 
 	useEffect(() => {
-		setOpenGroups((groups) => ({ ...groups, [activeExplorer]: true }));
-	}, [activeExplorer]);
+		if (railMode === "all") {
+			setOpenGroups(defaultOpenGroups);
+			requestAnimationFrame(() => {
+				groupRefs.current.files?.scrollIntoView({
+					block: "start",
+				});
+			});
+			return;
+		}
+		setOpenGroups({
+			files: railMode === "files",
+			sql: railMode === "sql",
+			views: railMode === "views",
+			skills: railMode === "skills",
+		});
+		if (jumpToken > 0) {
+			requestAnimationFrame(() => {
+				groupRefs.current[railMode]?.scrollIntoView({
+					block: "start",
+				});
+			});
+		}
+	}, [jumpToken, railMode]);
 
 	const groups = useMemo(
 		() =>
@@ -356,7 +389,13 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 					const GroupIcon =
 						groupIcons[group.key] ?? (isOpen ? FolderOpen : Folder);
 					return (
-						<section className="tree-group" key={group.key}>
+						<section
+							className="tree-group"
+							key={group.key}
+							ref={(element) => {
+								groupRefs.current[group.key] = element;
+							}}
+						>
 							<button
 								className={isActiveGroup ? "tree-folder active" : "tree-folder"}
 								type="button"

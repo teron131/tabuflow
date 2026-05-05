@@ -20,6 +20,7 @@ import { SettingsPanel } from "@/components/workbench/settings-panel";
 import { isTargetView } from "@/components/workbench/targets";
 import type {
 	ExplorerKey,
+	ExplorerRailMode,
 	InspectorView,
 	RoundingSettings,
 	SidePanel,
@@ -61,8 +62,11 @@ export function Workbench() {
 	const targetPreviewRequestId = useRef(0);
 	const sourcePreviewRequestId = useRef(0);
 	const [activeExplorer, setActiveExplorer] = useState<ExplorerKey>("sql");
+	const [explorerRailMode, setExplorerRailMode] =
+		useState<ExplorerRailMode>("sql");
 	const [sidePanel, setSidePanel] = useState<SidePanel>("explorer");
 	const [isAgentPanelCollapsed, setIsAgentPanelCollapsed] = useState(false);
+	const [explorerJumpToken, setExplorerJumpToken] = useState(0);
 	const [inspectorView, setInspectorView] = useState<InspectorView>("results");
 	const [rounding, setRounding] = useState<RoundingSettings>(defaultRounding);
 	const [uiScale, setUiScale] = useState(workbenchScale.default);
@@ -160,19 +164,27 @@ export function Workbench() {
 		}
 	}, [sql]);
 
-	const toggleFiles = useCallback(() => {
-		if (
-			!isExplorerCollapsed &&
-			sidePanel === "explorer" &&
-			activeExplorer === "files"
-		) {
-			setIsExplorerCollapsed(true);
-			return;
-		}
-		setActiveExplorer("files");
+	const setExplorerSection = useCallback((section: ExplorerKey) => {
+		setActiveExplorer(section);
+		setExplorerRailMode(section);
+	}, []);
+
+	const showExplorerSection = useCallback(
+		(section: ExplorerKey) => {
+			setExplorerSection(section);
+			setSidePanel("explorer");
+			setIsExplorerCollapsed(false);
+			setExplorerJumpToken((token) => token + 1);
+		},
+		[setExplorerSection, setIsExplorerCollapsed],
+	);
+
+	const expandExplorer = useCallback(() => {
+		setExplorerRailMode("all");
 		setSidePanel("explorer");
 		setIsExplorerCollapsed(false);
-	}, [activeExplorer, isExplorerCollapsed, setIsExplorerCollapsed, sidePanel]);
+		setExplorerJumpToken((token) => token + 1);
+	}, [setIsExplorerCollapsed]);
 
 	const openSettings = useCallback(() => {
 		if (sidePanel === "settings" && !isExplorerCollapsed) {
@@ -191,57 +203,61 @@ export function Workbench() {
 		setIsAgentPanelCollapsed((collapsed) => !collapsed);
 	}, []);
 
-	const selectTarget = useCallback(async (target: Target) => {
-		const requestId = targetPreviewRequestId.current + 1;
-		targetPreviewRequestId.current = requestId;
-		const isView = isTargetView(target);
-		setSelectedTarget(target);
-		setSelectedSkillResource(null);
-		setActiveExplorer(isView ? "views" : "sql");
-		setInspectorView("target");
-		setIsPreviewingTarget(true);
-		setSourcePreviewResult(null);
-		setTargetPreviewResult(null);
-		setTargetSourceName(null);
-		setTargetSourceFileName(firstSourceFileName(target));
-		try {
-			const [result, details] = await Promise.all([
-				fetchJson<SqlResult>("/api/sql/run", {
-					method: "POST",
-					body: JSON.stringify({
-						sql: targetPreviewSql(target.name),
-						max_rows: 100,
+	const selectTarget = useCallback(
+		async (target: Target) => {
+			const requestId = targetPreviewRequestId.current + 1;
+			targetPreviewRequestId.current = requestId;
+			const isView = isTargetView(target);
+			const explorerSection = isView ? "views" : "sql";
+			setSelectedTarget(target);
+			setSelectedSkillResource(null);
+			setExplorerSection(explorerSection);
+			setInspectorView("target");
+			setIsPreviewingTarget(true);
+			setSourcePreviewResult(null);
+			setTargetPreviewResult(null);
+			setTargetSourceName(null);
+			setTargetSourceFileName(firstSourceFileName(target));
+			try {
+				const [result, details] = await Promise.all([
+					fetchJson<SqlResult>("/api/sql/run", {
+						method: "POST",
+						body: JSON.stringify({
+							sql: targetPreviewSql(target.name),
+							max_rows: 100,
+						}),
 					}),
-				}),
-				isView
-					? fetchTargetDetails(target.name).catch(() => null)
-					: Promise.resolve(null),
-			]);
-			if (targetPreviewRequestId.current === requestId) {
-				setTargetPreviewResult(result);
-				setTargetSourceFileName(
-					firstSourceFileName(details) || firstSourceFileName(target),
-				);
-				if (details?.create_sql) {
-					setSql(queryFromCreateViewSql(details.create_sql, target.name));
-					setTargetSourceName(details.source_target_names?.[0] || null);
+					isView
+						? fetchTargetDetails(target.name).catch(() => null)
+						: Promise.resolve(null),
+				]);
+				if (targetPreviewRequestId.current === requestId) {
+					setTargetPreviewResult(result);
+					setTargetSourceFileName(
+						firstSourceFileName(details) || firstSourceFileName(target),
+					);
+					if (details?.create_sql) {
+						setSql(queryFromCreateViewSql(details.create_sql, target.name));
+						setTargetSourceName(details.source_target_names?.[0] || null);
+					}
+				}
+			} catch (error) {
+				if (targetPreviewRequestId.current === requestId) {
+					setTargetPreviewResult({
+						status: "error",
+						message: (error as Error).message,
+					});
+					setTargetSourceName(null);
+					setTargetSourceFileName(null);
+				}
+			} finally {
+				if (targetPreviewRequestId.current === requestId) {
+					setIsPreviewingTarget(false);
 				}
 			}
-		} catch (error) {
-			if (targetPreviewRequestId.current === requestId) {
-				setTargetPreviewResult({
-					status: "error",
-					message: (error as Error).message,
-				});
-				setTargetSourceName(null);
-				setTargetSourceFileName(null);
-			}
-		} finally {
-			if (targetPreviewRequestId.current === requestId) {
-				setIsPreviewingTarget(false);
-			}
-		}
-	}, []);
+		},
+		[setExplorerSection],
+	);
 
 	const selectSource = useCallback(
 		async (source: SourceFile) => {
@@ -252,7 +268,7 @@ export function Workbench() {
 			setTargetSourceName(null);
 			setTargetSourceFileName(null);
 			setTargetPreviewResult(null);
-			setActiveExplorer("files");
+			setExplorerSection("files");
 			setInspectorView("source");
 			const previewTarget = sourcePreviewTarget(bootstrap.targets, source);
 			if (!previewTarget) {
@@ -286,21 +302,24 @@ export function Workbench() {
 				}
 			}
 		},
-		[bootstrap.targets],
+		[bootstrap.targets, setExplorerSection],
 	);
 
-	const selectSkill = useCallback((skill: SkillEntry) => {
-		const nextContent = skillContent(skill);
-		setSelectedSkill(skill);
-		setSelectedSkillResource(null);
-		setSourcePreviewResult(null);
-		setTargetSourceName(null);
-		setTargetSourceFileName(null);
-		setSkillEditorText(nextContent);
-		setSavedSkillText(nextContent);
-		setActiveExplorer("skills");
-		setInspectorView("skill");
-	}, []);
+	const selectSkill = useCallback(
+		(skill: SkillEntry) => {
+			const nextContent = skillContent(skill);
+			setSelectedSkill(skill);
+			setSelectedSkillResource(null);
+			setSourcePreviewResult(null);
+			setTargetSourceName(null);
+			setTargetSourceFileName(null);
+			setSkillEditorText(nextContent);
+			setSavedSkillText(nextContent);
+			setExplorerSection("skills");
+			setInspectorView("skill");
+		},
+		[setExplorerSection],
+	);
 
 	const selectSkillResource = useCallback(
 		(resource: SkillResourceEntry) => {
@@ -317,12 +336,12 @@ export function Workbench() {
 			setSourcePreviewResult(null);
 			setTargetSourceName(null);
 			setTargetSourceFileName(null);
-			setActiveExplorer("skills");
+			setExplorerSection("skills");
 			setInspectorView("skillResource");
 			setSkillResourceEditorText(resource.content || "");
 			setSavedSkillResourceText(resource.content || "");
 		},
-		[selectedSkill?.name, skills],
+		[selectedSkill?.name, setExplorerSection, skills],
 	);
 
 	const saveSkill = useCallback(async () => {
@@ -440,7 +459,7 @@ export function Workbench() {
 				if (latestBootstrap) {
 					applyBootstrap(latestBootstrap);
 				}
-				setActiveExplorer("files");
+				setExplorerSection("files");
 				setSidePanel("explorer");
 				setIsExplorerCollapsed(false);
 				setUploadStatus("");
@@ -450,7 +469,7 @@ export function Workbench() {
 				throw error;
 			}
 		},
-		[applyBootstrap, setIsExplorerCollapsed],
+		[applyBootstrap, setExplorerSection, setIsExplorerCollapsed],
 	);
 
 	const startExplorerResize = useCallback(
@@ -506,11 +525,12 @@ export function Workbench() {
 			</header>
 
 			<ActivityBar
-				activeExplorer={activeExplorer}
+				activeMode={explorerRailMode}
 				isExplorerCollapsed={isExplorerCollapsed}
 				sidePanel={sidePanel}
-				onToggleFiles={toggleFiles}
+				onExpandExplorer={expandExplorer}
 				onOpenSettings={openSettings}
+				onSelectExplorer={showExplorerSection}
 			/>
 
 			{sidePanel === "settings" ? (
@@ -528,6 +548,8 @@ export function Workbench() {
 					bootstrap={bootstrap}
 					inspectorView={inspectorView}
 					isCollapsed={isExplorerCollapsed}
+					jumpToken={explorerJumpToken}
+					railMode={explorerRailMode}
 					selectedSkill={selectedSkill}
 					selectedSkillResource={selectedSkillResource}
 					selectedSource={selectedSource}
