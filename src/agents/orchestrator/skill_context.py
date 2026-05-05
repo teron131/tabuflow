@@ -8,10 +8,12 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from ...config import SKILLS_DIR
-from ...tools import list_skills, load_skills, search_skills
+from ...tools import load_skills, search_skills
 
 SKILLS_PATH = str(SKILLS_DIR)
 MAX_SKILL_REF_PREVIEW = 8
+MAX_TEXT_REFERENCE_PREVIEW = 4
+MAX_TEXT_REFERENCE_CHARS = 8_000
 MAX_SQL_REFERENCE_PREVIEW = 4
 MAX_SQL_REFERENCE_CHARS = 12_000
 
@@ -22,34 +24,6 @@ class WorkerSkillPayload:
 
     worker_instructions: str = ""
     skill_refs: list[dict[str, Any]] = field(default_factory=list)
-
-
-def list_skills_context(
-    *,
-    path: str = SKILLS_PATH,
-    config: RunnableConfig | None = None,
-) -> dict[str, Any]:
-    """Return the raw workspace-skills listing payload."""
-    return list_skills.invoke(
-        {"path": path},
-        config=config,
-    )
-
-
-def search_skills_context(
-    query: str,
-    *,
-    path: str = SKILLS_PATH,
-    config: RunnableConfig | None = None,
-) -> dict[str, Any]:
-    """Return the raw semantic workspace-skills search payload."""
-    return search_skills.invoke(
-        {
-            "path": path,
-            "query": query,
-        },
-        config=config,
-    )
 
 
 def format_skills_overview(result: dict[str, Any]) -> str:
@@ -74,30 +48,6 @@ def format_skills_overview(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_skill_matches(result: dict[str, Any]) -> str:
-    """Render a deterministic user-turn section for relevant skills."""
-    if result.get("status") == "error":
-        return "- unavailable"
-
-    diagnostics = [str(item) for item in result.get("diagnostics", [])]
-    skills = list(result.get("skills", []))
-    lines = []
-    if skills:
-        for skill in skills:
-            score = skill.get("score")
-            suffix = f", score={score}" if score is not None else ""
-            skill_name = skill.get("name", "unknown")
-            description = str(skill.get("description", "")).strip()
-            skill_path = skill.get("path", "")
-            lines.append(f"- {skill_name}: {description} ({skill_path}{suffix})")
-    else:
-        lines.append("- none above threshold")
-
-    if diagnostics:
-        lines.append(f"Diagnostics: {'; '.join(diagnostics[:3])}")
-    return "\n".join(lines)
-
-
 def build_worker_skill_payload(
     message: str,
     *,
@@ -105,9 +55,11 @@ def build_worker_skill_payload(
     config: RunnableConfig | None = None,
 ) -> WorkerSkillPayload:
     """Search and load matched skills into one worker-ready payload."""
-    search_result = search_skills_context(
-        message,
-        path=path,
+    search_result = search_skills.invoke(
+        {
+            "path": path,
+            "query": message,
+        },
         config=config,
     )
     matched_skills = list(search_result.get("skills", []))
@@ -172,9 +124,9 @@ def summarize_skill_refs(skill_refs: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def format_skill_sql_references(skill_refs: list[dict[str, Any]]) -> str:
-    """Render loaded SQL reference files for SQL planning context."""
-    reference_sections: list[str] = []
+def format_skill_references_for_sql(skill_refs: list[dict[str, Any]]) -> str:
+    """Render loaded skill references for SQL planning context."""
+    reference_sections: dict[str, list[str]] = {"text": [], "sql": []}
     for skill_ref in skill_refs:
         skill_name = str(skill_ref.get("name", "unknown"))
         references = skill_ref.get("references", [])
@@ -183,27 +135,36 @@ def format_skill_sql_references(skill_refs: list[dict[str, Any]]) -> str:
 
         for reference in references:
             relative_path = str(reference.get("relative_path", ""))
-            reference_kind = str(reference.get("kind", ""))
-            if reference_kind != "sql" and not relative_path.lower().endswith(".sql"):
-                continue
-
             content = str(reference.get("content", "")).strip()
             if not content:
                 continue
-            if len(content) > MAX_SQL_REFERENCE_CHARS:
-                content = content[:MAX_SQL_REFERENCE_CHARS].rstrip() + "\n-- truncated"
 
-            reference_sections.append(
+            reference_kind = str(reference.get("kind", ""))
+            block_kind = "sql" if reference_kind == "sql" or relative_path.lower().endswith(".sql") else "text"
+            max_sections = MAX_SQL_REFERENCE_PREVIEW if block_kind == "sql" else MAX_TEXT_REFERENCE_PREVIEW
+            max_chars = MAX_SQL_REFERENCE_CHARS if block_kind == "sql" else MAX_TEXT_REFERENCE_CHARS
+            if len(reference_sections[block_kind]) >= max_sections:
+                continue
+            if len(content) > max_chars:
+                truncated_suffix = "\n-- truncated" if block_kind == "sql" else "\n\n<!-- truncated -->"
+                content = content[:max_chars].rstrip() + truncated_suffix
+
+            heading = "SQL reference" if block_kind == "sql" else "Reference"
+            fence = "sql" if block_kind == "sql" else "markdown"
+            reference_sections[block_kind].append(
                 "\n".join(
                     [
-                        f"SQL reference from skill `{skill_name}` ({relative_path}):",
-                        "```sql",
+                        f"{heading} from skill `{skill_name}` ({relative_path}):",
+                        f"```{fence}",
                         content,
                         "```",
                     ]
                 )
             )
-            if len(reference_sections) >= MAX_SQL_REFERENCE_PREVIEW:
-                return "\n\n".join(reference_sections)
 
-    return "\n\n".join(reference_sections)
+    return "\n\n".join(
+        [
+            *reference_sections["text"],
+            *reference_sections["sql"],
+        ]
+    )

@@ -18,7 +18,9 @@ Rules:
 - The orchestrator/prep stages already chose the message, database, and allowed targets. Trust that context.
 - Use only SELECT, WITH, or EXPLAIN.
 - Use only tables/views from `allowed_targets` and `target_context`.
-- `target_context` is shared graph state from the orchestrator/prep stage; do not ask to inspect or discover more targets.
+- `target_context` is shared graph state from the orchestrator/prep stage; use its exact column names and quote identifiers that contain spaces, punctuation, or mixed case.
+- Do not invent normalized columns such as `account`, `account_id`, or `cost_usd` unless the target schema already exposes them or you define them in an earlier CTE from exact source columns.
+- Treat loaded skill references inside `worker_context` as the source of truth for domain SQL. If a skill SQL reference uses placeholders, preserve its raw-column mapping pattern and replace only placeholders with discovered target names/literals.
 - Treat `message` as the user request and `validation_feedback` as semantic retry guidance from the validation stage.
 - If `validation_feedback` is present, revise the query to address it directly.
 - Do not ask clarifying questions, discover targets, or judge final request fulfillment.
@@ -34,6 +36,8 @@ Rules:
 - Do not judge whether the result satisfies the message; validation owns that.
 - Use hashline refs from `sql_hashlines` and return only hashline edits.
 - Prefer deterministic `repair_hints` when they identify replacement columns or targets.
+- Use loaded skill references inside `worker_context` when an execution error shows the SQL drifted from the reference contract.
+- If a missing-column error comes from a fabricated normalized schema, rebuild the affected query from the skill reference and exact `target_context` columns instead of trying another alias.
 - Preserve the SQL comment header unless the broken line is inside the header.
 """
 
@@ -52,6 +56,7 @@ def _compact_skill_refs(skill_refs: list[dict[str, Any]]) -> dict[str, Any]:
                 "instructions_path": (skill_ref.get("instructions") or {}).get("relative_path"),
                 "reference_count": len(reference_items),
                 "sql_reference_count": sum(1 for reference in reference_items if str(reference.get("kind", "")).lower() == "sql"),
+                "text_reference_count": sum(1 for reference in reference_items if str(reference.get("kind", "")).lower() != "sql"),
             }
         )
     return {
@@ -69,6 +74,9 @@ def _target_context(state: QueryStageState) -> list[dict[str, Any]]:
             "table_name": target.get("table_name"),
             "typed_view_name": target.get("typed_view_name"),
             "row_count": target.get("row_count"),
+            "columns": target.get("columns") or [],
+            "db_columns": target.get("db_columns") or [],
+            "typed_columns": target.get("typed_columns") or [],
         }
         for target in state.extracted_targets
     ]
@@ -114,6 +122,8 @@ def build_runtime_repair_messages(
     """Build runtime-repair messages for SQLite execution errors."""
     payload = {
         "message": latest_user_message(state.messages),
+        "worker_context": state.worker_context,
+        "skill_refs": _compact_skill_refs(state.skill_refs),
         "allowed_targets": _allowed_targets(state),
         "target_context": _target_context(state),
         "sql_path": state.sql_path,

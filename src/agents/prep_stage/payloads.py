@@ -28,6 +28,9 @@ def collect_extracted_targets(extraction_results: list[dict[str, Any]]) -> list[
                     "table_name": table.get("table_name"),
                     "typed_view_name": table.get("typed_view_name"),
                     "row_count": table.get("row_count"),
+                    "columns": table.get("columns") or [],
+                    "db_columns": table.get("db_columns") or [],
+                    "typed_columns": table.get("typed_columns") or [],
                 }
             )
     return targets

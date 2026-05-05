@@ -13,7 +13,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 from langsmith import traceable
 
-from ...tools import load_skills, search_skills
+from ...tools import list_skills, load_skills, search_skills
 from ...tools.fs import allow_sql_or_skill_write, make_fs_tools
 from ..base import ApplicationAgent
 from ..prep_stage import PrepStage
@@ -21,7 +21,7 @@ from ..query_stage import DraftFn, RuntimeRepairFn
 from ..trace_utils import SKILL_CONTEXT_STAGE, append_stage_trace
 from ..validation_stage import ValidationStage
 from .graph import build_data_workflow_graph
-from .skill_context import format_skills_overview, list_skills_context
+from .skill_context import SKILLS_PATH, format_skills_overview
 from .stage_tools import make_orchestrator_stages
 from .state import (
     OrchestratorInput,
@@ -147,7 +147,10 @@ def skills_node(
         return {}
 
     skills_overview = format_skills_overview(
-        list_skills_context(config=config),
+        list_skills.invoke(
+            {"path": SKILLS_PATH},
+            config=config,
+        ),
     )
     source_files = state.source_files if isinstance(state, OrchestratorState) else list(state.get("source_files") or [])
     trace = state.trace if isinstance(state, OrchestratorState) else list(state.get("trace") or [])

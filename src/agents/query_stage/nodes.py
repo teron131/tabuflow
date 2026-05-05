@@ -132,10 +132,17 @@ def _preferred_target_names(state: QueryStageState) -> list[str]:
 
 def _runtime_repair_hints(state: QueryStageState, error_message: str) -> list[dict[str, Any]]:
     """Return deterministic hints for SQLite/runtime repair."""
+    target_columns: dict[str, list[str]] = {}
+    for target in state.extracted_targets:
+        target_name = str(target.get("typed_view_name") or target.get("table_name") or "").strip()
+        if not target_name:
+            continue
+        columns = target.get("typed_columns") or target.get("db_columns") or target.get("columns") or []
+        target_columns[target_name] = [str(column) for column in columns if str(column).strip()]
     return suggest_sql_error_repair(
         error_message,
         available_targets=sorted(set(_preferred_target_names(state))),
-        target_columns={},
+        target_columns=target_columns,
     )
 
 

@@ -3,7 +3,7 @@
 from langchain_core.messages import HumanMessage
 
 from ..prep_stage.prompts import build_prep_request
-from .skill_context import format_skill_sql_references, summarize_skill_refs
+from .skill_context import format_skill_references_for_sql, summarize_skill_refs
 
 
 def build_user_request_message(
@@ -55,6 +55,6 @@ def build_sql_worker_context(
         parts.append(worker_instructions.strip())
     if skill_ref_summary := summarize_skill_refs(skill_refs):
         parts.append(skill_ref_summary)
-    if sql_references := format_skill_sql_references(skill_refs):
-        parts.append(sql_references)
+    if skill_references := format_skill_references_for_sql(skill_refs):
+        parts.append(skill_references)
     return "\n\n".join(parts)
