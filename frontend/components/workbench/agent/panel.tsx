@@ -261,6 +261,7 @@ function toolHeading(
 function ToolCard({
 	title,
 	detail,
+	bodyText,
 	isError,
 	state,
 	trace = [],
@@ -272,6 +273,7 @@ function ToolCard({
 }: {
 	title: string;
 	detail: string;
+	bodyText?: string;
 	isError: boolean;
 	state: string;
 	trace?: TraceEntry[];
@@ -297,6 +299,7 @@ function ToolCard({
 				<ChevronDown size={13} className="tool-chevron" />
 			</summary>
 			<div className="tool-message-body">
+				{bodyText && <p className="tool-body-text">{bodyText}</p>}
 				{trace.length > 0 && (
 					<section className="backend-trace">
 						{trace.map((item) => (
@@ -380,6 +383,7 @@ function ToolMessage({ part }: { part: WorkbenchToolPart }) {
 			<>
 				{stageTrace.map((item, itemIndex) => (
 					<ToolCard
+						bodyText={item.summary || traceDetail(item)}
 						conversation={itemIndex === 0 ? conversation : []}
 						detail={traceDetail(item)}
 						input={itemIndex === 0 ? input : undefined}

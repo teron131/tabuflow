@@ -2232,6 +2232,15 @@ h1 {
 	text-transform: uppercase;
 }
 
+.tool-body-text {
+	margin: 0;
+	overflow-wrap: anywhere;
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-sm);
+	line-height: 1.45;
+}
+
 .payload-details {
 	min-width: 0;
 	border: 1px solid var(--line);
