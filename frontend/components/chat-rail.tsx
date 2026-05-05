@@ -456,12 +456,7 @@ function ChatMessage({ message }: { message: WorkbenchMessage }) {
 				{isUser ? (
 					<CircleUserRound size={15} />
 				) : (
-					<FaRobot
-						aria-hidden="true"
-						className="agent-icon"
-						color="var(--accent-smoke)"
-						size={15}
-					/>
+					<FaRobot aria-hidden="true" className="agent-icon" size={15} />
 				)}
 			</div>
 			<div className="message-shell">
@@ -795,12 +790,7 @@ export const ChatRail = memo(function ChatRail({
 		<aside className={isCollapsed ? "chat-rail collapsed" : "chat-rail"}>
 			<header className="rail-header">
 				<div className="rail-title">
-					<FaRobot
-						aria-hidden="true"
-						className="agent-icon"
-						color="var(--accent-smoke)"
-						size={14}
-					/>
+					<FaRobot aria-hidden="true" className="agent-icon" size={14} />
 					<span>Agent</span>
 				</div>
 				<div className="rail-actions">

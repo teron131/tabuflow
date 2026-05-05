@@ -500,12 +500,7 @@ export function Workbench() {
 						aria-expanded={!isAgentPanelCollapsed}
 						onClick={toggleAgentPanel}
 					>
-						<FaRobot
-							aria-hidden="true"
-							className="agent-icon"
-							color="var(--accent-smoke)"
-							size={17}
-						/>
+						<FaRobot aria-hidden="true" className="agent-icon" size={17} />
 					</button>
 				</div>
 			</header>
