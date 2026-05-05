@@ -30,11 +30,12 @@ import {
 } from "@/lib/api";
 import { fileBadge, targetBadge } from "./badges";
 import { isTargetView } from "./targets";
-import type { ExplorerKey } from "./types";
+import type { ExplorerKey, InspectorView } from "./types";
 
 type ExplorerPanelProps = {
 	activeExplorer: ExplorerKey;
 	bootstrap: BootstrapPayload;
+	inspectorView: InspectorView;
 	isCollapsed: boolean;
 	selectedSkill: SkillEntry | null;
 	selectedSkillResource: SkillResourceEntry | null;
@@ -63,6 +64,14 @@ type IconType =
 	| "skillFolder"
 	| "sqlite"
 	| "view";
+type SkillResourceGroup = "examples" | "references" | "scripts";
+type SkillResourceType = "EXAMPLE" | "REF" | "SCRIPT";
+type SkillResourceSection = {
+	fallback: string;
+	group: SkillResourceGroup;
+	iconType: IconType;
+	type: SkillResourceType;
+};
 
 type ExplorerRow = {
 	id: string;
@@ -120,10 +129,31 @@ const fileTypeIcons: Record<IconType, FileTypeIconValue> = {
 	sqlite: "material-icon-theme:database",
 	view: Braces,
 };
+const skillResourceSections: SkillResourceSection[] = [
+	{
+		fallback: "example",
+		group: "examples",
+		iconType: "exampleFolder",
+		type: "EXAMPLE",
+	},
+	{
+		fallback: "reference",
+		group: "references",
+		iconType: "referenceFolder",
+		type: "REF",
+	},
+	{
+		fallback: "script",
+		group: "scripts",
+		iconType: "scriptFolder",
+		type: "SCRIPT",
+	},
+];
 
 export const ExplorerPanel = memo(function ExplorerPanel({
 	activeExplorer,
 	bootstrap,
+	inspectorView,
 	isCollapsed,
 	selectedSkill,
 	selectedSkillResource,
@@ -153,6 +183,7 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 		() =>
 			buildGroups({
 				bootstrap,
+				inspectorView,
 				selectedSkill,
 				selectedSkillResource,
 				selectedSource,
@@ -165,6 +196,7 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 			}),
 		[
 			bootstrap,
+			inspectorView,
 			selectedSkill,
 			selectedSkillResource,
 			selectedSource,
@@ -365,6 +397,7 @@ function collectRowTypes(rows: ExplorerRow[], values: Set<string>) {
 
 function buildGroups({
 	bootstrap,
+	inspectorView,
 	selectedSkill,
 	selectedSkillResource,
 	selectedSource,
@@ -376,6 +409,7 @@ function buildGroups({
 	onSelectTarget,
 }: {
 	bootstrap: BootstrapPayload;
+	inspectorView: InspectorView;
 	selectedSkill: SkillEntry | null;
 	selectedSkillResource: SkillResourceEntry | null;
 	selectedSource: SourceFile | null;
@@ -390,6 +424,9 @@ function buildGroups({
 	const targetItems = bootstrap.targets.filter(
 		(target) => !isTargetView(target),
 	);
+	const isSourceView = inspectorView === "source";
+	const isTargetPreviewView = inspectorView === "target";
+	const isSkillView = inspectorView === "skill";
 	return [
 		{
 			key: "files",
@@ -402,7 +439,7 @@ function buildGroups({
 				detail: source.source_path || source.destination_path || "",
 				metadata: "",
 				iconType: sourceIconType(source),
-				isActive: selectedSource?.id === source.id,
+				isActive: isSourceView && selectedSource?.id === source.id,
 				onSelect: () => onSelectSource(source),
 			})),
 		},
@@ -417,7 +454,7 @@ function buildGroups({
 				detail: target.summary,
 				metadata: `${target.size_label || ""} ${target.row_count ?? ""} rows ${target.column_count ?? ""} columns ${target.source_path_count} sources`,
 				iconType: targetIconType(target),
-				isActive: selectedTarget?.name === target.name,
+				isActive: isTargetPreviewView && selectedTarget?.name === target.name,
 				onSelect: () => onSelectTarget(target),
 			})),
 		},
@@ -432,7 +469,7 @@ function buildGroups({
 				detail: target.summary,
 				metadata: `${target.size_label || ""} ${target.row_count ?? ""} rows ${target.column_count ?? ""} columns ${target.source_path_count} sources`,
 				iconType: "view",
-				isActive: selectedTarget?.name === target.name,
+				isActive: isTargetPreviewView && selectedTarget?.name === target.name,
 				onSelect: () => onSelectTarget(target),
 			})),
 		},
@@ -443,6 +480,7 @@ function buildGroups({
 				const lineCount = skillLineCount(skill);
 				const children = skillChildRows(
 					skill,
+					inspectorView,
 					selectedSkillResource,
 					onSelectSkill,
 					onSelectSkillResource,
@@ -463,7 +501,9 @@ function buildGroups({
 						.join(" "),
 					iconType: "skillFolder",
 					isActive:
-						selectedSkill?.name === skill.name && !selectedSkillResource,
+						isSkillView &&
+						selectedSkill?.name === skill.name &&
+						!selectedSkillResource,
 					onSelect: () => onSelectSkill(skill),
 					children,
 				};
@@ -574,14 +614,28 @@ function targetIconType(target: Target) {
 	return isTargetView(target) ? "view" : "raw";
 }
 
+function isActiveSkillResourceRow(
+	inspectorView: InspectorView,
+	selectedSkillResource: SkillResourceEntry | null,
+	resource: SkillResourceEntry,
+) {
+	return (
+		inspectorView === "skillResource" &&
+		selectedSkillResource?.skillName === resource.skillName &&
+		selectedSkillResource?.group === resource.group &&
+		selectedSkillResource?.relative_path === resource.relative_path
+	);
+}
+
 function skillChildRows(
 	skill: SkillEntry,
+	inspectorView: InspectorView,
 	selectedSkillResource: SkillResourceEntry | null,
 	onSelectSkill: (skill: SkillEntry) => void,
 	onSelectSkillResource: (resource: SkillResourceEntry) => void,
 ): ExplorerRow[] {
 	const skillInstructionResource: SkillResourceEntry = {
-		content: skill.instructions?.content || skill.content || "",
+		content: skill.content || skill.instructions?.content || "",
 		group: "instructions",
 		kind: "markdown",
 		label: "SKILL.md",
@@ -601,72 +655,33 @@ function skillChildRows(
 				skillInstructionResource.relative_path ||
 				"",
 			iconType: "markdown",
-			isActive:
-				selectedSkillResource?.skillName ===
-					skillInstructionResource.skillName &&
-				selectedSkillResource?.group === skillInstructionResource.group,
+			isActive: isActiveSkillResourceRow(
+				inspectorView,
+				selectedSkillResource,
+				skillInstructionResource,
+			),
 			onSelect: () => onSelectSkillResource(skillInstructionResource),
 		},
 	];
 
-	const examples = skillResourceRows(
-		skill,
-		skill.examples || [],
-		"EXAMPLE",
-		"example",
-		"examples",
-		selectedSkillResource,
-		onSelectSkillResource,
-	);
-	if (examples.length > 0) {
-		rows.push(
-			skillResourceFolderRow(
-				skill,
-				"examples",
-				examples,
-				"exampleFolder",
-				onSelectSkill,
-			),
+	for (const section of skillResourceSections) {
+		const children = skillResourceRows(
+			skill,
+			skill[section.group] || [],
+			section,
+			inspectorView,
+			selectedSkillResource,
+			onSelectSkillResource,
 		);
-	}
-
-	const references = skillResourceRows(
-		skill,
-		skill.references || [],
-		"REF",
-		"reference",
-		"references",
-		selectedSkillResource,
-		onSelectSkillResource,
-	);
-	if (references.length > 0) {
+		if (children.length === 0) {
+			continue;
+		}
 		rows.push(
 			skillResourceFolderRow(
 				skill,
-				"references",
-				references,
-				"referenceFolder",
-				onSelectSkill,
-			),
-		);
-	}
-
-	const scripts = skillResourceRows(
-		skill,
-		skill.scripts || [],
-		"SCRIPT",
-		"script",
-		"scripts",
-		selectedSkillResource,
-		onSelectSkillResource,
-	);
-	if (scripts.length > 0) {
-		rows.push(
-			skillResourceFolderRow(
-				skill,
-				"scripts",
-				scripts,
-				"scriptFolder",
+				section.group,
+				children,
+				section.iconType,
 				onSelectSkill,
 			),
 		);
@@ -678,32 +693,35 @@ function skillChildRows(
 function skillResourceRows(
 	skill: SkillEntry,
 	resources: SkillResourcePayload[],
-	type: "EXAMPLE" | "REF" | "SCRIPT",
-	fallback: string,
-	group: "examples" | "references" | "scripts",
+	section: SkillResourceSection,
+	inspectorView: InspectorView,
 	selectedSkillResource: SkillResourceEntry | null,
 	onSelectSkillResource: (resource: SkillResourceEntry) => void,
 ): ExplorerRow[] {
 	return resources.map((resource) => {
-		const label = skillResourceFileName(resource.relative_path, fallback);
+		const label = skillResourceFileName(
+			resource.relative_path,
+			section.fallback,
+		);
 		const selection: SkillResourceEntry = {
 			...resource,
 			skillName: skill.name,
 			label,
-			group,
+			group: section.group,
 		};
 		return {
-			id: `skill-${type.toLowerCase()}-${skill.name}-${resource.relative_path || label}`,
+			id: `skill-${section.type.toLowerCase()}-${skill.name}-${resource.relative_path || label}`,
 			label,
-			type,
+			type: section.type,
 			status: "",
 			detail: resource.relative_path || "",
 			metadata: resource.content || resource.relative_path || "",
 			iconType: resourceIconType(label),
-			isActive:
-				selectedSkillResource?.skillName === selection.skillName &&
-				selectedSkillResource?.group === selection.group &&
-				selectedSkillResource?.relative_path === selection.relative_path,
+			isActive: isActiveSkillResourceRow(
+				inspectorView,
+				selectedSkillResource,
+				selection,
+			),
 			onSelect: () => onSelectSkillResource(selection),
 		};
 	});

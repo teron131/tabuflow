@@ -36,8 +36,10 @@ import {
 	type HealthPayload,
 	type SkillEntry,
 	type SkillResourceEntry,
+	type SkillResourcePayload,
 	type SourceFile,
 	type SqlResult,
+	saveSkillResource,
 	skillContent,
 	type Target,
 	type TargetDetails,
@@ -82,6 +84,8 @@ export function Workbench() {
 		useState<SkillResourceEntry | null>(null);
 	const [skillEditorText, setSkillEditorText] = useState("");
 	const [savedSkillText, setSavedSkillText] = useState("");
+	const [skillResourceEditorText, setSkillResourceEditorText] = useState("");
+	const [savedSkillResourceText, setSavedSkillResourceText] = useState("");
 	const [isRunningSql, setIsRunningSql] = useState(false);
 	const [isPreviewingSource, setIsPreviewingSource] = useState(false);
 	const [isPreviewingTarget, setIsPreviewingTarget] = useState(false);
@@ -309,6 +313,8 @@ export function Workbench() {
 			setTargetSourceFileName(null);
 			setActiveExplorer("skills");
 			setInspectorView("skillResource");
+			setSkillResourceEditorText(resource.content || "");
+			setSavedSkillResourceText(resource.content || "");
 		},
 		[selectedSkill?.name, skills],
 	);
@@ -344,6 +350,49 @@ export function Workbench() {
 	const revertSkill = useCallback(() => {
 		setSkillEditorText(savedSkillText);
 	}, [savedSkillText]);
+
+	const saveSelectedSkillResource = useCallback(async () => {
+		if (!selectedSkillResource) {
+			return;
+		}
+		const path =
+			selectedSkillResource.path || selectedSkillResource.relative_path || "";
+		if (!path) {
+			return;
+		}
+		const savedResource = await saveSkillResource({
+			path,
+			content: skillResourceEditorText,
+		});
+		const updatedResource: SkillResourceEntry = {
+			...selectedSkillResource,
+			content: savedResource.content,
+			path: savedResource.path,
+			relative_path: savedResource.relative_path,
+		};
+		setSelectedSkillResource(updatedResource);
+		setSavedSkillResourceText(savedResource.content);
+		setSkills((currentSkills) =>
+			currentSkills.map((skill) =>
+				skill.name === updatedResource.skillName
+					? updateSkillResourceInSkill(skill, updatedResource)
+					: skill,
+			),
+		);
+		if (updatedResource.group === "instructions") {
+			setSelectedSkill((currentSkill) =>
+				currentSkill?.name === updatedResource.skillName
+					? updateSkillResourceInSkill(currentSkill, updatedResource)
+					: currentSkill,
+			);
+			setSkillEditorText(savedResource.content);
+			setSavedSkillText(savedResource.content);
+		}
+	}, [selectedSkillResource, skillResourceEditorText]);
+
+	const revertSelectedSkillResource = useCallback(() => {
+		setSkillResourceEditorText(savedSkillResourceText);
+	}, [savedSkillResourceText]);
 
 	const applyBootstrap = useCallback((payload: BootstrapPayload) => {
 		setBootstrap(payload);
@@ -452,6 +501,7 @@ export function Workbench() {
 				<ExplorerPanel
 					activeExplorer={activeExplorer}
 					bootstrap={bootstrap}
+					inspectorView={inspectorView}
 					isCollapsed={isExplorerCollapsed}
 					selectedSkill={selectedSkill}
 					selectedSkillResource={selectedSkillResource}
@@ -490,14 +540,21 @@ export function Workbench() {
 				sourcePreviewResult={sourcePreviewResult}
 				targetSourceFileName={targetSourceFileName}
 				targetSourceName={targetSourceName}
+				isSkillResourceSaved={
+					skillResourceEditorText === savedSkillResourceText
+				}
 				isSkillSaved={skillEditorText === savedSkillText}
+				skillResourceText={skillResourceEditorText}
 				skillText={skillEditorText}
 				sql={sql}
 				sqlResult={sqlResult}
 				targetPreviewResult={targetPreviewResult}
 				onRunSql={runSql}
+				onRevertSkillResource={revertSelectedSkillResource}
 				onRevertSkill={revertSkill}
+				onSaveSkillResource={saveSelectedSkillResource}
 				onSaveSkill={saveSkill}
+				onSkillResourceTextChange={setSkillResourceEditorText}
 				onSkillTextChange={setSkillEditorText}
 				onSqlChange={setSql}
 				onVerticalResize={startVerticalResize}
@@ -541,6 +598,48 @@ function fetchTargetDetails(targetName: string) {
 	return fetchJson<TargetDetails>(
 		`/api/sql/targets/${encodeURIComponent(targetName)}`,
 	);
+}
+
+function updateSkillResourceInSkill(
+	skill: SkillEntry,
+	resource: SkillResourceEntry,
+): SkillEntry {
+	if (resource.group === "instructions") {
+		return {
+			...skill,
+			content: resource.content,
+			instructions: {
+				...(skill.instructions || {}),
+				content: resource.content,
+				path: resource.path,
+				relative_path: resource.relative_path,
+			},
+		};
+	}
+	return {
+		...skill,
+		[resource.group]: updateSkillResourceList(skill[resource.group], resource),
+	};
+}
+
+function updateSkillResourceList(
+	resources: SkillResourcePayload[] | undefined,
+	updatedResource: SkillResourceEntry,
+) {
+	return (resources || []).map((resource) =>
+		skillResourcePathKey(resource) === skillResourcePathKey(updatedResource)
+			? {
+					...resource,
+					content: updatedResource.content,
+					path: updatedResource.path,
+					relative_path: updatedResource.relative_path,
+				}
+			: resource,
+	);
+}
+
+function skillResourcePathKey(resource: SkillResourcePayload) {
+	return resource.path || resource.relative_path || "";
 }
 
 function firstSourceFileName(target: Target | null) {

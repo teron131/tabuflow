@@ -24,6 +24,7 @@ import {
 	type SqlResult,
 } from "@/lib/api";
 import { CodeEditor } from "./code-editor";
+import { renderHighlightedMarkdownLine } from "./markdown-highlight";
 import { MarkdownContent } from "./markdown-viewer";
 import { ResultTable } from "./result-table";
 import type { InspectorView, RoundingSettings } from "./types";
@@ -34,10 +35,12 @@ type SkillResourceViewerProps = {
 	model: string;
 	refreshNonce?: number;
 	resource: SkillResourceEntry | null;
+	resourceText?: string;
 	rounding: RoundingSettings;
 	showSummaryHeader?: boolean;
 	showTabs?: boolean;
 	viewMode?: ResourceTab;
+	onResourceTextChange?: (text: string) => void;
 };
 
 type ResourceSummaryProps = {
@@ -69,10 +72,12 @@ export function SkillResourceViewer({
 	model,
 	refreshNonce = 0,
 	resource,
+	resourceText,
 	rounding,
 	showSummaryHeader = true,
 	showTabs = true,
 	viewMode,
+	onResourceTextChange,
 }: SkillResourceViewerProps) {
 	const [activeTab, setActiveTab] = useState<ResourceTab>("summary");
 	const [explanation, setExplanation] = useState<FileExplanation | null>(null);
@@ -168,7 +173,11 @@ export function SkillResourceViewer({
 					status={summaryStatus}
 				/>
 			) : (
-				<ResourceContentViewer resource={resource} />
+				<ResourceCodeViewer
+					resource={resource}
+					resourceText={resourceText}
+					onResourceTextChange={onResourceTextChange}
+				/>
 			)}
 		</div>
 	);
@@ -235,31 +244,41 @@ export function isMarkdownSkillResource(resource: SkillResourceEntry | null) {
 	return resource ? isMarkdownResource(resource) : false;
 }
 
-function ResourceContentViewer({ resource }: { resource: SkillResourceEntry }) {
-	return <ResourceCodeViewer resource={resource} />;
-}
-
-function ResourceCodeViewer({ resource }: { resource: SkillResourceEntry }) {
-	const [draftContent, setDraftContent] = useState(resource.content || "");
+function ResourceCodeViewer({
+	resource,
+	resourceText,
+	onResourceTextChange,
+}: {
+	resource: SkillResourceEntry;
+	resourceText?: string;
+	onResourceTextChange?: (text: string) => void;
+}) {
+	const [localContent, setLocalContent] = useState(resource.content || "");
 	const language = resourceLanguage(resource);
+	const editorText = resourceText ?? localContent;
+	const shouldWrapLines = language !== "python";
 	const renderLine = useCallback(
 		(line: string) => renderHighlightedResourceText(line, language),
 		[language],
 	);
 
 	useEffect(() => {
-		setDraftContent(resource.content || "");
+		setLocalContent(resource.content || "");
 	}, [resource]);
 
 	return (
 		<CodeEditor
 			ariaLabel={`${resource.label} editor`}
-			className="resource-editor-wrap editor-nowrap"
+			className={
+				shouldWrapLines
+					? "resource-editor-wrap"
+					: "resource-editor-wrap editor-no-wrap"
+			}
 			highlightClassName={`resource-highlight language-${language}`}
 			renderLine={renderLine}
-			value={draftContent}
-			wrap="off"
-			onChange={setDraftContent}
+			value={editorText}
+			wrap={shouldWrapLines ? "soft" : "off"}
+			onChange={onResourceTextChange || setLocalContent}
 		/>
 	);
 }
@@ -326,6 +345,9 @@ function ResourceSummaryStatus({ status }: { status: string }) {
 }
 
 function renderHighlightedResourceText(line: string, language: string) {
+	if (language === "markdown") {
+		return renderHighlightedMarkdownLine(line);
+	}
 	if (language === "plaintext") {
 		return line;
 	}

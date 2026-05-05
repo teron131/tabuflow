@@ -107,6 +107,15 @@ export type FileExplanation = {
 	cached: boolean;
 };
 
+export type SkillResourceSavePayload = {
+	status: string;
+	path: string;
+	relative_path: string;
+	content: string;
+	modified_at?: string | null;
+	summary?: string;
+};
+
 export type SkillEntry = {
 	name: string;
 	description?: string;
@@ -212,6 +221,19 @@ export async function explainWorkspaceFile({
 	return fetchJson<FileExplanation>("/api/explainer/summary", {
 		method: "POST",
 		body: JSON.stringify({ path, force, model }),
+	});
+}
+
+export async function saveSkillResource({
+	path,
+	content,
+}: {
+	path: string;
+	content: string;
+}): Promise<SkillResourceSavePayload> {
+	return fetchJson<SkillResourceSavePayload>("/api/skills/resource/save", {
+		method: "POST",
+		body: JSON.stringify({ path, content }),
 	});
 }
 

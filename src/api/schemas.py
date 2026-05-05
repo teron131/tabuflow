@@ -41,3 +41,10 @@ class SkillSaveRequest(BaseModel):
 
     name: str = Field(min_length=1)
     content: str = ""
+
+
+class SkillResourceSaveRequest(BaseModel):
+    """Request body for saving a workspace skill resource file."""
+
+    path: str = Field(min_length=1)
+    content: str = ""

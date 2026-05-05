@@ -31,11 +31,11 @@ import {
 } from "@/lib/api";
 import { CodeEditor } from "./code-editor";
 import { downloadResult } from "./download";
+import { renderHighlightedMarkdownLine } from "./markdown-highlight";
 import { ResultTable } from "./result-table";
 import {
 	isCsvSkillResource,
 	isExplainableSkillResource,
-	isMarkdownSkillResource,
 	SkillResourceViewer,
 	skillResourceIcon,
 } from "./skill-resource-viewer";
@@ -54,6 +54,7 @@ type WorkspacePanelProps = {
 	isPreviewingSource: boolean;
 	isQueryVisible: boolean;
 	isRunningSql: boolean;
+	isSkillResourceSaved: boolean;
 	isSkillSaved: boolean;
 	rounding: RoundingSettings;
 	selectedSkill: SkillEntry | null;
@@ -62,6 +63,7 @@ type WorkspacePanelProps = {
 	selectedSource: SourceFile | null;
 	selectedTarget: Target | null;
 	sourcePreviewResult: SqlResult | null;
+	skillResourceText: string;
 	skillText: string;
 	sql: string;
 	sqlResult: SqlResult | null;
@@ -69,8 +71,11 @@ type WorkspacePanelProps = {
 	targetSourceFileName: string | null;
 	targetSourceName: string | null;
 	onRevertSkill: () => void;
+	onRevertSkillResource: () => void;
 	onRunSql: () => void;
 	onSaveSkill: () => void;
+	onSaveSkillResource: () => void;
+	onSkillResourceTextChange: (text: string) => void;
 	onSkillTextChange: (text: string) => void;
 	onSqlChange: (sql: string) => void;
 	onVerticalResize: (event: ReactPointerEvent) => void;
@@ -84,6 +89,7 @@ export function WorkspacePanel({
 	isPreviewingSource,
 	isQueryVisible,
 	isRunningSql,
+	isSkillResourceSaved,
 	isSkillSaved,
 	rounding,
 	selectedSkill,
@@ -92,6 +98,7 @@ export function WorkspacePanel({
 	selectedSource,
 	selectedTarget,
 	sourcePreviewResult,
+	skillResourceText,
 	skillText,
 	sql,
 	sqlResult,
@@ -99,8 +106,11 @@ export function WorkspacePanel({
 	targetSourceFileName,
 	targetSourceName,
 	onRevertSkill,
+	onRevertSkillResource,
 	onRunSql,
 	onSaveSkill,
+	onSaveSkillResource,
+	onSkillResourceTextChange,
 	onSkillTextChange,
 	onSqlChange,
 	onVerticalResize,
@@ -113,14 +123,20 @@ export function WorkspacePanel({
 		inspectorView,
 	);
 	const hasTopPane = isQueryVisible || hasSummaryPane;
-	const summaryResourcePath =
-		selectedSkillResource?.relative_path || selectedSkillResource?.label || "";
+	const canEditSkillResource =
+		inspectorView === "skillResource" &&
+		selectedSkillResource &&
+		!isCsvSkillResource(selectedSkillResource, inspectorView);
+	const hasResultLikeBody =
+		inspectorView === "results" ||
+		isCsvSkillResource(selectedSkillResource, inspectorView) ||
+		hasSummaryPane;
 	const renderSqlLine = useCallback(
 		(line: string) => renderHighlightedSql(line),
 		[],
 	);
 	const renderSkillLine = useCallback(
-		(line: string) => renderHighlightedMarkdown(line),
+		(line: string) => renderHighlightedMarkdownLine(line),
 		[],
 	);
 	const togglePane = useCallback((pane: CollapsiblePane) => {
@@ -181,9 +197,6 @@ export function WorkspacePanel({
 									<>
 										<Star size={14} aria-hidden="true" />
 										<span className="inspector-title">AI SUMMARY</span>
-										<span className="inspector-detail">
-											{summaryResourcePath}
-										</span>
 									</>
 								)}
 							</button>
@@ -269,7 +282,9 @@ export function WorkspacePanel({
 							)}
 							<InspectorIcon size={14} aria-hidden="true" />
 							<span className="inspector-title">{inspector.title}</span>
-							<span className="inspector-detail">{inspector.detail}</span>
+							{inspector.detail ? (
+								<span className="inspector-detail">{inspector.detail}</span>
+							) : null}
 						</button>
 						{inspectorView === "results" && sqlResult?.columns?.length ? (
 							<button
@@ -281,16 +296,36 @@ export function WorkspacePanel({
 								CSV
 							</button>
 						) : null}
+						{canEditSkillResource ? (
+							<div className="button-cluster">
+								<button
+									aria-label="Save skill resource"
+									className="outline-button icon-button"
+									disabled={isSkillResourceSaved}
+									onClick={onSaveSkillResource}
+									title="Save skill resource"
+									type="button"
+								>
+									<Save size={13} />
+								</button>
+								<button
+									aria-label="Revert skill resource"
+									className="outline-button icon-button"
+									disabled={isSkillResourceSaved}
+									onClick={onRevertSkillResource}
+									title="Revert skill resource"
+									type="button"
+								>
+									<RotateCcw size={13} />
+								</button>
+							</div>
+						) : null}
 					</header>
 					{!outputCollapsed ? (
 						<div
 							id="output-pane-body"
 							className={
-								inspectorView === "results" ||
-								isCsvSkillResource(selectedSkillResource, inspectorView) ||
-								hasSummaryPane
-									? "pane-body result-pane-body"
-									: "pane-body"
+								hasResultLikeBody ? "pane-body result-pane-body" : "pane-body"
 							}
 						>
 							{inspectorView === "run" && (
@@ -379,9 +414,11 @@ export function WorkspacePanel({
 								<SkillResourceViewer
 									model={selectedModel}
 									resource={selectedSkillResource}
+									resourceText={skillResourceText}
 									rounding={rounding}
 									showTabs={!hasSummaryPane}
 									viewMode={hasSummaryPane ? "code" : undefined}
+									onResourceTextChange={onSkillResourceTextChange}
 								/>
 							)}
 							{inspectorView === "source" && (
@@ -451,7 +488,7 @@ function inspectorState({
 	if (inspectorView === "skillResource") {
 		return {
 			title: skillResourceTitle(selectedSkillResource),
-			detail: skillResourceDetail(selectedSkillResource),
+			detail: "",
 			icon: skillResourceIcon(selectedSkillResource),
 		};
 	}
@@ -472,14 +509,6 @@ function inspectorState({
 function skillResourceTitle(resource: SkillResourceEntry | null) {
 	if (!resource) return "No skill file selected";
 	return resource.label;
-}
-
-function skillResourceDetail(resource: SkillResourceEntry | null) {
-	if (!resource) return "skill file";
-	const parts = isMarkdownSkillResource(resource)
-		? [resource.label, resource.skillName, resource.group]
-		: [resource.skillName, resource.group];
-	return parts.filter(Boolean).join(" / ");
 }
 
 function resultDetail(result: SqlResult | null) {
@@ -541,53 +570,6 @@ function targetTitle(
 			) : null}
 		</>
 	);
-}
-
-function renderHighlightedMarkdown(line: string) {
-	let lineClass = "";
-	if (/^\s*```/.test(line)) {
-		lineClass = "md-fence";
-	} else if (/^\s{0,3}#{1,6}\s/.test(line)) {
-		lineClass = "md-heading";
-	} else if (/^\s{0,3}>/.test(line)) {
-		lineClass = "md-quote";
-	} else if (/^\s*[-*+]\s/.test(line) || /^\s*\d+\.\s/.test(line)) {
-		lineClass = "md-list";
-	} else if (/^\s*[A-Za-z0-9_-]+:\s/.test(line)) {
-		lineClass = "md-key";
-	}
-	const content = renderMarkdownInline(line);
-	return lineClass ? <span className={lineClass}>{content}</span> : content;
-}
-
-function renderMarkdownInline(line: string) {
-	const parts = line.matchAll(
-		/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|_[^_]+_|\[[^\]]+\]\([^)]+\))/g,
-	);
-	const nodes: ReactNode[] = [];
-	let cursor = 0;
-	for (const part of parts) {
-		const start = part.index;
-		const value = part[0];
-		if (start > cursor) {
-			nodes.push(line.slice(cursor, start));
-		}
-		const className = value.startsWith("`")
-			? "md-code"
-			: value.startsWith("[")
-				? "md-link"
-				: "md-emphasis";
-		nodes.push(
-			<span className={className} key={`md-${start}`}>
-				{value}
-			</span>,
-		);
-		cursor = start + value.length;
-	}
-	if (cursor < line.length) {
-		nodes.push(line.slice(cursor));
-	}
-	return nodes.length ? nodes : line;
 }
 
 function formatSkillModifiedAt(skill: SkillEntry | null) {

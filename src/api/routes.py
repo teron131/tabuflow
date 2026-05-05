@@ -33,7 +33,13 @@ from .constants import (
     UPLOAD_EXTENSIONS,
     UPLOADS_DIR,
 )
-from .schemas import ChatRequest, FileExplanationRequest, SkillSaveRequest, SqlRunRequest
+from .schemas import (
+    ChatRequest,
+    FileExplanationRequest,
+    SkillResourceSaveRequest,
+    SkillSaveRequest,
+    SqlRunRequest,
+)
 from .workspace_data import (
     WorkspaceDataMissingError,
     default_database_path,
@@ -287,6 +293,34 @@ def _writable_skill_path(skill_name: str) -> Path:
     return Path(skills_path)
 
 
+def _writable_skill_resource_path(resource_path: str) -> Path:
+    """Resolve a skill resource path under the workspace skills directory."""
+    path = Path(resource_path).expanduser()
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    resolved_path = path.resolve()
+    skills_root = (REPO_ROOT / "skills").resolve()
+    if not resolved_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status": "error",
+                "message": f"Skill resource not found: {resource_path}",
+            },
+        )
+    try:
+        resolved_path.relative_to(skills_root)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "message": "Only files under the workspace skills directory can be saved here.",
+            },
+        ) from exc
+    return resolved_path
+
+
 @router.get("/health")
 def health() -> dict[str, Any]:
     """Return basic API and local model configuration status."""
@@ -482,4 +516,19 @@ def save_skill(request: SkillSaveRequest) -> dict[str, Any]:
         "skills_path": str(skills_file),
         "modified_at": _skill_modified_at(skills_file),
         "summary": "Skill saved.",
+    }
+
+
+@router.post("/skills/resource/save")
+def save_skill_resource(request: SkillResourceSaveRequest) -> dict[str, Any]:
+    """Persist an editable skill resource file and return updated metadata."""
+    resource_path = _writable_skill_resource_path(request.path)
+    resource_path.write_text(request.content, encoding="utf-8")
+    return {
+        "status": "saved",
+        "path": str(resource_path),
+        "relative_path": str(resource_path.relative_to(REPO_ROOT)),
+        "content": request.content,
+        "modified_at": _skill_modified_at(resource_path),
+        "summary": "Skill resource saved.",
     }

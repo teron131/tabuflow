@@ -1056,14 +1056,14 @@ h1 {
 	overflow-wrap: anywhere;
 }
 
-.editor-nowrap textarea,
-.editor-nowrap .editor-content,
-.editor-nowrap .editor-line-text {
+.editor-no-wrap textarea,
+.editor-no-wrap .editor-content,
+.editor-no-wrap .editor-line-text {
 	white-space: pre;
 	overflow-wrap: normal;
 }
 
-.editor-nowrap .editor-line {
+.editor-no-wrap .editor-line {
 	width: max-content;
 	min-width: 100%;
 }
@@ -1106,7 +1106,7 @@ h1 {
 }
 
 .md-list {
-	color: var(--accent-olive);
+	color: var(--text);
 }
 
 .md-quote {

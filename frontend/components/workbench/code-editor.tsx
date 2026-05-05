@@ -136,7 +136,12 @@ function updateEditorActiveLine(
 		.slice(0, editor.selectionStart)
 		.split(/\r\n|\r|\n/).length;
 	if (editor.wrap === "off") {
-		updateUnwrappedEditorActiveLine(editor, container, contentLayer, lineNumber);
+		updateUnwrappedEditorActiveLine(
+			editor,
+			container,
+			contentLayer,
+			lineNumber,
+		);
 		return;
 	}
 	const activeLine = contentLayer.children.item(lineNumber - 1);
