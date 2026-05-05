@@ -1,5 +1,6 @@
 """HTTP routes for the data-agentics workbench API."""
 
+from contextlib import suppress
 from datetime import UTC, datetime
 import json
 from pathlib import Path
@@ -20,7 +21,6 @@ from ..config import (
 )
 from ..explainer import MissingExplainerModelError, explain_file
 from ..tools import list_skills, load_skills
-from ..tools.tabular.tools import extract_tabular_file
 from ..tools.sql.query import describe_target, list_targets, run_query
 from .chat import ChatConfigurationError, ChatRuntimeError, run_chat, stream_chat_chunks
 from .constants import (
@@ -41,8 +41,8 @@ from .schemas import (
 from .workspace_data import (
     WorkspaceDataMissingError,
     default_database_path,
-    list_uploaded_source_summaries,
     list_prepared_source_summaries,
+    list_uploaded_source_summaries,
     resolve_database_path,
 )
 
@@ -229,7 +229,11 @@ def _pdf_upload_summary(path: Path) -> dict[str, Any]:
         }
 
 
-def _image_upload_summary(path: Path, *, content_type: str | None) -> dict[str, Any]:
+def _image_upload_summary(
+    path: Path,
+    *,
+    content_type: str | None,
+) -> dict[str, Any]:
     """Return a lightweight image upload summary for pasted or attached screenshots."""
     return {
         "status": "uploaded",
@@ -237,6 +241,18 @@ def _image_upload_summary(path: Path, *, content_type: str | None) -> dict[str, 
         "name": path.name,
         "path": str(path),
         "content_type": content_type or "application/octet-stream",
+        "size_bytes": path.stat().st_size,
+    }
+
+
+def _tabular_upload_summary(path: Path) -> dict[str, Any]:
+    """Return a lightweight tabular upload summary before prep extracts it."""
+    return {
+        "status": "uploaded",
+        "target_backend": "tabular",
+        "name": path.name,
+        "path": str(path),
+        "format": path.suffix.lower().lstrip("."),
         "size_bytes": path.stat().st_size,
     }
 
@@ -353,12 +369,11 @@ def upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
     suffix = saved_path.suffix.lower()
     try:
         if suffix in TABULAR_UPLOAD_EXTENSIONS:
-            upload_result = extract_tabular_file(saved_path, root_dir=REPO_ROOT)
+            upload_result = _tabular_upload_summary(saved_path)
         elif suffix in IMAGE_UPLOAD_EXTENSIONS:
             upload_result = _image_upload_summary(saved_path, content_type=file.content_type)
         else:
             upload_result = _pdf_upload_summary(saved_path)
-        database_path = default_database_path()
     except Exception as exc:
         raise HTTPException(
             status_code=422,
@@ -369,11 +384,13 @@ def upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
                 "path": str(saved_path),
             },
         ) from exc
-    return {
+    response = {
         "status": "ok",
         "upload": upload_result,
-        "bootstrap": _bootstrap_payload(database_path),
     }
+    with suppress(WorkspaceDataMissingError):
+        response["bootstrap"] = _bootstrap_payload(default_database_path())
+    return response
 
 
 @router.post("/chat")

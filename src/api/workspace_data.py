@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 import hashlib
+from pathlib import Path
 import sqlite3
 
 from ..config import PREPARED_DATABASE_PATH, UPLOADS_DIR, WORKBENCH_SOURCE_ROOT
@@ -36,6 +36,8 @@ def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
         source_path_text = str(source_path or "")
         if source_path_text in seen_paths:
             continue
+        if not source_is_current_for_database(source_path_text, database_path):
+            continue
         seen_paths.add(source_path_text)
         kind = str(source_format or "file").upper()
         display_path = _source_display_path(source_path_text)
@@ -66,6 +68,22 @@ def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
             }
         )
     return files
+
+
+def source_is_current_for_database(
+    source_path: str,
+    database_path: Path,
+) -> bool:
+    """Return whether a prepared catalog row still matches the current source file."""
+    if not source_path:
+        return False
+    path = Path(source_path).expanduser()
+    if not path.is_absolute():
+        path = WORKBENCH_SOURCE_ROOT / path
+    try:
+        return path.is_file() and path.stat().st_mtime <= database_path.stat().st_mtime
+    except OSError:
+        return False
 
 
 def list_uploaded_source_summaries(*, existing_paths: set[str] | None = None) -> list[dict[str, str]]:
