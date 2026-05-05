@@ -153,6 +153,17 @@ def _target_size_label(
     return f"{row_label}x{column_count}"
 
 
+def _target_row_count(connection: sqlite3.Connection, target_name: str) -> int | None:
+    """Return a SQLite target row count when catalog metadata is unavailable."""
+    try:
+        row = connection.execute(f"SELECT COUNT(*) FROM {quote_identifier(target_name)}").fetchone()
+    except (sqlite3.Error, sqlite3.Warning):
+        return None
+    if row is None:
+        return None
+    return cast(int, row[0])
+
+
 def _normalized_column_names(column_names: list[str | None]) -> tuple[list[str], list[str]]:
     """Return stable, unique column names for row dictionaries."""
     seen: set[str] = set()
@@ -465,6 +476,9 @@ def _cached_database_catalog(
                 content_rows=content_rows,
                 source_rows=source_rows,
             )
+            row_count = None if content_metadata is None else content_metadata["row_count"]
+            if row_count is None:
+                row_count = _target_row_count(connection, name)
             target_info = {
                 "name": name,
                 "type": target_type,
@@ -473,7 +487,7 @@ def _cached_database_catalog(
                 "columns": columns,
                 "content_id": None if content_metadata is None else content_metadata["content_id"],
                 "content_schema": None if content_metadata is None else content_metadata["content_schema"],
-                "row_count": None if content_metadata is None else content_metadata["row_count"],
+                "row_count": row_count,
                 "source_mappings": source_mappings,
                 "source_paths": source_paths,
                 "source_target_names": [],

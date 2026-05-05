@@ -26,14 +26,13 @@ import {
 	useRef,
 	useState,
 } from "react";
-import {
-	type BootstrapPayload,
-	type SkillEntry,
-	type SkillResourceEntry,
-	type SkillResourcePayload,
-	type SourceFile,
-	skillLineCount,
-	type Target,
+import type {
+	BootstrapPayload,
+	SkillEntry,
+	SkillResourceEntry,
+	SkillResourcePayload,
+	SourceFile,
+	Target,
 } from "@/lib/api";
 import { isTargetView } from "../targets";
 import type { ExplorerKey, ExplorerRailMode, InspectorView } from "../types";
@@ -522,7 +521,6 @@ function buildGroups({
 			key: "skills",
 			label: groupLabels.skills,
 			rows: skills.map((skill) => {
-				const lineCount = skillLineCount(skill);
 				const children = skillChildRows(
 					skill,
 					inspectorView,
@@ -534,12 +532,11 @@ function buildGroups({
 					id: `skill-${skill.name}`,
 					label: skill.name,
 					type: "SKILL",
-					status: lineCount ? String(lineCount) : "",
+					status: "",
 					detail: skill.description || skill.path || "",
 					metadata: [
 						skill.path,
 						skill.skills_path,
-						lineCount,
 						...children.map((child) => child.metadata),
 					]
 						.filter(Boolean)
