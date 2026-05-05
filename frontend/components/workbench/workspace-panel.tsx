@@ -11,7 +11,6 @@ import {
 	RotateCcw,
 	Save,
 	ScrollText,
-	Star,
 	Table2,
 } from "lucide-react";
 import type {
@@ -20,6 +19,7 @@ import type {
 	RefObject,
 } from "react";
 import { useCallback, useState } from "react";
+import { RiGeminiLine } from "react-icons/ri";
 import {
 	type BootstrapPayload,
 	type SkillEntry,
@@ -195,7 +195,7 @@ export function WorkspacePanel({
 									"QUERY BUFFER"
 								) : (
 									<>
-										<Star size={14} aria-hidden="true" />
+										<RiGeminiLine size={14} aria-hidden="true" />
 										<span className="inspector-title">AI SUMMARY</span>
 									</>
 								)}

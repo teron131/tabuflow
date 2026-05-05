@@ -3,12 +3,12 @@
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type FileUIPart } from "ai";
 import {
-	Bot,
 	CheckCircle2,
 	ChevronDown,
 	CircleUserRound,
 	Cloud,
 	Loader2,
+	PanelRight,
 	Paperclip,
 	Send,
 	TriangleAlert,
@@ -31,6 +31,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { FaRobot } from "react-icons/fa";
 import type { WorkbenchMessage } from "@/lib/chat-contracts";
 
 type WorkbenchPart = WorkbenchMessage["parts"][number];
@@ -66,10 +67,12 @@ type UploadedWorkspaceFile = {
 };
 
 type ChatRailProps = {
+	isCollapsed: boolean;
 	modelOptions: string[];
 	selectedModel: string;
 	uploadStatus: string;
 	onModelChange: (model: string) => void;
+	onToggle: () => void;
 	onUploadFiles: (
 		files: File[],
 	) => Promise<UploadedWorkspaceFile[]> | UploadedWorkspaceFile[];
@@ -450,7 +453,16 @@ function ChatMessage({ message }: { message: WorkbenchMessage }) {
 	return (
 		<article className={isUser ? "message user-message" : "message ai-message"}>
 			<div className="message-avatar" aria-hidden="true">
-				{isUser ? <CircleUserRound size={15} /> : <Bot size={15} />}
+				{isUser ? (
+					<CircleUserRound size={15} />
+				) : (
+					<FaRobot
+						aria-hidden="true"
+						className="agent-icon"
+						color="var(--accent-smoke)"
+						size={15}
+					/>
+				)}
 			</div>
 			<div className="message-shell">
 				<header className="message-meta">
@@ -515,10 +527,12 @@ function ComposerAttachmentPreview({
 }
 
 export const ChatRail = memo(function ChatRail({
+	isCollapsed,
 	modelOptions,
 	selectedModel,
 	uploadStatus,
 	onModelChange,
+	onToggle,
 	onUploadFiles,
 }: ChatRailProps) {
 	const [input, setInput] = useState("");
@@ -778,24 +792,40 @@ export const ChatRail = memo(function ChatRail({
 	);
 
 	return (
-		<aside className="chat-rail">
+		<aside className={isCollapsed ? "chat-rail collapsed" : "chat-rail"}>
 			<header className="rail-header">
 				<div className="rail-title">
-					<Bot size={14} aria-hidden="true" />
+					<FaRobot
+						aria-hidden="true"
+						className="agent-icon"
+						color="var(--accent-smoke)"
+						size={14}
+					/>
 					<span>Agent</span>
 				</div>
-				<select
-					className="model-select"
-					aria-label="Model"
-					value={selectedModel}
-					onChange={(event) => onModelChange(event.target.value)}
-				>
-					{modelOptions.map((model) => (
-						<option key={model} value={model}>
-							{model}
-						</option>
-					))}
-				</select>
+				<div className="rail-actions">
+					<select
+						className="model-select"
+						aria-label="Model"
+						value={selectedModel}
+						onChange={(event) => onModelChange(event.target.value)}
+					>
+						{modelOptions.map((model) => (
+							<option key={model} value={model}>
+								{model}
+							</option>
+						))}
+					</select>
+					<button
+						className="panel-toggle"
+						type="button"
+						aria-label="Collapse agent panel"
+						aria-expanded={!isCollapsed}
+						onClick={onToggle}
+					>
+						<PanelRight size={14} />
+					</button>
+				</div>
 			</header>
 
 			<div

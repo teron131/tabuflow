@@ -7,6 +7,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { FaRobot } from "react-icons/fa";
 import { ChatRail } from "@/components/chat-rail";
 import { ActivityBar } from "@/components/workbench/activity-bar";
 import { BrandMark } from "@/components/workbench/brand-mark";
@@ -61,6 +62,7 @@ export function Workbench() {
 	const sourcePreviewRequestId = useRef(0);
 	const [activeExplorer, setActiveExplorer] = useState<ExplorerKey>("sql");
 	const [sidePanel, setSidePanel] = useState<SidePanel>("explorer");
+	const [isAgentPanelCollapsed, setIsAgentPanelCollapsed] = useState(false);
 	const [inspectorView, setInspectorView] = useState<InspectorView>("results");
 	const [rounding, setRounding] = useState<RoundingSettings>(defaultRounding);
 	const [uiScale, setUiScale] = useState(workbenchScale.default);
@@ -184,6 +186,10 @@ export function Workbench() {
 	const toggleSidePanel = useCallback(() => {
 		setIsExplorerCollapsed((collapsed) => !collapsed);
 	}, [setIsExplorerCollapsed]);
+
+	const toggleAgentPanel = useCallback(() => {
+		setIsAgentPanelCollapsed((collapsed) => !collapsed);
+	}, []);
 
 	const selectTarget = useCallback(async (target: Target) => {
 		const requestId = targetPreviewRequestId.current + 1;
@@ -460,11 +466,13 @@ export function Workbench() {
 	return (
 		<main
 			ref={shellRef}
-			className={
-				isExplorerCollapsed
-					? "workbench-shell explorer-collapsed"
-					: "workbench-shell"
-			}
+			className={[
+				"workbench-shell",
+				isExplorerCollapsed ? "explorer-collapsed" : "",
+				isAgentPanelCollapsed ? "agent-collapsed" : "",
+			]
+				.filter(Boolean)
+				.join(" ")}
 			style={{
 				...shellStyle,
 				...workbenchScaleStyle(uiScale),
@@ -477,6 +485,28 @@ export function Workbench() {
 						<span className="eyebrow">DATA AGENTICS</span>
 						<h1>Workbench</h1>
 					</div>
+				</div>
+				<div className="top-actions">
+					<button
+						className={
+							isAgentPanelCollapsed
+								? "agent-toggle-button"
+								: "agent-toggle-button active"
+						}
+						type="button"
+						aria-label={
+							isAgentPanelCollapsed ? "Show agent panel" : "Hide agent panel"
+						}
+						aria-expanded={!isAgentPanelCollapsed}
+						onClick={toggleAgentPanel}
+					>
+						<FaRobot
+							aria-hidden="true"
+							className="agent-icon"
+							color="var(--accent-smoke)"
+							size={17}
+						/>
+					</button>
 				</div>
 			</header>
 
@@ -567,10 +597,12 @@ export function Workbench() {
 				aria-label="Resize chat"
 			/>
 			<ChatRail
+				isCollapsed={isAgentPanelCollapsed}
 				modelOptions={modelOptions}
 				selectedModel={selectedModel}
 				uploadStatus={uploadStatus}
 				onModelChange={setSelectedModel}
+				onToggle={toggleAgentPanel}
 				onUploadFiles={uploadFiles}
 			/>
 		</main>
