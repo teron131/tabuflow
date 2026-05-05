@@ -48,7 +48,7 @@ def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
                 "kind": kind,
                 "status": "prepared",
                 "source_path": display_path,
-                "destination_path": str(database_path),
+                "destination_path": _source_display_path(str(database_path)),
                 "sheet_name": str(source_sheet_name or ""),
                 "table_name": str(source_table_name or ""),
             }
@@ -61,8 +61,8 @@ def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
                 "name": database_path.name,
                 "kind": "SQLITE",
                 "status": "prepared",
-                "source_path": database_path_text,
-                "destination_path": database_path_text,
+                "source_path": _source_display_path(database_path_text),
+                "destination_path": _source_display_path(database_path_text),
                 "sheet_name": "",
                 "table_name": "",
             }
@@ -81,7 +81,8 @@ def list_uploaded_source_summaries(*, existing_paths: set[str] | None = None) ->
         if not path.is_file() or path.suffix.lower() not in UPLOAD_EXTENSIONS:
             continue
         path_text = str(path)
-        if path_text in existing:
+        display_path = _source_display_path(path_text)
+        if display_path in existing:
             continue
         kind = path.suffix.lower().lstrip(".").upper()
         files.append(
@@ -90,7 +91,7 @@ def list_uploaded_source_summaries(*, existing_paths: set[str] | None = None) ->
                 "name": path.name,
                 "kind": kind,
                 "status": "uploaded",
-                "source_path": path_text,
+                "source_path": display_path,
                 "destination_path": "",
                 "sheet_name": "",
                 "table_name": "",
@@ -118,8 +119,11 @@ def _source_display_path(path: str) -> str:
         return ""
     source_path = Path(path).expanduser()
     if source_path.is_absolute():
-        return str(source_path)
-    return str(WORKBENCH_SOURCE_ROOT / source_path)
+        try:
+            return str(source_path.resolve().relative_to(WORKBENCH_SOURCE_ROOT.resolve()))
+        except ValueError:
+            return source_path.name or "external source"
+    return str(source_path)
 
 
 def default_database_path() -> Path:

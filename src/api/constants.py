@@ -32,18 +32,13 @@ WORKBENCH_SOURCE_ROOT = _configured_path(
 )
 
 DEFAULT_SQL = """SELECT
-  metric,
-  billing_account_name,
-  grand_total_cost_usd,
-  total_unrounded_cost_usd,
-  rank_n
-FROM analysis_result
-LIMIT 10;"""
+  'ready' AS status,
+  'Select a source, table, or saved result to inspect.' AS message;"""
 
 SUGGESTED_QUESTIONS = [
-    "Show the grand total cost.",
-    "Rank billing accounts by cost.",
-    "Explain the top account.",
+    "What sources are prepared?",
+    "Show available SQL targets.",
+    "Preview the selected result.",
 ]
 
 STAGE_CARDS = [

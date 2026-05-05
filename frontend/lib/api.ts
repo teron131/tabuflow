@@ -136,17 +136,12 @@ export type SkillEntry = {
 export const emptyBootstrap: BootstrapPayload = {
 	status: "loading",
 	sample_sql: `SELECT
-  metric,
-  billing_account_name,
-  grand_total_cost_usd,
-  total_unrounded_cost_usd,
-  rank_n
-FROM analysis_result
-LIMIT 10;`,
+  'ready' AS status,
+  'Select a source, table, or saved result to inspect.' AS message;`,
 	suggested_questions: [
-		"Show the grand total cost.",
-		"Rank billing accounts by cost.",
-		"Explain the top account.",
+		"What sources are prepared?",
+		"Show available SQL targets.",
+		"Preview the selected result.",
 	],
 	stage_cards: [
 		{ name: "Prep", status: "ready", summary: "Inspect files." },

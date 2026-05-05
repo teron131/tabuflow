@@ -159,7 +159,7 @@ def _public_sql_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Remove private local path metadata from SQL tool payloads."""
     result = {key: value for key, value in payload.items() if key != "database_path"}
     if isinstance(result.get("targets"), list):
-        result["targets"] = [_public_target(target) for target in result["targets"] if isinstance(target, dict)]
+        result["targets"] = [_public_target(target) for target in result["targets"] if isinstance(target, dict) and target.get("kind") != "typed_content_view"]
     return _public_target(result)
 
 
