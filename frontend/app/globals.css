@@ -3,8 +3,9 @@
 :root {
 	--font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 	--font-mono: var(--font-geist-mono), "SFMono-Regular", Consolas, monospace;
-	--font-code: ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas,
-		"Liberation Mono", monospace;
+	--font-code:
+		ui-monospace, "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono",
+		monospace;
 	--bg: #f4f2ed;
 	--panel: #fffef9;
 	--panel-strong: #ebe7dd;
@@ -1131,7 +1132,8 @@ h1 {
 	flex: 1;
 	overflow: hidden;
 	background:
-		linear-gradient(90deg, var(--editor-gutter-wash), transparent 90px), var(--paper);
+		linear-gradient(90deg, var(--editor-gutter-wash), transparent 90px),
+		var(--paper);
 }
 
 .sql-editor-wrap textarea,
@@ -2076,6 +2078,7 @@ h1 {
 }
 
 .message-shell p {
+	margin: 0;
 	color: var(--text);
 	font-size: var(--font-size-md);
 	line-height: 1.55;
@@ -2083,26 +2086,31 @@ h1 {
 	white-space: pre-wrap;
 }
 
+.message-shell > p + .tool-message,
+.message-shell > .tool-message + p {
+	margin-top: 12px;
+}
+
 .tool-message {
-	margin-top: 9px;
+	margin-top: 6px;
 	min-width: 0;
 	max-width: 100%;
 	border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--line));
 	background: color-mix(in srgb, var(--accent) 7%, var(--paper-warm));
-	box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent) 72%, transparent);
+	box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 66%, transparent);
 }
 
 .tool-message > summary {
 	display: grid;
-	grid-template-columns: 18px minmax(0, 1fr) auto 14px;
+	grid-template-columns: 16px minmax(0, 1fr) auto 12px;
 	align-items: center;
-	gap: 7px;
-	min-height: 30px;
-	padding: 0 8px;
+	gap: 6px;
+	min-height: 26px;
+	padding: 0 7px;
 	list-style: none;
 	cursor: pointer;
 	font-family: var(--font-mono);
-	font-size: var(--font-size-sm);
+	font-size: var(--font-size-xs);
 	text-transform: uppercase;
 }
 
@@ -2113,22 +2121,24 @@ h1 {
 .tool-summary-main {
 	display: flex;
 	align-items: baseline;
-	gap: 8px;
+	gap: 7px;
 	min-width: 0;
 }
 
-.tool-summary-main > span {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
+.tool-summary-name {
+	flex: 0 0 auto;
 	white-space: nowrap;
 }
 
 .tool-summary-steps {
+	min-width: 0;
 	flex: 1 1 auto;
 	color: var(--muted);
-	font-size: var(--font-size-xs);
+	font-size: 0.92em;
 	font-weight: 500;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 	text-transform: none;
 }
 
@@ -2177,16 +2187,22 @@ h1 {
 
 .trace-row {
 	display: grid;
-	grid-template-columns: 82px minmax(0, 1fr);
+	grid-template-columns: max-content minmax(0, 1fr);
 	gap: 8px;
 	padding: 7px 8px;
 	background: var(--paper);
+}
+
+.trace-row[data-depth="1"] {
+	padding-left: 18px;
+	box-shadow: inset 3px 0 0 color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .trace-row span {
 	color: var(--accent-strong);
 	font-family: var(--font-mono);
 	font-size: var(--font-size-xs);
+	white-space: nowrap;
 	text-transform: uppercase;
 }
 
@@ -2195,7 +2211,9 @@ h1 {
 	color: var(--text);
 	font-size: var(--font-size-sm);
 	line-height: 1.35;
-	overflow-wrap: anywhere;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .trace-row b {

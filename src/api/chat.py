@@ -2,7 +2,9 @@
 
 from collections.abc import Iterator
 from dataclasses import dataclass
+import json
 from pathlib import Path
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -27,6 +29,8 @@ MAX_CHAT_HISTORY_MESSAGES = 16
 MAX_TRACE_CONTENT_CHARS = 500
 MAX_TOOL_TRACE_SUMMARY_CHARS = 220
 MAX_CHAT_IMAGE_ATTACHMENTS = 4
+TRACE_TOOL_LABEL_RE = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+TRACE_PREFIX_RE = re.compile(r"^(?P<name>[a-z][a-z0-9]*(?:_[a-z0-9]+)*)\s*:\s*(?P<summary>.*)$")
 MAX_CHAT_IMAGE_BYTES = 8 * 1024 * 1024
 BACKEND_CHAT_TOOL_NAME = "backendChat"
 
@@ -203,15 +207,36 @@ def _stage_trace(result: dict[str, Any]) -> list[dict[str, str]]:
         if not text:
             continue
         stage, _, summary = text.partition(":")
+        stage_name = stage.strip() or "stage"
+        summary = summary.strip() or text
+        trace_name, trace_summary = _stage_trace_fields(stage_name, summary)
         entries.append(
             {
-                "id": f"{len(entries) + 1}:{stage.strip() or 'stage'}",
-                "name": stage.strip() or "stage",
+                "id": f"{len(entries) + 1}:{stage_name}",
+                "name": trace_name,
                 "status": "completed",
-                "summary": summary.strip() or text,
+                "summary": trace_summary,
             }
         )
     return entries
+
+
+def _stage_trace_fields(stage: str, summary: str) -> tuple[str, str]:
+    """Return the display name and summary for one workflow trace entry."""
+    if match := TRACE_PREFIX_RE.match(summary):
+        return match.group("name"), match.group("summary").strip() or summary
+    if match := TRACE_TOOL_LABEL_RE.search(summary):
+        return match.group(0), summary
+    return stage, summary
+
+
+def _tool_stage_trace(message: ToolMessage) -> list[dict[str, str]]:
+    """Return nested stage trace rows from a JSON tool output."""
+    try:
+        payload = json.loads(message_text(message))
+    except json.JSONDecodeError:
+        return []
+    return _stage_trace(payload) if isinstance(payload, dict) else []
 
 
 def _chunk_id() -> str:
@@ -222,20 +247,23 @@ def _chunk_id() -> str:
 def _tool_output_payload(tool_name: str, tool_call_id: str, message: ToolMessage) -> dict[str, Any]:
     """Build one streamed tool result payload using the existing backend trace shape."""
     summary = _truncated_summary(message)
+    artifact: dict[str, Any] = {
+        "tool_trace": [
+            {
+                "id": tool_call_id,
+                "name": tool_name,
+                "status": "completed",
+                "summary": summary,
+            }
+        ]
+    }
+    if stage_trace := _tool_stage_trace(message):
+        artifact["stage_trace"] = stage_trace
     return {
         "status": "ok",
         "mode": "model_stream",
         "content": summary,
-        "artifact": {
-            "tool_trace": [
-                {
-                    "id": tool_call_id,
-                    "name": tool_name,
-                    "status": "completed",
-                    "summary": summary,
-                }
-            ]
-        },
+        "artifact": artifact,
     }
 
 

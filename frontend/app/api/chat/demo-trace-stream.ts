@@ -7,25 +7,26 @@ const DEMO_TRACE_DELAYS = {
 const DEFAULT_DEMO_TRACE_MESSAGE = "show all demo trace steps";
 const DEMO_PREPARED_STATE = {
 	database_path: "data/demo.sqlite",
-	preferred_targets: ["table1"],
+	preferred_targets: ["prepared_table"],
 };
 const DEMO_SKILL_FILES = [
-	"skills/skill1/SKILL.md",
-	"skills/skill1/references/file1.md",
-	"skills/skill1/references/query1.sql",
+	"skills/placeholder-analysis/SKILL.md",
+	"skills/placeholder-analysis/references/schema.md",
+	"skills/placeholder-analysis/references/summary-query.sql",
 ];
 
-type DemoToolStep = {
-	name: string;
-	input: unknown;
-	summary: string;
-	output?: Record<string, unknown>;
-};
 type DemoToolStepBlueprint = {
 	name: string;
 	input: (message: string) => unknown;
 	summary: string;
+	stageTrace?: DemoStageTrace[];
 	output?: Record<string, unknown>;
+};
+type DemoStageTrace = {
+	id: string;
+	name: string;
+	status: string;
+	summary: string;
 };
 
 export function parseDemoTraceCommand(
@@ -52,118 +53,176 @@ export function parseDemoTraceCommand(
 const DEMO_TOOL_STEP_BLUEPRINTS: DemoToolStepBlueprint[] = [
 	{
 		name: "load_skills",
-		input: () => ({ names: ["skill1", "skill2"] }),
-		summary: "loaded skill1 and skill2",
-		output: { skills: ["skill1", "skill2"] },
+		input: () => ({ names: ["placeholder-analysis", "tabular-analysis"] }),
+		summary: "loaded placeholder skill descriptions for tabular analysis",
+		output: { skills: ["placeholder-analysis", "tabular-analysis"] },
 	},
 	{
 		name: "fs_list_files",
 		input: () => ({
-			path: "skills/skill1",
+			path: "skills/placeholder-analysis",
 			glob_pattern: "**/*",
 			max_files: 200,
 		}),
-		summary: JSON.stringify(DEMO_SKILL_FILES),
+		summary: "listed SQL and schema references for placeholder-analysis",
 		output: { files: DEMO_SKILL_FILES },
 	},
 	{
 		name: "fs_read_text",
-		input: () => ({ path: "skills/skill1/SKILL.md" }),
-		summary: "read skill1 instructions and routing metadata",
+		input: () => ({ path: "skills/placeholder-analysis/SKILL.md" }),
+		summary: "read placeholder mapping and saved-view requirements",
 		output: {
 			content:
-				"---\nname: skill1\ndescription: Use when asked to build or analyze demo table payloads...",
+				"---\nname: placeholder-analysis\ndescription: Build summary and entity rows from a prepared table...",
 		},
 	},
 	{
 		name: "fs_read_hashline",
 		input: () => ({
-			path: "skills/skill1/references/query1.sql",
+			path: "skills/placeholder-analysis/references/summary-query.sql",
 			start_line: 1,
 			end_line: 24,
 		}),
-		summary: "1#6f8a07:-- Demo query reference.",
+		summary: "read hashline SQL reference for summary and entity rows",
 		output: {
 			lines: [
-				"1#6f8a07:-- Demo query reference.",
-				"2#8de589:-- Replace table1 and column names with names discovered from sql_describe.",
+				"1#6f8a07:-- Build row_type='summary' and row_type='entity' rows.",
+				"2#8de589:-- Discover the entity column from table schema before grouping.",
 			],
 		},
 	},
 	{
-		name: "fs_edit_hashline",
+		name: "load_skill_resources",
 		input: () => ({
-			path: "skills/skill1/SKILL.md",
-			replacements: [
-				{
-					line_ref: "58#demo",
-					text: "Keep file1 and table1 names aligned in the demo output.",
-				},
-			],
+			skills: ["placeholder-analysis", "tabular-analysis"],
+			include_references: true,
 		}),
-		summary: "updated demo output guidance in SKILL.md",
-		output: { changed_lines: 1 },
-	},
-	{
-		name: "sql_describe",
-		input: () => ({ target: DEMO_PREPARED_STATE.preferred_targets[0] }),
-		summary: "table1 has 100 rows x 4 columns",
+		summary: "loaded schema hints, output contract, and SQL examples",
 		output: {
-			prepared_state: DEMO_PREPARED_STATE,
-			columns: ["column1", "column2", "column3", "column4"],
+			status: "ok",
+			resource_count: 3,
+			diagnostics: [],
 		},
 	},
 	{
-		name: "sql_execute",
+		name: "prep_stage",
 		input: (message) => ({
 			message,
-			sql: "SELECT column1, SUM(column2) AS total1 FROM table1 GROUP BY 1;",
+			source_paths: ["data/uploads/source_table.csv"],
+			skill_refs: ["placeholder-analysis", "tabular-analysis"],
 		}),
-		summary: "returned 3 demo rows from table1",
+		summary: "prepared data/uploads/source_table.csv as prepared_table",
+		stageTrace: [
+			{
+				id: "prep-1",
+				name: "profile_tabular",
+				status: "completed",
+				summary:
+					"profiled data/uploads/source_table.csv: 14,832 rows, 9 columns",
+			},
+			{
+				id: "prep-2",
+				name: "inspect_tabular",
+				status: "completed",
+				summary:
+					"found entity_name, metric_a_usd, metric_b_usd, and period columns",
+			},
+			{
+				id: "prep-3",
+				name: "extract_tabular",
+				status: "completed",
+				summary: "loaded target prepared_table into data/demo.sqlite",
+			},
+		],
+		output: {
+			prepared_state: DEMO_PREPARED_STATE,
+			selected_targets: ["prepared_table"],
+		},
+	},
+	{
+		name: "query_stage",
+		input: (message) => ({
+			message,
+			prepared_state: DEMO_PREPARED_STATE,
+			max_repairs: 2,
+		}),
+		summary: "built analysis_result with summary row and top 5 entity rows",
+		stageTrace: [
+			{
+				id: "query-1",
+				name: "write_sql",
+				status: "completed",
+				summary: "wrote SQL to data/sql/placeholder-analysis-demo.sql",
+			},
+			{
+				id: "query-2",
+				name: "execute_sql",
+				status: "completed",
+				summary: "failed with no such column: r.entity",
+			},
+			{
+				id: "query-3",
+				name: "repair_sql",
+				status: "completed",
+				summary: "replaced entity with entity_name from the prepared schema",
+			},
+			{
+				id: "query-4",
+				name: "execute_sql",
+				status: "completed",
+				summary: "returned 6 rows from repaired SQL",
+			},
+			{
+				id: "query-5",
+				name: "validate",
+				status: "completed",
+				summary: "accepted one summary row plus five entity rows",
+			},
+			{
+				id: "query-6",
+				name: "save_view",
+				status: "completed",
+				summary: "saved view analysis_result",
+			},
+		],
 		output: {
 			result: {
-				columns: ["column1", "total1", "total2"],
+				columns: ["row_type", "entity_name", "metric_a_usd", "metric_b_usd"],
 				rows: [
 					{
-						column1: "row1",
-						total1: 100,
-						total2: 10,
+						row_type: "summary",
+						entity_name: null,
+						metric_a_usd: 128943.72,
+						metric_b_usd: 151220.64,
 					},
 					{
-						column1: "row2",
-						total1: 200,
-						total2: 20,
+						row_type: "entity",
+						entity_name: "entity_001",
+						metric_a_usd: 48210.11,
+						metric_b_usd: 57198.44,
 					},
 					{
-						column1: "row3",
-						total1: 300,
-						total2: 30,
+						row_type: "entity",
+						entity_name: "entity_002",
+						metric_a_usd: 39104.06,
+						metric_b_usd: 45562.9,
 					},
 				],
 			},
 		},
 	},
 	{
-		name: "sql_save_view",
+		name: "summarize",
 		input: () => ({
-			view_name: "view1",
-			sql_path: "data/sql/query1.sql",
+			result_view: "analysis_result",
+			rows_returned: 6,
 		}),
-		summary: "saved view view1",
-		output: { view_name: "view1" },
+		summary: "reported the summary row and five highest placeholder entities",
+		output: { view_name: "analysis_result" },
 	},
 ];
 
-function demoToolSteps(message: string): DemoToolStep[] {
-	return DEMO_TOOL_STEP_BLUEPRINTS.map((step) => ({
-		name: step.name,
-		input: step.input(message),
-		summary: step.summary,
-		output: step.output,
-	}));
-}
-
-function demoToolOutput(step: DemoToolStep, toolCallId: string) {
+function demoToolOutput(step: DemoToolStepBlueprint, toolCallId: string) {
 	return {
 		status: "ok",
 		mode: "demo_trace",
@@ -177,50 +236,62 @@ function demoToolOutput(step: DemoToolStep, toolCallId: string) {
 					summary: step.summary,
 				},
 			],
+			...(step.stageTrace ? { stage_trace: step.stageTrace } : {}),
 		},
 		...step.output,
 	};
 }
 
+function demoToolChunks(
+	step: DemoToolStepBlueprint,
+	message: string,
+): UIMessageChunk[] {
+	const toolCallId = crypto.randomUUID();
+	const toolInput = step.input(message);
+	return [
+		{
+			type: "tool-input-available",
+			toolCallId,
+			toolName: "backendChat",
+			input: {
+				tool: step.name,
+				args: toolInput,
+			},
+		},
+		{
+			type: "tool-output-available",
+			toolCallId,
+			output: demoToolOutput(step, toolCallId),
+		},
+	];
+}
+
 export function buildDemoTraceChunks(message: string): UIMessageChunk[] {
 	const messageId = crypto.randomUUID();
-	const textId = crypto.randomUUID();
+	const introTextId = crypto.randomUUID();
+	const finalTextId = crypto.randomUUID();
 
 	return [
 		{ type: "start", messageId },
-		{ type: "text-start", id: textId },
+		{ type: "text-start", id: introTextId },
 		{
 			type: "text-delta",
-			id: textId,
+			id: introTextId,
 			delta:
 				"I will run the staged demo workflow and show each backend tool step.",
 		},
-		...demoToolSteps(message).flatMap((step) => {
-			const toolCallId = crypto.randomUUID();
-			return [
-				{
-					type: "tool-input-available",
-					toolCallId,
-					toolName: "backendChat",
-					input: {
-						tool: step.name,
-						args: step.input,
-					},
-				} satisfies UIMessageChunk,
-				{
-					type: "tool-output-available",
-					toolCallId,
-					output: demoToolOutput(step, toolCallId),
-				} satisfies UIMessageChunk,
-			];
-		}),
+		{ type: "text-end", id: introTextId },
+		...DEMO_TOOL_STEP_BLUEPRINTS.flatMap((step) =>
+			demoToolChunks(step, message),
+		),
+		{ type: "text-start", id: finalTextId },
 		{
 			type: "text-delta",
-			id: textId,
+			id: finalTextId,
 			delta:
-				"\n\nDemo run complete. The trace exercised dummy skill loading, dummy file tools, hashline editing, SQL execution on table1, and view1 saving without calling a model.",
+				"Demo run complete. The trace exercised skill loading, file reads, prep_stage internals, query_stage repair, validation, and analysis_result saving without calling a model.",
 		},
-		{ type: "text-end", id: textId },
+		{ type: "text-end", id: finalTextId },
 		{ type: "finish", finishReason: "stop" },
 	];
 }

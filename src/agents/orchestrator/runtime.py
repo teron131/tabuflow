@@ -202,7 +202,7 @@ def save_sql_result(
             last_error=saved_view.get("message", f"Failed to save view {view_name}"),
             validation_feedback=validation_feedback,
             validation_attempts=validation_attempts,
-            trace=append_stage_trace(run.trace, SAVE_STAGE, f"failed for view {view_name}"),
+            trace=append_stage_trace(run.trace, SAVE_STAGE, f"save_view: failed for view {view_name}"),
         )
 
     if validation_feedback:
@@ -223,7 +223,7 @@ def save_sql_result(
             last_error=validation_feedback["summary"],
             validation_feedback=validation_feedback,
             validation_attempts=validation_attempts,
-            trace=append_stage_trace(run.trace, SAVE_STAGE, f"saved invalid result as view {view_name}"),
+            trace=append_stage_trace(run.trace, SAVE_STAGE, f"save_view: saved invalid result as view {view_name}"),
         )
 
     return run.result(
@@ -238,7 +238,7 @@ def save_sql_result(
         last_error=None,
         validation_feedback=None,
         validation_attempts=validation_attempts,
-        trace=append_stage_trace(run.trace, SAVE_STAGE, f"saved result as view {view_name}"),
+        trace=append_stage_trace(run.trace, SAVE_STAGE, f"save_view: saved result as view {view_name}"),
     )
 
 
@@ -263,7 +263,7 @@ def build_sql_failure_result(
             last_error="SQL stage did not run.",
             validation_feedback=loop.validation_feedback,
             validation_attempts=loop.validation_attempts,
-            trace=append_stage_trace(run.trace, SAVE_STAGE, "sql stage did not run"),
+            trace=append_stage_trace(run.trace, SAVE_STAGE, "save_view: sql stage did not run"),
         )
 
     if sql_output.status != "complete":

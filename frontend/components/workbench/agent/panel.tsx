@@ -21,6 +21,7 @@ import type {
 	ComponentType,
 	ClipboardEvent as ReactClipboardEvent,
 	DragEvent as ReactDragEvent,
+	ReactElement,
 } from "react";
 import {
 	memo,
@@ -44,6 +45,12 @@ type TraceEntry = {
 	name: string;
 	status: string;
 	summary: string;
+	depth?: number;
+};
+type TraceArtifact = {
+	tool_trace?: unknown;
+	stage_trace?: unknown;
+	conversation_trace?: unknown;
 };
 type ComposerCommand = {
 	id: string;
@@ -203,13 +210,6 @@ function fitComposerTextarea(textarea: HTMLTextAreaElement | null) {
 		textarea.scrollHeight > maxHeight ? "auto" : "hidden";
 }
 
-function textFromMessage(message: WorkbenchMessage) {
-	return message.parts
-		.filter((part) => part.type === "text")
-		.map((part) => part.text)
-		.join("\n");
-}
-
 function isToolPart(part: WorkbenchPart): part is WorkbenchToolPart {
 	return part.type.startsWith("tool-") || part.type === "dynamic-tool";
 }
@@ -236,38 +236,51 @@ function inputToolName(input: unknown) {
 	return typeof tool === "string" && tool.trim() ? tool : null;
 }
 
+function traceDetail(item: TraceEntry) {
+	return item.summary ? `${item.status} · ${item.summary}` : item.status;
+}
+
 function toolHeading(
 	part: WorkbenchToolPart,
 	trace: TraceEntry[],
 	input: unknown,
 ) {
-	if (trace.length === 1) {
-		const [item] = trace;
+	const [item] = trace;
+	if (item) {
 		return {
 			title: item.name,
-			detail: item.summary ? `${item.status} · ${item.summary}` : item.status,
+			detail: traceDetail(item),
 		};
 	}
-
 	return {
 		title: inputToolName(input) || toolTitle(part),
-		detail: traceSummary(trace),
+		detail: "No backend tools",
 	};
 }
 
-function ToolMessage({ part }: { part: WorkbenchToolPart }) {
-	const input = "input" in part ? part.input : undefined;
-	const output = "output" in part ? part.output : undefined;
-	const errorText = "errorText" in part ? part.errorText : undefined;
-	const partRecord = part as { state?: unknown; type: string };
-	const state =
-		typeof partRecord.state === "string" ? partRecord.state : partRecord.type;
-	const isError =
-		state === "output-error" || partRecord.type === "tool-output-error";
-	const trace = backendTrace(output);
-	const heading = toolHeading(part, trace, input);
-	const conversation = conversationTrace(output);
-
+function ToolCard({
+	title,
+	detail,
+	isError,
+	state,
+	trace = [],
+	conversation = [],
+	errorText,
+	input,
+	output,
+	showEmptyTrace = false,
+}: {
+	title: string;
+	detail: string;
+	isError: boolean;
+	state: string;
+	trace?: TraceEntry[];
+	conversation?: Array<{ id: string; role: string; content: string }>;
+	errorText?: string;
+	input?: unknown;
+	output?: unknown;
+	showEmptyTrace?: boolean;
+}) {
 	return (
 		<details className="tool-message">
 			<summary>
@@ -275,8 +288,8 @@ function ToolMessage({ part }: { part: WorkbenchToolPart }) {
 					{isError ? <TriangleAlert size={13} /> : <Wrench size={13} />}
 				</span>
 				<span className="tool-summary-main">
-					<span>{heading.title}</span>
-					<span className="tool-summary-steps">{heading.detail}</span>
+					<span className="tool-summary-name">{title}</span>
+					<span className="tool-summary-steps">{detail}</span>
 				</span>
 				{isError && (
 					<span className="tool-state error">{state.replaceAll("-", " ")}</span>
@@ -287,7 +300,11 @@ function ToolMessage({ part }: { part: WorkbenchToolPart }) {
 				{trace.length > 0 && (
 					<section className="backend-trace">
 						{trace.map((item) => (
-							<div className="trace-row" key={item.id}>
+							<div
+								className="trace-row"
+								data-depth={item.depth || 0}
+								key={item.id}
+							>
 								<span>{item.name}</span>
 								<p>
 									<b>{item.status}</b>
@@ -297,7 +314,7 @@ function ToolMessage({ part }: { part: WorkbenchToolPart }) {
 						))}
 					</section>
 				)}
-				{trace.length === 0 && !isError && (
+				{trace.length === 0 && showEmptyTrace && !isError && (
 					<p className="tool-empty">
 						No backend tools were used for this turn.
 					</p>
@@ -343,12 +360,65 @@ function ToolMessage({ part }: { part: WorkbenchToolPart }) {
 	);
 }
 
+function ToolMessage({ part }: { part: WorkbenchToolPart }) {
+	const input = "input" in part ? part.input : undefined;
+	const output = "output" in part ? part.output : undefined;
+	const errorText = "errorText" in part ? part.errorText : undefined;
+	const partRecord = part as { state?: unknown; type: string };
+	const state =
+		typeof partRecord.state === "string" ? partRecord.state : partRecord.type;
+	const isError =
+		state === "output-error" || partRecord.type === "tool-output-error";
+	const artifact = artifactFromOutput(output);
+	const trace = traceItems(artifact?.tool_trace);
+	const heading = toolHeading(part, trace, input);
+	const conversation = conversationTrace(artifact);
+	const stageTrace = traceItems(artifact?.stage_trace);
+
+	if (stageTrace.length > 0) {
+		return (
+			<>
+				{stageTrace.map((item, itemIndex) => (
+					<ToolCard
+						conversation={itemIndex === 0 ? conversation : []}
+						detail={traceDetail(item)}
+						input={itemIndex === 0 ? input : undefined}
+						isError={isError}
+						key={`${part.toolCallId}-${item.id}`}
+						output={itemIndex === 0 ? output : undefined}
+						state={state}
+						title={item.name}
+						trace={[]}
+					/>
+				))}
+			</>
+		);
+	}
+
+	return (
+		<ToolCard
+			conversation={conversation}
+			detail={heading.detail}
+			errorText={errorText}
+			input={input}
+			isError={isError}
+			output={output}
+			showEmptyTrace
+			state={state}
+			title={heading.title}
+			trace={trace}
+		/>
+	);
+}
+
 function artifactFromOutput(output: unknown) {
 	if (!output || typeof output !== "object") {
 		return null;
 	}
 	const artifact = (output as { artifact?: unknown }).artifact;
-	return artifact && typeof artifact === "object" ? artifact : null;
+	return artifact && typeof artifact === "object"
+		? (artifact as TraceArtifact)
+		: null;
 }
 
 function traceItems(value: unknown): TraceEntry[] {
@@ -356,7 +426,7 @@ function traceItems(value: unknown): TraceEntry[] {
 		return [];
 	}
 	return value
-		.map((item) => {
+		.map((item): TraceEntry | null => {
 			if (!item || typeof item !== "object") {
 				return null;
 			}
@@ -365,6 +435,7 @@ function traceItems(value: unknown): TraceEntry[] {
 				name?: unknown;
 				status?: unknown;
 				summary?: unknown;
+				depth?: unknown;
 			};
 			if (
 				typeof candidate.name !== "string" ||
@@ -380,46 +451,20 @@ function traceItems(value: unknown): TraceEntry[] {
 				name: candidate.name,
 				status: candidate.status,
 				summary: typeof candidate.summary === "string" ? candidate.summary : "",
+				depth:
+					typeof candidate.depth === "number" ? candidate.depth : undefined,
 			};
 		})
-		.filter((item): item is TraceEntry => Boolean(item));
-}
-
-function backendTrace(output: unknown): TraceEntry[] {
-	const artifact = artifactFromOutput(output);
-	if (!artifact) {
-		return [];
-	}
-	const toolTrace = traceItems(
-		(artifact as { tool_trace?: unknown }).tool_trace,
-	);
-	if (toolTrace.length > 0) {
-		return toolTrace;
-	}
-	return traceItems((artifact as { stage_trace?: unknown }).stage_trace);
-}
-
-function traceSummary(trace: TraceEntry[]) {
-	if (trace.length === 0) {
-		return "No backend tools";
-	}
-	const names = [...new Set(trace.map((item) => item.name))];
-	const visibleNames = names.slice(0, 3).join(" -> ");
-	const remaining = names.length - 3;
-	return remaining > 0
-		? `${trace.length} steps · ${visibleNames} +${remaining}`
-		: `${trace.length} steps · ${visibleNames}`;
+		.filter((item): item is TraceEntry => item !== null);
 }
 
 function conversationTrace(
-	output: unknown,
+	artifact: TraceArtifact | null,
 ): Array<{ id: string; role: string; content: string }> {
-	const artifact = artifactFromOutput(output);
 	if (!artifact) {
 		return [];
 	}
-	const trace = (artifact as { conversation_trace?: unknown })
-		.conversation_trace;
+	const trace = artifact.conversation_trace;
 	if (!Array.isArray(trace)) {
 		return [];
 	}
@@ -455,9 +500,23 @@ function conversationTrace(
 
 function ChatMessage({ message }: { message: WorkbenchMessage }) {
 	const isUser = message.role === "user";
-	const text = textFromMessage(message);
 	const fileParts = message.parts.filter(isFilePart);
-	const toolParts = message.parts.filter(isToolPart);
+	const renderedParts = message.parts
+		.map((part) => {
+			if (part.type === "text" && part.text) {
+				return <p key={`${message.id}-text-${part.text}`}>{part.text}</p>;
+			}
+			if (isToolPart(part)) {
+				return (
+					<ToolMessage
+						key={`${message.id}-tool-${part.toolCallId}-${part.type}`}
+						part={part}
+					/>
+				);
+			}
+			return null;
+		})
+		.filter((item): item is ReactElement => item !== null);
 
 	return (
 		<article className={isUser ? "message user-message" : "message ai-message"}>
@@ -491,10 +550,7 @@ function ChatMessage({ message }: { message: WorkbenchMessage }) {
 						))}
 					</ul>
 				)}
-				{text && <p>{text}</p>}
-				{toolParts.map((part) => (
-					<ToolMessage key={`${part.toolCallId}-${part.type}`} part={part} />
-				))}
+				{renderedParts}
 			</div>
 		</article>
 	);

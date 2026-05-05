@@ -71,7 +71,7 @@ def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
                 )
             )
             continue
-        trace = append_trace(trace, f"extracted {tool_path or 'one source file'}")
+        trace = append_trace(trace, f"extracted {tool_label}")
 
     decision = None
     structured_response = result.get("structured_response")

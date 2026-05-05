@@ -180,7 +180,7 @@ def make_write_node(
             return _error_update(
                 state,
                 last_error="SQL stage requires orchestrator-provided targets.",
-                trace_message="blocked because no orchestrator targets were provided",
+                trace_message="write_sql: blocked because no orchestrator targets were provided",
             )
 
         draft = drafter(state)
@@ -188,7 +188,7 @@ def make_write_node(
             return _error_update(
                 state,
                 last_error="SQL draft did not produce query text.",
-                trace_message="write skipped because SQL draft was empty",
+                trace_message="write_sql: skipped because SQL draft was empty",
             )
 
         selected_targets = draft.selected_targets or target_names
@@ -205,7 +205,7 @@ def make_write_node(
                 state,
                 write_result,
                 default_message="Failed to write SQL artifact.",
-                trace_prefix="write failed",
+                trace_prefix="write_sql: failed",
                 selected_targets=selected_targets,
                 sql_path=write_result.get("sql_path") or state.sql_path,
             )
@@ -215,7 +215,7 @@ def make_write_node(
             "sql_path": write_result["sql_path"],
             "candidate_sql": write_result["sql"].strip(),
             "selected_targets": selected_targets,
-            "trace": _append_trace(state, f"wrote SQL file {write_result['sql_path']}"),
+            "trace": _append_trace(state, f"write_sql: wrote SQL file {write_result['sql_path']}"),
         }
 
     return write_node
@@ -225,14 +225,14 @@ def execute_node(state: QueryStageState) -> QueryStageUpdate:
     """Execute SQL by reading the current SQL artifact file."""
     if state.status == "error":
         return {
-            "trace": _append_trace(state, "execute skipped because SQL write failed"),
+            "trace": _append_trace(state, "execute_sql: skipped because SQL write failed"),
         }
 
     if not state.sql_path:
         return _error_update(
             state,
             last_error="No SQL artifact path was available for execution.",
-            trace_message="execute skipped because no SQL file was available",
+            trace_message="execute_sql: skipped because no SQL file was available",
         )
 
     read_result = read_sql_file(
@@ -244,7 +244,7 @@ def execute_node(state: QueryStageState) -> QueryStageUpdate:
             state,
             read_result,
             default_message="Failed to read SQL artifact.",
-            trace_prefix="execute failed to read SQL file",
+            trace_prefix="execute_sql: failed to read SQL file",
             sql_path=read_result.get("sql_path") or state.sql_path,
         )
 
@@ -253,7 +253,7 @@ def execute_node(state: QueryStageState) -> QueryStageUpdate:
         return _error_update(
             state,
             last_error="No SQL query was available for execution.",
-            trace_message="execute skipped because SQL file was empty",
+            trace_message="execute_sql: skipped because SQL file was empty",
             sql_path=read_result["sql_path"],
         )
 
@@ -270,12 +270,12 @@ def execute_node(state: QueryStageState) -> QueryStageUpdate:
             "attempts": attempts,
             "result": result,
             "last_error": None,
-            "trace": _append_trace(state, f"execute succeeded on attempt {attempts}"),
+            "trace": _append_trace(state, f"execute_sql: succeeded on attempt {attempts}"),
         }
 
     error_message = str(result["message"])
     repair_hints = _runtime_repair_hints(state, error_message)
-    trace_message = f"execute failed on attempt {attempts}: {error_message}"
+    trace_message = f"execute_sql: failed on attempt {attempts}: {error_message}"
     if repair_hints:
         trace_message += f" ({len(repair_hints)} repair hints)"
     return {
@@ -304,7 +304,7 @@ def make_repair_sql_node(
             return _error_update(
                 state,
                 last_error="No SQL artifact path was available for repair.",
-                trace_message="runtime repair skipped because no SQL file was available",
+                trace_message="repair_sql: skipped because no SQL file was available",
             )
 
         hashline_result = read_sql_hashlines(
@@ -316,7 +316,7 @@ def make_repair_sql_node(
                 state,
                 hashline_result,
                 default_message="Failed to read SQL hashlines.",
-                trace_prefix="runtime repair failed to read SQL file",
+                trace_prefix="repair_sql: failed to read SQL file",
             )
 
         repair_state = state.model_copy(
@@ -330,7 +330,7 @@ def make_repair_sql_node(
             return _error_update(
                 state,
                 last_error="Runtime repair did not produce any SQL file edits.",
-                trace_message="runtime repair produced no edits",
+                trace_message="repair_sql: produced no edits",
                 repair_count=repair_state.repair_count,
             )
 
@@ -344,7 +344,7 @@ def make_repair_sql_node(
                 state,
                 edit_result,
                 default_message="Failed to edit SQL file.",
-                trace_prefix="runtime repair failed to edit SQL file",
+                trace_prefix="repair_sql: failed to edit SQL file",
                 repair_count=repair_state.repair_count,
             )
 
@@ -353,7 +353,7 @@ def make_repair_sql_node(
             "repair_count": repair_state.repair_count,
             "candidate_sql": edit_result["sql"].strip(),
             "sql_path": edit_result["sql_path"],
-            "trace": _append_trace(state, f"runtime repair pass {repair_state.repair_count} edited SQL file"),
+            "trace": _append_trace(state, f"repair_sql: pass {repair_state.repair_count} edited SQL file"),
         }
 
     return repair_sql_node

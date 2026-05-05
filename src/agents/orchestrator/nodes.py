@@ -342,7 +342,7 @@ class OrchestratorNodes:
                     "summary": "SQL stage did not run.",
                     "instructions": ["Run the SQL stage before validation."],
                 },
-                "trace": append_stage_trace(state.trace, VALIDATION_STAGE, "could not find a SQL output"),
+                "trace": append_stage_trace(state.trace, VALIDATION_STAGE, "validate: could not find a SQL output"),
                 "messages": [stage_report_message(VALIDATION_STAGE_NAME, "Validation could not find a SQL output.")],
             }
         sql_artifact = sql_output.model_dump(mode="json")
@@ -368,7 +368,7 @@ class OrchestratorNodes:
             return {
                 "stage_artifacts": stage_artifacts,
                 "validation_feedback": None,
-                "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, "accepted the SQL result"),
+                "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, "validate: accepted the SQL result"),
                 "messages": [stage_report_message(VALIDATION_STAGE_NAME, validation_output.summary.strip() or "Validation accepted the SQL result.")],
             }
 
@@ -386,7 +386,7 @@ class OrchestratorNodes:
             "stage_artifacts": stage_artifacts,
             "validation_feedback": validation_feedback,
             "validation_attempts": next_validation_attempts,
-            "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, f"requested another SQL attempt: {validation_feedback['summary']}"),
+            "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, f"validate: requested another SQL attempt: {validation_feedback['summary']}"),
             "messages": [stage_report_message(VALIDATION_STAGE_NAME, f"Validation requested another SQL attempt: {validation_feedback['summary']}")],
         }
 
