@@ -239,12 +239,33 @@ def _tool_stage_trace(message: ToolMessage) -> list[dict[str, str]]:
     return _stage_trace(payload) if isinstance(payload, dict) else []
 
 
+def _dedupe_trace_items(
+    trace_items: list[dict[str, str]],
+    seen: set[str],
+) -> list[dict[str, str]]:
+    """Return trace rows that have not already been streamed this turn."""
+    deduped_items: list[dict[str, str]] = []
+    for item in trace_items:
+        key = f"{item.get('name', '')}\n{item.get('summary', '')}"
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_items.append(item)
+    return deduped_items
+
+
 def _chunk_id() -> str:
     """Return a compact random ID for UI-message stream chunks."""
     return uuid4().hex
 
 
-def _tool_output_payload(tool_name: str, tool_call_id: str, message: ToolMessage) -> dict[str, Any]:
+def _tool_output_payload(
+    tool_name: str,
+    tool_call_id: str,
+    message: ToolMessage,
+    *,
+    stage_trace: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     """Build one streamed tool result payload using the existing backend trace shape."""
     summary = _truncated_summary(message)
     artifact: dict[str, Any] = {
@@ -257,7 +278,7 @@ def _tool_output_payload(tool_name: str, tool_call_id: str, message: ToolMessage
             }
         ]
     }
-    if stage_trace := _tool_stage_trace(message):
+    if stage_trace:
         artifact["stage_trace"] = stage_trace
     return {
         "status": "ok",
@@ -281,14 +302,24 @@ def _stream_tool_input(tool_call: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _stream_tool_output(message: ToolMessage) -> dict[str, Any]:
+def _stream_tool_output(
+    message: ToolMessage,
+    *,
+    emitted_stage_traces: set[str],
+) -> dict[str, Any]:
     """Return one AI SDK tool-output chunk for a backend tool result."""
     tool_call_id = str(getattr(message, "tool_call_id", "") or _chunk_id())
     tool_name = str(message.name or "tool")
+    stage_trace = _dedupe_trace_items(_tool_stage_trace(message), emitted_stage_traces)
     return {
         "type": "tool-output-available",
         "toolCallId": tool_call_id,
-        "output": _tool_output_payload(tool_name, tool_call_id, message),
+        "output": _tool_output_payload(
+            tool_name,
+            tool_call_id,
+            message,
+            stage_trace=stage_trace,
+        ),
     }
 
 
@@ -369,6 +400,7 @@ def stream_chat_chunks(request: ChatRequest) -> Iterator[dict[str, Any]]:
     final_content = ""
     emitted_tool_inputs: set[str] = set()
     emitted_tool_outputs: set[str] = set()
+    emitted_stage_traces: set[str] = set()
 
     try:
         for update in graph.stream(context.graph_input, stream_mode="updates"):
@@ -389,7 +421,10 @@ def stream_chat_chunks(request: ChatRequest) -> Iterator[dict[str, Any]]:
                     tool_call_id = str(getattr(message, "tool_call_id", "") or "")
                     if tool_call_id and tool_call_id in emitted_tool_outputs:
                         continue
-                    yield _stream_tool_output(message)
+                    yield _stream_tool_output(
+                        message,
+                        emitted_stage_traces=emitted_stage_traces,
+                    )
                     if tool_call_id:
                         emitted_tool_outputs.add(tool_call_id)
     except Exception as exc:

@@ -15,12 +15,12 @@ const DEMO_SKILL_FILES = [
 	"skills/placeholder-analysis/references/summary-query.sql",
 ];
 
-type DemoToolStepBlueprint = {
+type DemoStageToolBlueprint = {
 	name: string;
 	input: (message: string) => unknown;
 	summary: string;
-	stageTrace?: DemoStageTrace[];
-	output?: Record<string, unknown>;
+	stageTrace: DemoStageTrace[];
+	visiblePayload: Record<string, unknown>;
 };
 type DemoStageTrace = {
 	id: string;
@@ -50,91 +50,84 @@ export function parseDemoTraceCommand(
 	};
 }
 
-const DEMO_TOOL_STEP_BLUEPRINTS: DemoToolStepBlueprint[] = [
-	{
-		name: "load_skills",
-		input: () => ({ names: ["placeholder-analysis", "tabular-analysis"] }),
-		summary: "loaded placeholder skill descriptions for tabular analysis",
-		output: { skills: ["placeholder-analysis", "tabular-analysis"] },
-	},
-	{
-		name: "fs_list_files",
-		input: () => ({
-			path: "skills/placeholder-analysis",
-			glob_pattern: "**/*",
-			max_files: 200,
-		}),
-		summary: "listed SQL and schema references for placeholder-analysis",
-		output: { files: DEMO_SKILL_FILES },
-	},
-	{
-		name: "fs_read_text",
-		input: () => ({ path: "skills/placeholder-analysis/SKILL.md" }),
-		summary: "read placeholder mapping and saved-view requirements",
-		output: {
-			content:
-				"---\nname: placeholder-analysis\ndescription: Build summary and entity rows from a prepared table...",
-		},
-	},
-	{
-		name: "fs_read_hashline",
-		input: () => ({
-			path: "skills/placeholder-analysis/references/summary-query.sql",
-			start_line: 1,
-			end_line: 24,
-		}),
-		summary: "read hashline SQL reference for summary and entity rows",
-		output: {
-			lines: [
-				"1#6f8a07:-- Build row_type='summary' and row_type='entity' rows.",
-				"2#8de589:-- Discover the entity column from table schema before grouping.",
-			],
-		},
-	},
-	{
-		name: "load_skill_resources",
-		input: () => ({
-			skills: ["placeholder-analysis", "tabular-analysis"],
-			include_references: true,
-		}),
-		summary: "loaded schema hints, output contract, and SQL examples",
-		output: {
-			status: "ok",
-			resource_count: 3,
-			diagnostics: [],
-		},
-	},
+const DEMO_STAGE_TOOL_BLUEPRINTS: DemoStageToolBlueprint[] = [
 	{
 		name: "prep_stage",
 		input: (message) => ({
 			message,
-			source_paths: ["data/uploads/source_table.csv"],
-			skill_refs: ["placeholder-analysis", "tabular-analysis"],
+			source_files: ["data/uploads/source_table.csv"],
+			max_validation_retries: 2,
 		}),
 		summary: "prepared data/uploads/source_table.csv as prepared_table",
 		stageTrace: [
 			{
 				id: "prep-1",
+				name: "load_skills",
+				status: "completed",
+				summary: "loaded placeholder skill descriptions for tabular analysis",
+			},
+			{
+				id: "prep-2",
+				name: "fs_list_files",
+				status: "completed",
+				summary: "listed SQL and schema references for placeholder-analysis",
+			},
+			{
+				id: "prep-3",
+				name: "fs_read_text",
+				status: "completed",
+				summary: "read placeholder mapping and saved-view requirements",
+			},
+			{
+				id: "prep-4",
+				name: "fs_read_hashline",
+				status: "completed",
+				summary: "read hashline SQL reference for summary and entity rows",
+			},
+			{
+				id: "prep-5",
+				name: "load_skill_resources",
+				status: "completed",
+				summary: "loaded schema hints, output contract, and SQL examples",
+			},
+			{
+				id: "prep-6",
 				name: "profile_tabular",
 				status: "completed",
 				summary:
 					"profiled data/uploads/source_table.csv: 14,832 rows, 9 columns",
 			},
 			{
-				id: "prep-2",
+				id: "prep-7",
 				name: "inspect_tabular",
 				status: "completed",
 				summary:
 					"found entity_name, metric_a_usd, metric_b_usd, and period columns",
 			},
 			{
-				id: "prep-3",
+				id: "prep-8",
 				name: "extract_tabular",
 				status: "completed",
 				summary: "loaded target prepared_table into data/demo.sqlite",
 			},
 		],
-		output: {
+		visiblePayload: {
+			status: "prepared",
+			database_path: "data/demo.sqlite",
+			prepared_state_available: true,
+			target_count: 1,
+			preferred_targets: ["prepared_table"],
+			trace: [
+				"skill_context: load_skills: loaded placeholder skill descriptions for tabular analysis",
+				"skill_context: fs_list_files: listed SQL and schema references for placeholder-analysis",
+				"skill_context: fs_read_text: read placeholder mapping and saved-view requirements",
+				"skill_context: fs_read_hashline: read hashline SQL reference for summary and entity rows",
+				"skill_context: load_skill_resources: loaded schema hints, output contract, and SQL examples",
+				"prep: profile_tabular: profiled data/uploads/source_table.csv: 14,832 rows, 9 columns",
+				"prep: inspect_tabular: found entity_name, metric_a_usd, metric_b_usd, and period columns",
+				"prep: extract_tabular: loaded target prepared_table into data/demo.sqlite",
+			],
+			skill_files: DEMO_SKILL_FILES,
 			prepared_state: DEMO_PREPARED_STATE,
 			selected_targets: ["prepared_table"],
 		},
@@ -143,8 +136,7 @@ const DEMO_TOOL_STEP_BLUEPRINTS: DemoToolStepBlueprint[] = [
 		name: "query_stage",
 		input: (message) => ({
 			message,
-			prepared_state: DEMO_PREPARED_STATE,
-			max_repairs: 2,
+			max_validation_retries: 2,
 		}),
 		summary: "built analysis_result with summary row and top 5 entity rows",
 		stageTrace: [
@@ -185,7 +177,22 @@ const DEMO_TOOL_STEP_BLUEPRINTS: DemoToolStepBlueprint[] = [
 				summary: "saved view analysis_result",
 			},
 		],
-		output: {
+		visiblePayload: {
+			status: "saved",
+			outcome: "fulfilled",
+			completion_reason: "saved_view",
+			content:
+				"Saved analysis_result with one summary row and five highest placeholder entities.",
+			saved_view_name: "analysis_result",
+			sql_path: "data/sql/placeholder-analysis-demo.sql",
+			trace: [
+				"query: write_sql: wrote SQL to data/sql/placeholder-analysis-demo.sql",
+				"query: execute_sql: failed with no such column: r.entity",
+				"query: repair_sql: replaced entity with entity_name from the prepared schema",
+				"query: execute_sql: returned 6 rows from repaired SQL",
+				"query: validate: accepted one summary row plus five entity rows",
+				"query: save_view: saved view analysis_result",
+			],
 			result: {
 				columns: ["row_type", "entity_name", "metric_a_usd", "metric_b_usd"],
 				rows: [
@@ -211,22 +218,13 @@ const DEMO_TOOL_STEP_BLUEPRINTS: DemoToolStepBlueprint[] = [
 			},
 		},
 	},
-	{
-		name: "summarize",
-		input: () => ({
-			result_view: "analysis_result",
-			rows_returned: 6,
-		}),
-		summary: "reported the summary row and five highest placeholder entities",
-		output: { view_name: "analysis_result" },
-	},
 ];
 
-function demoToolOutput(step: DemoToolStepBlueprint, toolCallId: string) {
+function demoToolOutput(step: DemoStageToolBlueprint, toolCallId: string) {
 	return {
 		status: "ok",
-		mode: "demo_trace",
-		content: step.summary,
+		mode: "model_stream",
+		content: JSON.stringify(step.visiblePayload),
 		artifact: {
 			tool_trace: [
 				{
@@ -236,14 +234,13 @@ function demoToolOutput(step: DemoToolStepBlueprint, toolCallId: string) {
 					summary: step.summary,
 				},
 			],
-			...(step.stageTrace ? { stage_trace: step.stageTrace } : {}),
+			stage_trace: step.stageTrace,
 		},
-		...step.output,
 	};
 }
 
 function demoToolChunks(
-	step: DemoToolStepBlueprint,
+	step: DemoStageToolBlueprint,
 	message: string,
 ): UIMessageChunk[] {
 	const toolCallId = crypto.randomUUID();
@@ -278,10 +275,10 @@ export function buildDemoTraceChunks(message: string): UIMessageChunk[] {
 			type: "text-delta",
 			id: introTextId,
 			delta:
-				"I will run the staged demo workflow and show each backend tool step.",
+				"I will run the staged demo workflow and promote the inner stage trace.",
 		},
 		{ type: "text-end", id: introTextId },
-		...DEMO_TOOL_STEP_BLUEPRINTS.flatMap((step) =>
+		...DEMO_STAGE_TOOL_BLUEPRINTS.flatMap((step) =>
 			demoToolChunks(step, message),
 		),
 		{ type: "text-start", id: finalTextId },
@@ -289,7 +286,7 @@ export function buildDemoTraceChunks(message: string): UIMessageChunk[] {
 			type: "text-delta",
 			id: finalTextId,
 			delta:
-				"Demo run complete. The trace exercised skill loading, file reads, prep_stage internals, query_stage repair, validation, and analysis_result saving without calling a model.",
+				"Demo run complete. The transport used prep_stage and query_stage wrapper events, while the UI rendered the nested stage_trace rows as top-level tool cards.",
 		},
 		{ type: "text-end", id: finalTextId },
 		{ type: "finish", finishReason: "stop" },

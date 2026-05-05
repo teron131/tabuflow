@@ -22,6 +22,7 @@ from .state import OrchestratorState
 PREP_RECURSION_LIMIT_PER_SOURCE_FILE = 30
 MIN_PREP_RECURSION_LIMIT = PREP_RECURSION_LIMIT_PER_SOURCE_FILE * 3
 TOOL_STATE_EXCLUDE = {"messages", "structured_response"}
+MAX_VISIBLE_TRACE_ITEMS = 80
 
 
 def _merge_state_update(state: OrchestratorState, update: dict[str, Any]) -> OrchestratorState:
@@ -38,6 +39,14 @@ def _merge_state_update(state: OrchestratorState, update: dict[str, Any]) -> Orc
 def _compact_state(state: OrchestratorState | dict[str, Any]) -> dict[str, Any]:
     """Return a JSON-safe state payload suitable for tool results."""
     return OrchestratorState.model_validate(state).model_dump(mode="json", exclude=TOOL_STATE_EXCLUDE)
+
+
+def _trace_payload(state_payload: dict[str, Any]) -> list[str]:
+    """Return compact trace strings for UI flattening."""
+    trace = state_payload.get("trace") or []
+    if not isinstance(trace, list):
+        return []
+    return [str(item) for item in trace[-MAX_VISIBLE_TRACE_ITEMS:] if str(item).strip()]
 
 
 def _tool_command(
@@ -73,6 +82,7 @@ def _prep_visible_payload(state_payload: dict[str, Any]) -> dict[str, Any]:
         "prepared_state_available": bool(target_names),
         "target_count": len(target_names),
         "preferred_targets": state_payload.get("preferred_targets") or target_names,
+        "trace": _trace_payload(state_payload),
     }
 
 
@@ -88,6 +98,7 @@ def _query_visible_payload(state_payload: dict[str, Any]) -> dict[str, Any]:
         "sql_path": artifact.get("sql_path") or state_payload.get("sql_path"),
         "sql_result": artifact.get("sql_result"),
         "last_error": artifact.get("last_error") or state_payload.get("last_error"),
+        "trace": _trace_payload(state_payload),
     }
 
 
