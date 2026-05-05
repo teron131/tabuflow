@@ -9,7 +9,7 @@ DEFAULT_SQL = """SELECT
   'Select a source, table, or saved result to inspect.' AS message;"""
 
 SUGGESTED_QUESTIONS = [
-    "What sources are prepared?",
+    "What sources are loaded?",
     "Show available SQL targets.",
     "Preview the selected result.",
 ]

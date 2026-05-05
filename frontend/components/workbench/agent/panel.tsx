@@ -79,7 +79,7 @@ const initialMessages: WorkbenchMessage[] = [
 		parts: [
 			{
 				type: "text",
-				text: "Data workbench online. Ask about prepared files, SQL targets, or the current result set.",
+				text: "Data workbench online. Ask about loaded files, SQL targets, or the current result set.",
 			},
 		],
 	},

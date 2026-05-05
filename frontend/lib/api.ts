@@ -139,7 +139,7 @@ export const emptyBootstrap: BootstrapPayload = {
   'ready' AS status,
   'Select a source, table, or saved result to inspect.' AS message;`,
 	suggested_questions: [
-		"What sources are prepared?",
+		"What sources are loaded?",
 		"Show available SQL targets.",
 		"Preview the selected result.",
 	],

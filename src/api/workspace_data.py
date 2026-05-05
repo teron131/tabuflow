@@ -14,10 +14,10 @@ from .constants import (
 
 
 class WorkspaceDataMissingError(RuntimeError):
-    """Raised when the local prepared data required by the workbench is missing."""
+    """Raised when the local SQLite data required by the workbench is missing."""
 
 
-def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
+def list_loaded_source_summaries(database_path: Path) -> list[dict[str, str]]:
     """Return browser-safe source descriptors discovered from the local catalog."""
     files: list[dict[str, str]] = []
     query = f"""
@@ -29,14 +29,12 @@ def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
         with sqlite3.connect(str(database_path)) as connection:
             rows = connection.execute(query).fetchall()
     except sqlite3.Error as exc:
-        raise WorkspaceDataMissingError("Prepared source catalog is missing.") from exc
+        raise WorkspaceDataMissingError("Source catalog is missing.") from exc
 
     seen_paths: set[str] = set()
     for source_path, source_format, source_sheet_name, source_table_name in rows:
         source_path_text = str(source_path or "")
         if source_path_text in seen_paths:
-            continue
-        if not source_is_current_for_database(source_path_text, database_path):
             continue
         seen_paths.add(source_path_text)
         kind = str(source_format or "file").upper()
@@ -46,7 +44,7 @@ def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
                 "id": _stable_source_id(source_path_text),
                 "name": _source_name(source_path_text),
                 "kind": kind,
-                "status": "prepared",
+                "status": "loaded",
                 "source_path": display_path,
                 "destination_path": _source_display_path(str(database_path)),
                 "sheet_name": str(source_sheet_name or ""),
@@ -60,7 +58,7 @@ def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
                 "id": _stable_source_id(database_path_text),
                 "name": database_path.name,
                 "kind": "SQLITE",
-                "status": "prepared",
+                "status": "loaded",
                 "source_path": _source_display_path(database_path_text),
                 "destination_path": _source_display_path(database_path_text),
                 "sheet_name": "",
@@ -70,24 +68,8 @@ def list_prepared_source_summaries(database_path: Path) -> list[dict[str, str]]:
     return files
 
 
-def source_is_current_for_database(
-    source_path: str,
-    database_path: Path,
-) -> bool:
-    """Return whether a prepared catalog row still matches the current source file."""
-    if not source_path:
-        return False
-    path = Path(source_path).expanduser()
-    if not path.is_absolute():
-        path = WORKBENCH_SOURCE_ROOT / path
-    try:
-        return path.is_file() and path.stat().st_mtime <= database_path.stat().st_mtime
-    except OSError:
-        return False
-
-
 def list_uploaded_source_summaries(*, existing_paths: set[str] | None = None) -> list[dict[str, str]]:
-    """Return uploaded files not already represented by the prepared catalog."""
+    """Return uploaded files not already represented by the loaded catalog."""
     if not UPLOADS_DIR.exists():
         return []
 
@@ -143,9 +125,9 @@ def _source_display_path(path: str) -> str:
 
 
 def default_database_path() -> Path:
-    """Return the prepared workspace database or fail explicitly."""
+    """Return the workspace database or fail explicitly."""
     if not PREPARED_DATABASE_PATH.exists():
-        raise WorkspaceDataMissingError("Prepared database is missing.")
+        raise WorkspaceDataMissingError("Workspace database is missing.")
     return PREPARED_DATABASE_PATH
 
 
