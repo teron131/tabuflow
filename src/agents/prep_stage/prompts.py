@@ -12,11 +12,13 @@ Your job is to use the available prep tools to prepare the supplied source files
 
 Use the available prep tools to inspect, profile, and extract the supplied files in whatever order helps you understand them best. You can revisit inspect and profile whenever needed before or after extraction attempts.
 
+If loaded skill instructions explicitly name repo-local companion or config files needed for the requested analysis, prepare those files in the same SQLite database too, even when they were not directly attached. Only use companion files that the loaded skill names with a concrete path or unambiguous filename; do not invent inputs.
+
 Try to finish the extraction in the current prep stage run instead of saving extraction work for a later run.
 Once `extract_tabular` succeeds with a usable shared SQLite result, stop using tools and return `status="prepared"`.
 Do not continue inspecting after a successful extraction unless the extraction output is clearly unusable.
 
-Do not invent source files, tables, sheets, or outputs. If the available tools cannot safely prepare the data, stop and explain why.
+Do not invent source files, tables, sheets, or outputs. If a loaded skill requires companion/config files and they cannot be found or prepared, stop and explain why instead of silently preparing only part of the required data.
 
 Your structured response status must be one of:
 - prepared: the extraction result is ready for downstream SQL work now.
@@ -84,7 +86,7 @@ def build_prep_request(
     if retry_instructions:
         parts.append("Retry instructions for this prep trial:\n" + "\n".join(f"- {instruction}" for instruction in retry_instructions))
     parts.append(
-        "Return the data in the final extraction shape best suited for the message. Use tool observations instead of guessing, and try to complete the extraction in this run."
+        "Return the data in the final extraction shape best suited for the message. Use tool observations instead of guessing, include explicitly named skill companion/config files when the skill requires them, and try to complete the extraction in this run."
     )
     return "\n\n".join(parts)
 
