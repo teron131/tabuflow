@@ -24,6 +24,7 @@ import type {
 	InspectorView,
 	RoundingSettings,
 	SidePanel,
+	ThemeMode,
 } from "@/components/workbench/types";
 import {
 	workbenchScale,
@@ -56,11 +57,26 @@ export type UploadedWorkspaceFile = {
 	targetBackend?: string;
 };
 
+const themeStorageKey = "data-agentics-theme";
+
+function isThemeMode(value: string | null): value is ThemeMode {
+	return value === "light" || value === "dark";
+}
+
+function preferredThemeMode(): ThemeMode {
+	const savedTheme = window.localStorage.getItem(themeStorageKey);
+	if (isThemeMode(savedTheme)) return savedTheme;
+	return window.matchMedia("(prefers-color-scheme: dark)").matches
+		? "dark"
+		: "light";
+}
+
 export function Workbench() {
 	const shellRef = useRef<HTMLElement | null>(null);
 	const centerRef = useRef<HTMLElement | null>(null);
 	const targetPreviewRequestId = useRef(0);
 	const sourcePreviewRequestId = useRef(0);
+	const didSkipInitialThemePersist = useRef(false);
 	const [activeExplorer, setActiveExplorer] = useState<ExplorerKey>("sql");
 	const [explorerRailMode, setExplorerRailMode] =
 		useState<ExplorerRailMode>("sql");
@@ -70,6 +86,7 @@ export function Workbench() {
 	const [inspectorView, setInspectorView] = useState<InspectorView>("results");
 	const [rounding, setRounding] = useState<RoundingSettings>(defaultRounding);
 	const [uiScale, setUiScale] = useState(workbenchScale.default);
+	const [themeMode, setThemeMode] = useState<ThemeMode>("light");
 	const [selectedModel, setSelectedModel] = useState("gpt-5.4-nano");
 	const [bootstrap, setBootstrap] = useState<BootstrapPayload>(emptyBootstrap);
 	const [sql, setSql] = useState(emptyBootstrap.sample_sql);
@@ -143,6 +160,18 @@ export function Workbench() {
 		hydrate();
 	}, [hydrate]);
 
+	useEffect(() => {
+		setThemeMode(preferredThemeMode());
+	}, []);
+
+	useEffect(() => {
+		if (!didSkipInitialThemePersist.current) {
+			didSkipInitialThemePersist.current = true;
+			return;
+		}
+		window.localStorage.setItem(themeStorageKey, themeMode);
+	}, [themeMode]);
+
 	const runSql = useCallback(async () => {
 		setIsRunningSql(true);
 		setInspectorView("results");
@@ -201,6 +230,10 @@ export function Workbench() {
 
 	const toggleAgentPanel = useCallback(() => {
 		setIsAgentPanelCollapsed((collapsed) => !collapsed);
+	}, []);
+
+	const toggleThemeMode = useCallback(() => {
+		setThemeMode((mode) => (mode === "dark" ? "light" : "dark"));
 	}, []);
 
 	const selectTarget = useCallback(
@@ -496,6 +529,7 @@ export function Workbench() {
 				...shellStyle,
 				...workbenchScaleStyle(uiScale),
 			}}
+			data-theme={themeMode}
 		>
 			<header className="top-bar">
 				<div className="brand-lockup">
@@ -528,9 +562,11 @@ export function Workbench() {
 				activeMode={explorerRailMode}
 				isExplorerCollapsed={isExplorerCollapsed}
 				sidePanel={sidePanel}
+				themeMode={themeMode}
 				onExpandExplorer={expandExplorer}
 				onOpenSettings={openSettings}
 				onSelectExplorer={showExplorerSection}
+				onToggleTheme={toggleThemeMode}
 			/>
 
 			{sidePanel === "settings" ? (
@@ -579,6 +615,7 @@ export function Workbench() {
 				isRunningSql={isRunningSql}
 				isQueryVisible={shouldShowQueryPane(inspectorView, selectedTarget)}
 				rounding={rounding}
+				themeMode={themeMode}
 				selectedSkill={selectedSkill}
 				selectedSkillResource={selectedSkillResource}
 				selectedModel={selectedModel}

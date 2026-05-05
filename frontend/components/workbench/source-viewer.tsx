@@ -1,17 +1,19 @@
 import type { SourceFile, SqlResult } from "@/lib/api";
 import { ResultTable } from "./result-table";
-import type { RoundingSettings } from "./types";
+import type { RoundingSettings, ThemeMode } from "./types";
 
 export function SourceViewer({
 	isPreviewingSource,
 	rounding,
 	selectedSource,
 	sourcePreviewResult,
+	themeMode,
 }: {
 	isPreviewingSource: boolean;
 	rounding: RoundingSettings;
 	selectedSource: SourceFile | null;
 	sourcePreviewResult: SqlResult | null;
+	themeMode: ThemeMode;
 }) {
 	if (isPreviewingSource) {
 		return (
@@ -29,7 +31,11 @@ export function SourceViewer({
 		return (
 			<div className="target-viewer">
 				<div className="target-preview-grid">
-					<ResultTable result={sourcePreviewResult} rounding={rounding} />
+					<ResultTable
+						result={sourcePreviewResult}
+						rounding={rounding}
+						themeMode={themeMode}
+					/>
 				</div>
 			</div>
 		);

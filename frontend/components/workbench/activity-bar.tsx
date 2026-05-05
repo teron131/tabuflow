@@ -5,18 +5,27 @@ import {
 	Files,
 	LayoutGrid,
 	type LucideIcon,
+	Moon,
 	Settings2,
+	Sun,
 } from "lucide-react";
 import { memo } from "react";
-import type { ExplorerKey, ExplorerRailMode, SidePanel } from "./types";
+import type {
+	ExplorerKey,
+	ExplorerRailMode,
+	SidePanel,
+	ThemeMode,
+} from "./types";
 
 type ActivityBarProps = {
 	activeMode: ExplorerRailMode;
 	isExplorerCollapsed: boolean;
 	sidePanel: SidePanel;
+	themeMode: ThemeMode;
 	onExpandExplorer: () => void;
 	onOpenSettings: () => void;
 	onSelectExplorer: (section: ExplorerKey) => void;
+	onToggleTheme: () => void;
 };
 
 type ExplorerAction = {
@@ -36,10 +45,16 @@ export const ActivityBar = memo(function ActivityBar({
 	activeMode,
 	isExplorerCollapsed,
 	sidePanel,
+	themeMode,
 	onExpandExplorer,
 	onOpenSettings,
 	onSelectExplorer,
+	onToggleTheme,
 }: ActivityBarProps) {
+	const ThemeIcon = themeMode === "dark" ? Sun : Moon;
+	const nextThemeLabel =
+		themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode";
+
 	return (
 		<nav className="activity-bar" aria-label="Side panel controls">
 			<button
@@ -86,6 +101,16 @@ export const ActivityBar = memo(function ActivityBar({
 					</button>
 				);
 			})}
+			<button
+				aria-label={nextThemeLabel}
+				aria-pressed={themeMode === "dark"}
+				className="activity-theme-button"
+				onClick={onToggleTheme}
+				title={nextThemeLabel}
+				type="button"
+			>
+				<ThemeIcon size={17} />
+			</button>
 			<button
 				className={
 					sidePanel === "settings" && !isExplorerCollapsed

@@ -27,7 +27,7 @@ import { CodeEditor } from "./code-editor";
 import { renderHighlightedMarkdownLine } from "./markdown-highlight";
 import { MarkdownContent } from "./markdown-viewer";
 import { ResultTable } from "./result-table";
-import type { InspectorView, RoundingSettings } from "./types";
+import type { InspectorView, RoundingSettings, ThemeMode } from "./types";
 
 type ResourceTab = "summary" | "code";
 
@@ -39,6 +39,7 @@ type SkillResourceViewerProps = {
 	rounding: RoundingSettings;
 	showSummaryHeader?: boolean;
 	showTabs?: boolean;
+	themeMode: ThemeMode;
 	viewMode?: ResourceTab;
 	onResourceTextChange?: (text: string) => void;
 };
@@ -76,6 +77,7 @@ export function SkillResourceViewer({
 	rounding,
 	showSummaryHeader = true,
 	showTabs = true,
+	themeMode,
 	viewMode,
 	onResourceTextChange,
 }: SkillResourceViewerProps) {
@@ -157,7 +159,11 @@ export function SkillResourceViewer({
 		return (
 			<div className="target-viewer">
 				<div className="target-preview-grid">
-					<ResultTable result={csvResult} rounding={rounding} />
+					<ResultTable
+						result={csvResult}
+						rounding={rounding}
+						themeMode={themeMode}
+					/>
 				</div>
 			</div>
 		);

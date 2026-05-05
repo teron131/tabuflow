@@ -13,7 +13,7 @@ import {
 import { AlertTriangle, Table2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import type { SqlResult } from "@/lib/api";
-import type { RoundingSettings } from "./types";
+import type { RoundingSettings, ThemeMode } from "./types";
 
 type ColumnKind = "boolean" | "number" | "uri" | "text";
 
@@ -41,7 +41,17 @@ const emptyGridSelection: GridSelection = {
 	current: undefined,
 };
 
-const gridTheme: Partial<Theme> = {
+const baseGridTheme: Partial<Theme> = {
+	cellHorizontalPadding: 9,
+	cellVerticalPadding: 6,
+	headerFontStyle: "600 11px",
+	baseFontStyle: "12px",
+	fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+	lineHeight: 1.35,
+};
+
+const lightGridTheme: Partial<Theme> = {
+	...baseGridTheme,
 	accentColor: "#d59612",
 	accentFg: "#171716",
 	accentLight: "#fbf1d8",
@@ -58,12 +68,26 @@ const gridTheme: Partial<Theme> = {
 	borderColor: "#c9c5bc",
 	horizontalBorderColor: "#d7d3ca",
 	headerBottomBorderColor: "#8d887e",
-	cellHorizontalPadding: 9,
-	cellVerticalPadding: 6,
-	headerFontStyle: "600 11px",
-	baseFontStyle: "12px",
-	fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
-	lineHeight: 1.35,
+};
+
+const darkGridTheme: Partial<Theme> = {
+	...baseGridTheme,
+	accentColor: "#c8a35f",
+	accentFg: "#242424",
+	accentLight: "#383124",
+	textDark: "#f0eee9",
+	textMedium: "#c8c3b8",
+	textLight: "#969086",
+	textHeader: "#f0eee9",
+	textHeaderSelected: "#242424",
+	bgCell: "#282827",
+	bgCellMedium: "#302f2d",
+	bgHeader: "#333230",
+	bgHeaderHasFocus: "#443a27",
+	bgHeaderHovered: "#393735",
+	borderColor: "#4d4b46",
+	horizontalBorderColor: "#3d3c39",
+	headerBottomBorderColor: "#65625b",
 };
 
 function isFiniteNumber(value: unknown): value is number {
@@ -227,9 +251,11 @@ function selectionStats(
 export function ResultTable({
 	result,
 	rounding,
+	themeMode,
 }: {
 	result: SqlResult | null;
 	rounding: RoundingSettings;
+	themeMode: ThemeMode;
 }) {
 	if (!result) {
 		return (
@@ -266,6 +292,7 @@ export function ResultTable({
 			resultRowCount={result.row_count}
 			rounding={rounding}
 			rows={rows}
+			themeMode={themeMode}
 			truncated={result.truncated}
 		/>
 	);
@@ -276,12 +303,14 @@ function ResultGrid({
 	resultRowCount,
 	rounding,
 	rows,
+	themeMode,
 	truncated,
 }: {
 	columns: string[];
 	resultRowCount?: number;
 	rounding: RoundingSettings;
 	rows: Array<Record<string, unknown>>;
+	themeMode: ThemeMode;
 	truncated?: boolean;
 }) {
 	const profiles = useMemo(
@@ -382,7 +411,7 @@ function ResultGrid({
 					rowSelect="multi"
 					rows={rows.length}
 					smoothScrollX
-					theme={gridTheme}
+					theme={themeMode === "dark" ? darkGridTheme : lightGridTheme}
 					verticalBorder
 					width="100%"
 				/>

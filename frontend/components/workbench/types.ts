@@ -3,6 +3,7 @@ import type { CSSProperties } from "react";
 export type ExplorerKey = "files" | "sql" | "views" | "skills";
 export type ExplorerRailMode = ExplorerKey | "all";
 export type SidePanel = "explorer" | "settings";
+export type ThemeMode = "light" | "dark";
 export type InspectorView =
 	| "run"
 	| "results"

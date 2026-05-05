@@ -42,7 +42,7 @@ import {
 import { SourceViewer } from "./source-viewer";
 import { renderHighlightedSql } from "./sql";
 import { isTargetView } from "./targets";
-import type { InspectorView, RoundingSettings } from "./types";
+import type { InspectorView, RoundingSettings, ThemeMode } from "./types";
 
 type CollapsiblePane = "top" | "output";
 
@@ -57,6 +57,7 @@ type WorkspacePanelProps = {
 	isSkillResourceSaved: boolean;
 	isSkillSaved: boolean;
 	rounding: RoundingSettings;
+	themeMode: ThemeMode;
 	selectedSkill: SkillEntry | null;
 	selectedSkillResource: SkillResourceEntry | null;
 	selectedModel: string;
@@ -92,6 +93,7 @@ export function WorkspacePanel({
 	isSkillResourceSaved,
 	isSkillSaved,
 	rounding,
+	themeMode,
 	selectedSkill,
 	selectedSkillResource,
 	selectedModel,
@@ -243,6 +245,7 @@ export function WorkspacePanel({
 										refreshNonce={summaryRefreshNonce}
 										showSummaryHeader={false}
 										showTabs={false}
+										themeMode={themeMode}
 										viewMode="summary"
 									/>
 								)}
@@ -340,7 +343,11 @@ export function WorkspacePanel({
 								</div>
 							)}
 							{inspectorView === "results" && (
-								<ResultTable result={sqlResult} rounding={rounding} />
+								<ResultTable
+									result={sqlResult}
+									rounding={rounding}
+									themeMode={themeMode}
+								/>
 							)}
 							{inspectorView === "target" && (
 								<div className="target-viewer">
@@ -358,6 +365,7 @@ export function WorkspacePanel({
 											<ResultTable
 												result={targetPreviewResult}
 												rounding={rounding}
+												themeMode={themeMode}
 											/>
 										) : (
 											<div className="empty-state">
@@ -425,6 +433,7 @@ export function WorkspacePanel({
 									resourceText={skillResourceText}
 									rounding={rounding}
 									showTabs={!hasSummaryPane}
+									themeMode={themeMode}
 									viewMode={hasSummaryPane ? "code" : undefined}
 									onResourceTextChange={onSkillResourceTextChange}
 								/>
@@ -435,6 +444,7 @@ export function WorkspacePanel({
 									rounding={rounding}
 									selectedSource={selectedSource}
 									sourcePreviewResult={sourcePreviewResult}
+									themeMode={themeMode}
 								/>
 							)}
 						</div>
