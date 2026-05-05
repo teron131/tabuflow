@@ -198,6 +198,10 @@ export function Workbench() {
 		setExplorerRailMode(section);
 	}, []);
 
+	const markExplorerSelection = useCallback((section: ExplorerKey) => {
+		setActiveExplorer(section);
+	}, []);
+
 	const showExplorerSection = useCallback(
 		(section: ExplorerKey) => {
 			setExplorerSection(section);
@@ -244,7 +248,7 @@ export function Workbench() {
 			const explorerSection = isView ? "views" : "sql";
 			setSelectedTarget(target);
 			setSelectedSkillResource(null);
-			setExplorerSection(explorerSection);
+			markExplorerSelection(explorerSection);
 			setInspectorView("target");
 			setIsPreviewingTarget(true);
 			setSourcePreviewResult(null);
@@ -289,7 +293,7 @@ export function Workbench() {
 				}
 			}
 		},
-		[setExplorerSection],
+		[markExplorerSelection],
 	);
 
 	const selectSource = useCallback(
@@ -301,7 +305,7 @@ export function Workbench() {
 			setTargetSourceName(null);
 			setTargetSourceFileName(null);
 			setTargetPreviewResult(null);
-			setExplorerSection("files");
+			markExplorerSelection("files");
 			setInspectorView("source");
 			const previewTarget = sourcePreviewTarget(bootstrap.targets, source);
 			if (!previewTarget) {
@@ -335,7 +339,7 @@ export function Workbench() {
 				}
 			}
 		},
-		[bootstrap.targets, setExplorerSection],
+		[bootstrap.targets, markExplorerSelection],
 	);
 
 	const selectSkill = useCallback(
@@ -348,10 +352,10 @@ export function Workbench() {
 			setTargetSourceFileName(null);
 			setSkillEditorText(nextContent);
 			setSavedSkillText(nextContent);
-			setExplorerSection("skills");
+			markExplorerSelection("skills");
 			setInspectorView("skill");
 		},
-		[setExplorerSection],
+		[markExplorerSelection],
 	);
 
 	const selectSkillResource = useCallback(
@@ -369,12 +373,12 @@ export function Workbench() {
 			setSourcePreviewResult(null);
 			setTargetSourceName(null);
 			setTargetSourceFileName(null);
-			setExplorerSection("skills");
+			markExplorerSelection("skills");
 			setInspectorView("skillResource");
 			setSkillResourceEditorText(resource.content || "");
 			setSavedSkillResourceText(resource.content || "");
 		},
-		[selectedSkill?.name, setExplorerSection, skills],
+		[markExplorerSelection, selectedSkill?.name, skills],
 	);
 
 	const saveSkill = useCallback(async () => {
