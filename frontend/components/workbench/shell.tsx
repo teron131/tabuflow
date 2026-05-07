@@ -692,12 +692,16 @@ export function Workbench() {
 				aria-label="Resize chat"
 			/>
 			<AgentPanel
+				bootstrapSourceFiles={bootstrap.source_files}
 				isCollapsed={isAgentPanelCollapsed}
 				modelOptions={modelOptions}
 				selectedModel={selectedModel}
+				skills={skills}
+				targets={bootstrap.targets}
 				uploadStatus={uploadStatus}
 				onChatSettled={refreshExplorerData}
 				onModelChange={setSelectedModel}
+				onRunSql={runSql}
 				onToggle={toggleAgentPanel}
 				onUploadFiles={uploadFiles}
 			/>

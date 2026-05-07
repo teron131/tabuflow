@@ -6,7 +6,8 @@ import {
 	CheckCircle2,
 	ChevronDown,
 	CircleUserRound,
-	Cloud,
+	FileText,
+	Folder,
 	Loader2,
 	PanelRight,
 	Paperclip,
@@ -14,11 +15,9 @@ import {
 	TriangleAlert,
 	Wrench,
 	X,
-	Zap,
 } from "lucide-react";
 import type {
 	ChangeEvent,
-	ComponentType,
 	ClipboardEvent as ReactClipboardEvent,
 	DragEvent as ReactDragEvent,
 	ReactElement,
@@ -34,7 +33,15 @@ import {
 } from "react";
 import { FaRobot } from "react-icons/fa";
 import type { UploadedWorkspaceFile } from "@/components/workbench/types";
+import type { SkillEntry, SourceFile, Target } from "@/lib/api";
 import type { WorkbenchMessage } from "@/lib/chat-contracts";
+import {
+	buildCommandIndex,
+	type CommandIndexItem,
+	commandDetailForItem,
+	filterCommandIndex,
+	filterIndexedItems,
+} from "./command-index";
 
 type WorkbenchPart = WorkbenchMessage["parts"][number];
 type WorkbenchToolPart = Extract<WorkbenchPart, { toolCallId: string }>;
@@ -52,13 +59,6 @@ type TraceArtifact = {
 	stage_trace?: unknown;
 	conversation_trace?: unknown;
 };
-type ComposerCommand = {
-	id: string;
-	label: string;
-	description: string;
-	mode: DemoTraceMode;
-	icon: ComponentType<{ size?: number; className?: string }>;
-};
 type ComposerAttachment = {
 	id: string;
 	name: string;
@@ -67,12 +67,23 @@ type ComposerAttachment = {
 	sourcePath?: string;
 	status: "uploading" | "attached" | "error";
 };
+type ComposerSourceMention = {
+	id: string;
+	name: string;
+	reference: string;
+	detail: string;
+	kind: "directory" | "source" | "skill";
+};
 type AgentPanelProps = {
+	bootstrapSourceFiles: SourceFile[];
 	isCollapsed: boolean;
 	modelOptions: string[];
 	selectedModel: string;
+	skills: SkillEntry[];
+	targets: Target[];
 	uploadStatus: string;
 	onModelChange: (model: string) => void;
+	onRunSql: () => void;
 	onChatSettled: () => void;
 	onToggle: () => void;
 	onUploadFiles: (
@@ -93,27 +104,11 @@ const initialMessages: WorkbenchMessage[] = [
 	},
 ];
 
-const composerCommands: ComposerCommand[] = [
-	{
-		id: "demo-trace",
-		label: "demoTrace",
-		description: "Run staged tool trace",
-		mode: "slow",
-		icon: Cloud,
-	},
-	{
-		id: "demo-trace-fast",
-		label: "demoTraceFast",
-		description: "Run fast staged tool trace",
-		mode: "fast",
-		icon: Zap,
-	},
-];
-
 const CHAT_BOTTOM_THRESHOLD = 28;
 const ACCEPTED_UPLOAD_TYPES = ".csv,.xlsx,.pdf,image/*";
 const TEXTAREA_MAX_HEIGHT_VAR = "--composer-textarea-max-height";
 const DEFAULT_TEXTAREA_MAX_HEIGHT = 150;
+const SOURCE_MENTION_TOKEN_PATTERN = /@([^\s@]+)/g;
 
 function isScrolledNearBottom(element: HTMLElement) {
 	return (
@@ -167,15 +162,25 @@ function attachmentReferenceText(attachments: ComposerAttachment[]) {
 	return `Attached files:\n${references.map((reference) => `- ${reference}`).join("\n")}`;
 }
 
-function messageTextWithAttachments(
+function sourceMentionReferenceText(mentions: ComposerSourceMention[]) {
+	if (mentions.length === 0) {
+		return "";
+	}
+	return `Referenced paths:\n${mentions.map((mention) => `- ${mention.reference}`).join("\n")}`;
+}
+
+function messageTextWithFileContext(
 	text: string,
 	attachments: ComposerAttachment[],
+	sourceMentions: ComposerSourceMention[],
 ) {
-	const attachmentText = attachmentReferenceText(attachments);
-	if (!attachmentText) {
-		return text;
-	}
-	return text ? `${text}\n\n${attachmentText}` : attachmentText;
+	return [
+		text,
+		attachmentReferenceText(attachments),
+		sourceMentionReferenceText(sourceMentions),
+	]
+		.filter(Boolean)
+		.join("\n\n");
 }
 
 function attachedSourceFiles(attachments: ComposerAttachment[]) {
@@ -183,6 +188,212 @@ function attachedSourceFiles(attachments: ComposerAttachment[]) {
 		.filter((attachment) => attachment.status === "attached")
 		.map((attachment) => attachment.sourcePath || attachment.name)
 		.filter(Boolean);
+}
+
+function uniqueStrings(values: string[]) {
+	return Array.from(new Set(values.filter(Boolean)));
+}
+
+function sourceFileReference(source: SourceFile) {
+	return source.source_path || source.destination_path || source.name;
+}
+
+function sourceFileMention(source: SourceFile): ComposerSourceMention {
+	const reference = sourceFileReference(source);
+	return {
+		id: source.id || reference,
+		name: source.name,
+		reference,
+		detail: pathDirectory(reference),
+		kind: "source",
+	};
+}
+
+function skillFileMentions(skills: SkillEntry[]): ComposerSourceMention[] {
+	return skills.flatMap((skill) => {
+		const mentions: ComposerSourceMention[] = [];
+		const instructionPath =
+			skill.instructions?.relative_path ||
+			skill.instructions?.path ||
+			skill.path ||
+			skill.skills_path ||
+			"";
+		if (instructionPath) {
+			mentions.push({
+				id: `skill-file-${skill.name}-${instructionPath}`,
+				name: skillFileLabel(instructionPath, "SKILL.md"),
+				reference: instructionPath,
+				detail: pathDirectory(instructionPath),
+				kind: "skill",
+			});
+		}
+		for (const group of ["examples", "references", "scripts"] as const) {
+			for (const resource of skill[group] || []) {
+				const path = resource.relative_path || resource.path || "";
+				if (!path) {
+					continue;
+				}
+				mentions.push({
+					id: `skill-file-${skill.name}-${path}`,
+					name: skillFileLabel(path, group),
+					reference: path,
+					detail: pathDirectory(path),
+					kind: "skill",
+				});
+			}
+		}
+		return mentions;
+	});
+}
+
+function directoryMentions(mentions: ComposerSourceMention[]) {
+	const directories = new Map<string, ComposerSourceMention>();
+	for (const mention of mentions) {
+		for (const directory of pathDirectories(mention.reference)) {
+			if (directories.has(directory)) {
+				continue;
+			}
+			directories.set(directory, {
+				id: `directory-${directory}`,
+				name: pathBasename(directory),
+				reference: directory,
+				detail: pathDirectory(directory),
+				kind: "directory",
+			});
+		}
+	}
+	return Array.from(directories.values());
+}
+
+function indexedPathMentions(sourceFiles: SourceFile[], skills: SkillEntry[]) {
+	const fileMentions = [
+		...sourceFiles.map(sourceFileMention),
+		...skillFileMentions(skills),
+	];
+	return [...directoryMentions(fileMentions), ...fileMentions];
+}
+
+function skillFileLabel(path: string, fallback: string) {
+	return pathBasename(path) || fallback;
+}
+
+function pathDirectory(path: string) {
+	return path.split("/").filter(Boolean).slice(0, -1).join("/");
+}
+
+function pathBasename(path: string) {
+	return path.split("/").filter(Boolean).at(-1) || path;
+}
+
+function pathDirectories(path: string) {
+	const parts = path.split("/").filter(Boolean).slice(0, -1);
+	return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+}
+
+function sourceMentionReferences(mentions: ComposerSourceMention[]) {
+	return mentions
+		.filter((mention) => mention.kind === "source")
+		.map((mention) => mention.reference);
+}
+
+function sourceMentionsInText(text: string, mentions: ComposerSourceMention[]) {
+	const tokenNames = sourceMentionTokenNames(text);
+	return mentions.filter((mention) =>
+		tokenNames.has(sourceMentionName(mention)),
+	);
+}
+
+function sourceMentionTokenNames(text: string) {
+	return new Set(
+		Array.from(text.matchAll(SOURCE_MENTION_TOKEN_PATTERN), (match) =>
+			match[1].toLowerCase(),
+		),
+	);
+}
+
+function sourceMentionName(mention: ComposerSourceMention) {
+	return mention.name.toLowerCase();
+}
+
+function activeFileMentionTrigger(text: string) {
+	const match = /(?:^|\s)@([^@]*)$/.exec(text);
+	if (!match) {
+		return null;
+	}
+	return {
+		query: match[1],
+		start: match.index + match[0].lastIndexOf("@"),
+	};
+}
+
+function isCompletedFileMentionTrigger(
+	query: string,
+	mentions: ComposerSourceMention[],
+) {
+	const trimmedQuery = query.trim().toLowerCase();
+	return (
+		query.endsWith(" ") &&
+		mentions.some((mention) => sourceMentionName(mention) === trimmedQuery)
+	);
+}
+
+function replaceActiveFileMention(
+	text: string,
+	mention: ComposerSourceMention,
+) {
+	const trigger = activeFileMentionTrigger(text);
+	const token = `@${mention.name} `;
+	if (!trigger) {
+		return `${text}${text.endsWith(" ") || !text ? "" : " "}${token}`;
+	}
+	return `${text.slice(0, trigger.start)}${token}`;
+}
+
+function removeSourceMentionToken(
+	text: string,
+	mention: ComposerSourceMention,
+) {
+	const tokenPattern = new RegExp(`@${escapeRegExp(mention.name)}\\s?`, "gi");
+	return text.replace(tokenPattern, "").replace(/\s{2,}/g, " ");
+}
+
+function escapeRegExp(value: string) {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function composerHighlightParts(
+	text: string,
+	sourceMentions: ComposerSourceMention[],
+) {
+	const parts: ReactElement[] = [];
+	const selectedMentionNames = new Set(
+		sourceMentions.map((mention) => sourceMentionName(mention)),
+	);
+	const mentionPattern = new RegExp(SOURCE_MENTION_TOKEN_PATTERN);
+	let cursor = 0;
+	let match = mentionPattern.exec(text);
+	while (match) {
+		if (match.index > cursor) {
+			parts.push(
+				<span key={`text-${cursor}`}>{text.slice(cursor, match.index)}</span>,
+			);
+		}
+		const mentionName = match[0].slice(1).toLowerCase();
+		const className = selectedMentionNames.has(mentionName)
+			? "composer-mention-token"
+			: undefined;
+		parts.push(
+			<span className={className} key={`mention-${match.index}`}>
+				{match[0]}
+			</span>,
+		);
+		cursor = match.index + match[0].length;
+		match = mentionPattern.exec(text);
+	}
+	if (cursor < text.length) {
+		parts.push(<span key={`text-${cursor}`}>{text.slice(cursor)}</span>);
+	}
+	return parts;
 }
 
 function messageFileParts(attachments: ComposerAttachment[]): FileUIPart[] {
@@ -590,10 +801,40 @@ function ComposerAttachmentPreview({
 	);
 }
 
+function ComposerSourceMentionChip({
+	mention,
+	onRemove,
+}: {
+	mention: ComposerSourceMention;
+	onRemove: (mention: ComposerSourceMention) => void;
+}) {
+	return (
+		<li className="attachment-preview source-mention">
+			{mention.kind === "directory" ? (
+				<Folder size={14} />
+			) : (
+				<FileText size={14} />
+			)}
+			<span>{mention.name}</span>
+			<button
+				type="button"
+				aria-label={`Remove ${mention.name}`}
+				onClick={() => onRemove(mention)}
+			>
+				<X size={12} />
+			</button>
+		</li>
+	);
+}
+
 export const AgentPanel = memo(function AgentPanel({
+	bootstrapSourceFiles,
 	isCollapsed,
 	modelOptions,
+	onRunSql,
 	selectedModel,
+	skills,
+	targets,
 	uploadStatus,
 	onModelChange,
 	onChatSettled,
@@ -602,9 +843,13 @@ export const AgentPanel = memo(function AgentPanel({
 }: AgentPanelProps) {
 	const [input, setInput] = useState("");
 	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+	const [sourceMentions, setSourceMentions] = useState<ComposerSourceMention[]>(
+		[],
+	);
 	const [isDragActive, setIsDragActive] = useState(false);
 	const messageStreamRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const highlightLayerRef = useRef<HTMLDivElement>(null);
 	const uploadInputRef = useRef<HTMLInputElement>(null);
 	const dragDepthRef = useRef(0);
 	const attachmentPreviewUrlsRef = useRef(new Set<string>());
@@ -645,21 +890,60 @@ export const AgentPanel = memo(function AgentPanel({
 	}, [isBusy, onChatSettled, status]);
 	const commandText = input.trimStart();
 	const commandMenuOpen = commandText.startsWith("/") && !isBusy;
-	const commandQuery = commandMenuOpen
-		? commandText.slice(1).split(/\s+/, 1)[0].toLowerCase()
-		: "";
-	const filteredCommands = useMemo(() => {
-		if (!commandMenuOpen || !commandQuery) {
-			return composerCommands;
-		}
-		return composerCommands.filter((command) =>
-			command.label.toLowerCase().includes(commandQuery),
+	const commandQuery = commandMenuOpen ? commandText.slice(1) : "";
+	const fileMentionTrigger = !commandMenuOpen
+		? activeFileMentionTrigger(input)
+		: null;
+	const fileMentionMenuOpen =
+		Boolean(fileMentionTrigger) &&
+		!isBusy &&
+		!isCompletedFileMentionTrigger(
+			fileMentionTrigger?.query || "",
+			sourceMentions,
 		);
-	}, [commandMenuOpen, commandQuery]);
+	const sourceMentionItems = useMemo(
+		() => indexedPathMentions(bootstrapSourceFiles, skills),
+		[bootstrapSourceFiles, skills],
+	);
+	const filteredSourceMentions = useMemo(() => {
+		if (!fileMentionMenuOpen) {
+			return [];
+		}
+		return filterIndexedItems(
+			sourceMentionItems,
+			fileMentionTrigger?.query || "",
+			(mention) => [
+				{ value: mention.name, weight: 8 },
+				{ value: mention.reference, weight: 5 },
+				{ value: mention.detail, weight: 3 },
+				{ value: mention.kind, weight: 1 },
+			],
+		);
+	}, [fileMentionMenuOpen, fileMentionTrigger?.query, sourceMentionItems]);
+	const commandIndex = useMemo(
+		() =>
+			buildCommandIndex({
+				sourceFiles: bootstrapSourceFiles,
+				targets,
+				skills,
+			}),
+		[bootstrapSourceFiles, skills, targets],
+	);
+	const filteredCommands = useMemo(() => {
+		if (!commandMenuOpen) {
+			return [];
+		}
+		return filterCommandIndex(commandIndex, commandQuery);
+	}, [commandIndex, commandMenuOpen, commandQuery]);
 	const [activeCommandIndex, setActiveCommandIndex] = useState(0);
+	const [activeFileMentionIndex, setActiveFileMentionIndex] = useState(0);
 	const selectedCommandIndex = Math.min(
 		activeCommandIndex,
 		Math.max(filteredCommands.length - 1, 0),
+	);
+	const selectedFileMentionIndex = Math.min(
+		activeFileMentionIndex,
+		Math.max(filteredSourceMentions.length - 1, 0),
 	);
 	const removeAttachment = useCallback((id: string) => {
 		setAttachments((currentAttachments) => {
@@ -675,6 +959,54 @@ export const AgentPanel = memo(function AgentPanel({
 			return currentAttachments.filter((attachment) => attachment.id !== id);
 		});
 	}, []);
+	const syncSourceMentions = useCallback(
+		(nextInput: string, selectedMention?: ComposerSourceMention) => {
+			setSourceMentions((currentMentions) => {
+				const nextMentions =
+					selectedMention &&
+					!currentMentions.some(
+						(currentMention) => currentMention.id === selectedMention.id,
+					)
+						? [...currentMentions, selectedMention]
+						: currentMentions;
+				return sourceMentionsInText(nextInput, nextMentions);
+			});
+		},
+		[],
+	);
+	const setComposerInput = useCallback(
+		(nextInput: string) => {
+			setInput(nextInput);
+			syncSourceMentions(nextInput);
+		},
+		[syncSourceMentions],
+	);
+	const focusComposerTextarea = useCallback(() => {
+		requestAnimationFrame(() => textareaRef.current?.focus());
+	}, []);
+	const selectSourceMention = useCallback(
+		(mention: ComposerSourceMention) => {
+			setInput((currentInput) => {
+				const nextInput = replaceActiveFileMention(currentInput, mention);
+				syncSourceMentions(nextInput, mention);
+				return nextInput;
+			});
+			setActiveFileMentionIndex(0);
+			focusComposerTextarea();
+		},
+		[focusComposerTextarea, syncSourceMentions],
+	);
+	const removeSourceMention = useCallback(
+		(mention: ComposerSourceMention) => {
+			setInput((currentInput) => {
+				const nextInput = removeSourceMentionToken(currentInput, mention);
+				syncSourceMentions(nextInput);
+				return nextInput;
+			});
+			focusComposerTextarea();
+		},
+		[focusComposerTextarea, syncSourceMentions],
+	);
 	const clearAttachments = useCallback(
 		(options?: { keepPreviewUrls?: boolean }) => {
 			setAttachments((currentAttachments) => {
@@ -804,13 +1136,8 @@ export const AgentPanel = memo(function AgentPanel({
 		uploadSelectedFiles(event.dataTransfer.files);
 	};
 
-	const sendDemoTrace = (mode: DemoTraceMode) => {
-		let prompt = input.trim();
-		if (commandMenuOpen) {
-			const commandBody = commandText.slice(1).trim();
-			const firstSpace = commandBody.search(/\s/);
-			prompt = firstSpace === -1 ? "" : commandBody.slice(firstSpace).trim();
-		}
+	const sendDemoTrace = (mode: DemoTraceMode, promptOverride = "") => {
+		const prompt = promptOverride || input.trim();
 		const text = prompt || "show all demo trace steps";
 		sendMessage(
 			{
@@ -820,6 +1147,43 @@ export const AgentPanel = memo(function AgentPanel({
 			{ body: { demoTraceMode: mode, selectedChatModel: selectedModel } },
 		);
 		setInput("");
+	};
+
+	const submitCommandItem = (item: CommandIndexItem) => {
+		const detail = commandDetailForItem(item, commandText);
+		if (item.action === "run-sql") {
+			onRunSql();
+			setInput("");
+			return;
+		}
+		if (item.action === "demo-trace" && item.demoMode) {
+			sendDemoTrace(item.demoMode, detail);
+			return;
+		}
+		const prompt = item.prompt?.(detail) || item.label;
+		const currentSourceFiles = uniqueStrings([
+			...(item.sourceFiles || []),
+			...sourceMentionReferences(sourceMentions),
+			...attachedSourceFiles(attachments),
+		]);
+		const currentFileParts = messageFileParts(attachments);
+		const messageText = messageTextWithFileContext(
+			prompt,
+			attachments,
+			sourceMentions,
+		);
+		sendMessage(
+			{ text: messageText, files: currentFileParts },
+			{
+				body: {
+					selectedChatModel: selectedModel,
+					sourceFiles: currentSourceFiles,
+				},
+			},
+		);
+		setInput("");
+		setSourceMentions([]);
+		clearAttachments({ keepPreviewUrls: true });
 	};
 
 	useEffect(() => {
@@ -927,15 +1291,26 @@ export const AgentPanel = memo(function AgentPanel({
 					if (commandMenuOpen) {
 						const command = filteredCommands[selectedCommandIndex];
 						if (command) {
-							sendDemoTrace(command.mode);
+							submitCommandItem(command);
+						}
+						return;
+					}
+					if (fileMentionMenuOpen) {
+						const sourceMention =
+							filteredSourceMentions[selectedFileMentionIndex];
+						if (sourceMention) {
+							selectSourceMention(sourceMention);
 						}
 						return;
 					}
 					const text = input.trim();
-					const currentSourceFiles = attachedSourceFiles(attachments);
+					const currentSourceFiles = uniqueStrings([
+						...sourceMentionReferences(sourceMentions),
+						...attachedSourceFiles(attachments),
+					]);
 					const currentFileParts = messageFileParts(attachments);
 					const messageText =
-						messageTextWithAttachments(text, attachments) ||
+						messageTextWithFileContext(text, attachments, sourceMentions) ||
 						attachmentPrompt(attachments);
 					if (!messageText) {
 						return;
@@ -950,6 +1325,7 @@ export const AgentPanel = memo(function AgentPanel({
 						},
 					);
 					setInput("");
+					setSourceMentions([]);
 					clearAttachments({ keepPreviewUrls: true });
 				}}
 			>
@@ -965,9 +1341,9 @@ export const AgentPanel = memo(function AgentPanel({
 					type="file"
 				/>
 				{commandMenuOpen && (
-					<section className="command-palette" aria-label="Tool commands">
+					<section className="command-palette" aria-label="Command index">
 						<header>
-							<span>Tools preview</span>
+							<span>Command index</span>
 							<kbd>/</kbd>
 						</header>
 						<div className="command-options" role="listbox">
@@ -982,20 +1358,65 @@ export const AgentPanel = memo(function AgentPanel({
 											}
 											key={command.id}
 											onMouseDown={(event) => event.preventDefault()}
-											onClick={() => sendDemoTrace(command.mode)}
+											onClick={() => submitCommandItem(command)}
 											role="option"
 											aria-selected={commandIndex === selectedCommandIndex}
 										>
 											<Icon size={15} />
 											<span className="command-copy">
-												<span>{command.label}</span>
+												<span>
+													<span>{command.label}</span>
+													<b>{command.category}</b>
+												</span>
 												<small>{command.description}</small>
 											</span>
 										</button>
 									);
 								})
 							) : (
-								<p>No matching tools</p>
+								<p>No matching commands</p>
+							)}
+						</div>
+					</section>
+				)}
+				{fileMentionMenuOpen && (
+					<section className="command-palette" aria-label="File index">
+						<header>
+							<span>File index</span>
+							<kbd>@</kbd>
+						</header>
+						<div className="command-options" role="listbox">
+							{filteredSourceMentions.length > 0 ? (
+								<>
+									<span className="command-section-label">Files</span>
+									{filteredSourceMentions.map((mention, mentionIndex) => (
+										<button
+											type="button"
+											className={
+												mentionIndex === selectedFileMentionIndex
+													? "active file-option"
+													: "file-option"
+											}
+											key={mention.id}
+											onMouseDown={(event) => event.preventDefault()}
+											onClick={() => selectSourceMention(mention)}
+											role="option"
+											aria-selected={mentionIndex === selectedFileMentionIndex}
+										>
+											{mention.kind === "directory" ? (
+												<Folder size={15} />
+											) : (
+												<FileText size={15} />
+											)}
+											<span className="file-option-copy">
+												<span>{mention.name}</span>
+												{mention.detail && <small>{mention.detail}</small>}
+											</span>
+										</button>
+									))}
+								</>
+							) : (
+								<p>No matching files</p>
 							)}
 						</div>
 					</section>
@@ -1020,46 +1441,119 @@ export const AgentPanel = memo(function AgentPanel({
 				>
 					<Paperclip size={16} />
 				</button>
-				<textarea
-					ref={textareaRef}
-					aria-label="Ask the data agent"
-					onChange={(event) => {
-						setInput(event.target.value);
-						setActiveCommandIndex(0);
-					}}
-					onKeyDown={(event) => {
-						if (commandMenuOpen && filteredCommands.length > 0) {
-							if (event.key === "ArrowDown") {
-								event.preventDefault();
-								setActiveCommandIndex(
-									(index) => (index + 1) % filteredCommands.length,
-								);
-								return;
+				{sourceMentions.length > 0 && (
+					<ul className="composer-attachments" aria-label="Referenced files">
+						{sourceMentions.map((mention) => (
+							<ComposerSourceMentionChip
+								key={mention.id}
+								mention={mention}
+								onRemove={removeSourceMention}
+							/>
+						))}
+					</ul>
+				)}
+				<div className="composer-input-wrap">
+					<div
+						aria-hidden="true"
+						className="composer-highlight-layer"
+						ref={highlightLayerRef}
+					>
+						{composerHighlightParts(input, sourceMentions)}
+					</div>
+					<textarea
+						ref={textareaRef}
+						aria-label="Ask the data agent"
+						onChange={(event) => {
+							const nextInput = event.target.value;
+							setComposerInput(nextInput);
+							setActiveCommandIndex(0);
+							setActiveFileMentionIndex(0);
+						}}
+						onKeyDown={(event) => {
+							if (commandMenuOpen && filteredCommands.length > 0) {
+								if (event.key === "Tab") {
+									event.preventDefault();
+									const command = filteredCommands[selectedCommandIndex];
+									if (command) {
+										submitCommandItem(command);
+									}
+									return;
+								}
+								if (event.key === "ArrowDown") {
+									event.preventDefault();
+									setActiveCommandIndex(
+										(index) => (index + 1) % filteredCommands.length,
+									);
+									return;
+								}
+								if (event.key === "ArrowUp") {
+									event.preventDefault();
+									setActiveCommandIndex(
+										(index) =>
+											(index - 1 + filteredCommands.length) %
+											filteredCommands.length,
+									);
+									return;
+								}
+								if (event.key === "Escape") {
+									event.preventDefault();
+									setInput("");
+									return;
+								}
 							}
-							if (event.key === "ArrowUp") {
-								event.preventDefault();
-								setActiveCommandIndex(
-									(index) =>
-										(index - 1 + filteredCommands.length) %
-										filteredCommands.length,
-								);
-								return;
+							if (fileMentionMenuOpen && filteredSourceMentions.length > 0) {
+								if (event.key === "Tab") {
+									event.preventDefault();
+									const sourceMention =
+										filteredSourceMentions[selectedFileMentionIndex];
+									if (sourceMention) {
+										selectSourceMention(sourceMention);
+									}
+									return;
+								}
+								if (event.key === "ArrowDown") {
+									event.preventDefault();
+									setActiveFileMentionIndex(
+										(index) => (index + 1) % filteredSourceMentions.length,
+									);
+									return;
+								}
+								if (event.key === "ArrowUp") {
+									event.preventDefault();
+									setActiveFileMentionIndex(
+										(index) =>
+											(index - 1 + filteredSourceMentions.length) %
+											filteredSourceMentions.length,
+									);
+									return;
+								}
+								if (event.key === "Escape") {
+									event.preventDefault();
+									setInput((currentInput) => {
+										const trigger = activeFileMentionTrigger(currentInput);
+										return trigger
+											? currentInput.slice(0, trigger.start)
+											: currentInput;
+									});
+									return;
+								}
 							}
-							if (event.key === "Escape") {
+							if (event.key === "Enter" && !event.shiftKey) {
 								event.preventDefault();
-								setInput("");
-								return;
+								event.currentTarget.form?.requestSubmit();
 							}
-						}
-						if (event.key === "Enter" && !event.shiftKey) {
-							event.preventDefault();
-							event.currentTarget.form?.requestSubmit();
-						}
-					}}
-					onPaste={pastedIntoComposer}
-					placeholder="Ask agent to do things"
-					value={input}
-				/>
+						}}
+						onPaste={pastedIntoComposer}
+						onScroll={(event) => {
+							if (highlightLayerRef.current) {
+								highlightLayerRef.current.scrollTop =
+									event.currentTarget.scrollTop;
+							}
+						}}
+						placeholder="Ask agent to do things"
+						value={input}
+					/>
+				</div>
 				<button
 					className="send-button"
 					type={isBusy ? "button" : "submit"}

@@ -2371,6 +2371,8 @@ h1 {
 
 .command-options {
 	display: grid;
+	max-height: min(360px, 52dvh);
+	overflow: auto;
 	padding: 6px;
 }
 
@@ -2398,6 +2400,13 @@ h1 {
 	justify-self: center;
 }
 
+.command-section-label {
+	padding: 7px 8px 5px;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-sm);
+}
+
 .command-copy {
 	display: grid;
 	grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
@@ -2409,6 +2418,9 @@ h1 {
 }
 
 .command-copy > span {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
 	min-width: 0;
 	overflow: hidden;
 	color: var(--text);
@@ -2417,8 +2429,53 @@ h1 {
 	white-space: nowrap;
 }
 
+.command-copy > span > span {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.command-copy b {
+	flex: 0 0 auto;
+	padding: 1px 4px;
+	border: 1px solid var(--line);
+	color: var(--accent-strong);
+	font-size: var(--font-size-xs);
+	font-weight: 600;
+	line-height: 1.1;
+	text-transform: uppercase;
+}
+
 .command-copy small {
 	min-width: 0;
+	overflow: hidden;
+	color: var(--muted);
+	font-size: var(--font-size-sm);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.file-option-copy {
+	display: flex;
+	align-items: baseline;
+	gap: 12px;
+	width: 100%;
+	min-width: 0;
+}
+
+.file-option-copy > span {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--text);
+	font-weight: 700;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.file-option-copy small {
+	flex: 1 1 auto;
+	min-width: 80px;
 	overflow: hidden;
 	color: var(--muted);
 	font-size: var(--font-size-sm);
@@ -2594,15 +2651,55 @@ h1 {
 	outline: none;
 }
 
-.composer textarea {
+.composer-input-wrap {
 	--composer-textarea-max-height: 150px;
+	position: relative;
 	grid-column: 1;
 	min-height: 50px;
 	max-height: var(--composer-textarea-max-height);
-	padding: 13px 54px 11px 45px;
 	border: 1px solid var(--line-strong);
 	background: var(--paper);
+	overflow: hidden;
+}
+
+.composer textarea,
+.composer-highlight-layer {
+	min-height: 48px;
+	padding: 13px 54px 11px 45px;
+	font-size: var(--font-size-md);
+	line-height: 1.45;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.composer-highlight-layer {
+	position: absolute;
+	inset: 0;
+	z-index: 1;
+	overflow: hidden;
 	color: var(--text);
+	pointer-events: none;
+}
+
+.composer-mention-token {
+	border-radius: 4px;
+	background: color-mix(in srgb, var(--accent) 19%, transparent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+	color: var(--accent-strong);
+}
+
+.composer textarea {
+	position: relative;
+	z-index: 2;
+	display: block;
+	width: 100%;
+	height: 100%;
+	min-height: 48px;
+	max-height: calc(var(--composer-textarea-max-height) - 2px);
+	border: 0;
+	background: transparent;
+	color: transparent;
+	caret-color: var(--text);
 	font-size: var(--font-size-md);
 	line-height: 1.45;
 	overflow-y: hidden;
@@ -2610,12 +2707,16 @@ h1 {
 	outline: none;
 }
 
-.composer textarea:focus {
+.composer textarea::placeholder {
+	color: var(--muted);
+}
+
+.composer-input-wrap:focus-within {
 	border-color: var(--accent);
 	box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.composer.drop-active textarea {
+.composer.drop-active .composer-input-wrap {
 	border-color: var(--accent);
 }
 
@@ -2623,6 +2724,7 @@ h1 {
 .composer .attachment-button {
 	position: absolute;
 	bottom: 20px;
+	z-index: 5;
 	display: grid;
 	width: 28px;
 	height: 28px;
@@ -2659,8 +2761,8 @@ h1 {
 	outline: none;
 }
 
-.composer .attachment-button:focus-visible + textarea,
-.composer .attachment-button:hover + textarea {
+.composer .attachment-button:focus-visible + .composer-input-wrap,
+.composer .attachment-button:hover + .composer-input-wrap {
 	border-color: color-mix(in srgb, var(--accent) 72%, var(--line-strong));
 }
 
@@ -2849,12 +2951,20 @@ h1 {
 		left: 8px;
 	}
 
-	.composer textarea {
+	.composer-input-wrap {
 		--composer-textarea-max-height: 96px;
 		min-height: 42px;
-		max-height: var(--composer-textarea-max-height);
+	}
+
+	.composer textarea,
+	.composer-highlight-layer {
+		min-height: 40px;
 		padding: 10px 45px 8px 38px;
 		font-size: var(--font-size-md);
+	}
+
+	.composer textarea {
+		max-height: var(--composer-textarea-max-height);
 	}
 
 	.composer .send-button,
