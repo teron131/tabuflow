@@ -28,6 +28,15 @@ class SqlRunRequest(BaseModel):
     max_rows: int = Field(default=250, ge=1, le=500)
 
 
+class SourcePreviewRequest(BaseModel):
+    """Request body for bounded raw source previews."""
+
+    path: str = Field(min_length=1)
+    start_row: int = Field(default=1, ge=1)
+    max_rows: int = Field(default=250, ge=1, le=500)
+    sheet: str | None = None
+
+
 class FileExplanationRequest(BaseModel):
     """Request body for model-backed file explanations."""
 

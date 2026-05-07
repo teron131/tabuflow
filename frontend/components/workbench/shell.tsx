@@ -335,8 +335,15 @@ export function Workbench() {
 			setTargetPreviewResult(null);
 			markExplorerSelection("files");
 			setInspectorView("source");
-			const previewTarget = sourcePreviewTarget(bootstrap.targets, source);
-			if (!previewTarget) {
+			const previewPath = source.source_path || source.destination_path || "";
+			const sourceKind = source.kind.toLowerCase();
+			const sourceName = (source.source_path || source.name).toLowerCase();
+			const isTabularPreview =
+				sourceKind === "csv" ||
+				sourceKind === "xlsx" ||
+				sourceName.endsWith(".csv") ||
+				sourceName.endsWith(".xlsx");
+			if (!previewPath || !isTabularPreview) {
 				setSourcePreviewResult(null);
 				setIsPreviewingSource(false);
 				return;
@@ -344,11 +351,12 @@ export function Workbench() {
 			setSourcePreviewResult(null);
 			setIsPreviewingSource(true);
 			try {
-				const result = await fetchJson<SqlResult>("/api/sql/run", {
+				const result = await fetchJson<SqlResult>("/api/files/preview", {
 					method: "POST",
 					body: JSON.stringify({
-						sql: targetPreviewSql(previewTarget.name),
+						path: previewPath,
 						max_rows: previewRowLimit,
+						sheet: source.sheet_name || undefined,
 					}),
 				});
 				if (sourcePreviewRequestId.current === requestId) {
@@ -367,7 +375,7 @@ export function Workbench() {
 				}
 			}
 		},
-		[bootstrap.targets, markExplorerSelection],
+		[markExplorerSelection],
 	);
 
 	const selectSkill = useCallback(
@@ -767,21 +775,6 @@ function firstSourceFileName(target: Target | null) {
 		target?.source_file_names?.[0] ||
 		target?.source_references?.[0]?.name ||
 		null
-	);
-}
-
-function sourcePreviewTarget(targets: Target[], source: SourceFile) {
-	return (
-		targets.find(
-			(target) =>
-				!isTargetView(target) &&
-				target.source_references?.some(
-					(reference) =>
-						reference.path === source.source_path ||
-						reference.path === source.destination_path ||
-						reference.name === source.name,
-				),
-		) || null
 	);
 }
 

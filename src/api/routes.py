@@ -20,13 +20,14 @@ from ..config import (
     REPO_ROOT,
     SKILLS_DIR,
     UPLOADS_DIR,
+    WORKBENCH_SOURCE_ROOT,
     has_llm_environment,
 )
 from ..pipelines.explainer import MissingExplainerModelError, explain_file
 from ..tools import list_skills, load_skills
 from ..tools.sql.query import describe_target, list_targets, run_query
 from ..tools.tabular.storage import quote_identifier
-from ..tools.tabular.tools import extract_tabular_file
+from ..tools.tabular.tools import extract_tabular_file, inspect_tabular_file
 from .chat import ChatConfigurationError, ChatRuntimeError, run_chat, stream_chat_chunks
 from .constants import (
     DEFAULT_SQL,
@@ -41,6 +42,7 @@ from .schemas import (
     FileExplanationRequest,
     SkillResourceSaveRequest,
     SkillSaveRequest,
+    SourcePreviewRequest,
     SqlRunRequest,
 )
 from .workspace_data import (
@@ -67,6 +69,7 @@ SOURCE_MAPPING_PRIVATE_KEYS = {
     "source_paths",
     "source_paths_truncated",
 }
+MAX_SOURCE_PREVIEW_COLUMNS = 512
 
 
 def _workspace_data_error(exc: WorkspaceDataMissingError) -> HTTPException:
@@ -223,6 +226,84 @@ def _source_files_payload(database_path: Path) -> list[dict[str, Any]]:
     loaded_files = list_loaded_source_summaries(database_path)
     existing_paths = {str(source.get("source_path") or "") for source in loaded_files}
     return [*loaded_files, *list_uploaded_source_summaries(existing_paths=existing_paths)]
+
+
+def _resolve_source_preview_path(source_path: str) -> Path:
+    """Resolve a browser-safe source path under the configured workbench root."""
+    path = Path(source_path).expanduser()
+    if not path.is_absolute():
+        path = WORKBENCH_SOURCE_ROOT / path
+    resolved_path = path.resolve()
+    try:
+        resolved_path.relative_to(WORKBENCH_SOURCE_ROOT.resolve())
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "mode": "source_outside_workspace",
+                "message": "Only workspace source files can be previewed.",
+            },
+        ) from exc
+    if not resolved_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "status": "error",
+                "mode": "source_not_found",
+                "message": f"Source file not found: {source_path}",
+            },
+        )
+    if resolved_path.suffix.lower() not in TABULAR_UPLOAD_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "status": "error",
+                "mode": "unsupported_source_preview",
+                "message": "Raw previews are available for CSV and XLSX sources.",
+            },
+        )
+    return resolved_path
+
+
+def _spreadsheet_column_label(index: int) -> str:
+    """Return the spreadsheet-style label for a zero-based column index."""
+    label = ""
+    column_number = index + 1
+    while column_number:
+        column_number, remainder = divmod(column_number - 1, 26)
+        label = f"{chr(65 + remainder)}{label}"
+    return label
+
+
+def _source_preview_payload(preview: dict[str, Any], *, max_rows: int) -> dict[str, Any]:
+    """Convert a raw tabular preview into the grid result shape used by the UI."""
+    raw_rows = preview.get("rows")
+    preview_rows = raw_rows if isinstance(raw_rows, list) else []
+    truncated = len(preview_rows) > max_rows
+    rows = preview_rows[:max_rows]
+    column_count = min(
+        MAX_SOURCE_PREVIEW_COLUMNS,
+        max((len(row) for row in rows if isinstance(row, list)), default=0),
+    )
+    columns = [_spreadsheet_column_label(index) for index in range(column_count)]
+    result_rows: list[dict[str, str]] = []
+    for row in rows:
+        if not isinstance(row, list):
+            continue
+        result_rows.append({column: str(row[index]) if index < len(row) else "" for index, column in enumerate(columns)})
+
+    start_row = int(preview.get("start_row") or 1)
+    end_row = start_row + len(result_rows) - 1
+    full_row_count = preview.get("row_count")
+    return {
+        "status": "ok",
+        "summary": f"Raw {str(preview.get('format') or 'tabular').upper()} preview rows {start_row}-{end_row}.",
+        "columns": columns,
+        "rows": result_rows,
+        "row_count": full_row_count if isinstance(full_row_count, int) else len(result_rows),
+        "truncated": truncated or (isinstance(full_row_count, int) and end_row < full_row_count),
+    }
 
 
 def _bootstrap_payload(database_path: Path) -> dict[str, Any]:
@@ -412,6 +493,30 @@ def upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
         "upload": upload_result,
         "bootstrap": _bootstrap_payload(database_path),
     }
+
+
+@router.post("/files/preview")
+def preview_source_file(request: SourcePreviewRequest) -> dict[str, Any]:
+    """Return a bounded raw grid preview for one workspace source file."""
+    source_path = _resolve_source_preview_path(request.path)
+    try:
+        preview = inspect_tabular_file(
+            source_path,
+            start_row=request.start_row,
+            limit=request.max_rows + 1,
+            sheet=request.sheet,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "status": "error",
+                "mode": "source_preview_failed",
+                "message": str(exc),
+                "path": request.path,
+            },
+        ) from exc
+    return _source_preview_payload(preview, max_rows=request.max_rows)
 
 
 @router.post("/chat")
