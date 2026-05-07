@@ -381,7 +381,9 @@ function pathDirectories(path: string) {
 
 function sourceMentionReferences(mentions: ComposerSourceMention[]) {
 	return mentions
-		.filter((mention) => mention.kind === "source" || isArtifactMention(mention))
+		.filter(
+			(mention) => mention.kind === "source" || isArtifactMention(mention),
+		)
 		.map((mention) => mention.reference);
 }
 
