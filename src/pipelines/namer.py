@@ -2,13 +2,14 @@
 
 from collections.abc import Callable
 import re
+import secrets
 from typing import Any
 
 from langchain_core.messages import HumanMessage
 from pydantic import BaseModel, Field
 
-ARTIFACT_WORD_COUNT = 3
-ARTIFACT_SUFFIX_CHARS = 4
+ARTIFACT_WORD_COUNT = 2
+ARTIFACT_SUFFIX_CHARS = 6
 SLUG_PATTERN = re.compile(r"[a-z0-9]+")
 SLUG_STOP_WORDS = {
     "a",
@@ -50,7 +51,7 @@ class SQLArtifactName(BaseModel):
     words: list[str] = Field(
         min_length=ARTIFACT_WORD_COUNT,
         max_length=ARTIFACT_WORD_COUNT,
-        description="Exactly three concrete noun words for the artifact name, without the random suffix.",
+        description="Exactly two concrete noun words for the artifact name, without the random suffix.",
     )
 
 
@@ -59,13 +60,14 @@ def build_sql_artifact_namer(llm: Any) -> ArtifactNamerFn:
     structured_llm = llm.with_structured_output(SQLArtifactName)
 
     def namer(description: str) -> str:
-        """Return the model-chosen three-word artifact stem."""
+        """Return the model-chosen two-word artifact stem."""
         response = structured_llm.invoke(
             [
                 HumanMessage(
                     content=(
-                        "Name this SQL artifact with exactly three concrete noun words. "
-                        "Use lowercase words only. Do not include the random suffix, file extension, verbs, or filler words.\n\n"
+                        "Name this SQL artifact with exactly two concrete noun words. "
+                        "Use lowercase words only. Do not include the suffix, file extension, verbs, or filler words. "
+                        "The suffix may be a random run id or a stable content fingerprint, so choose words that describe the artifact content.\n\n"
                         f"Artifact context:\n{description}"
                     )
                 )
@@ -77,15 +79,25 @@ def build_sql_artifact_namer(llm: Any) -> ArtifactNamerFn:
     return namer
 
 
-def name_sql_artifact(description: str, run_id: str) -> str:
-    """Return a SQL artifact stem with three semantic words and four run chars."""
+def name_sql_artifact(description: str, run_id: str | None) -> str:
+    """Return a SQL artifact stem with two semantic words and six id chars."""
     slug_tokens = _slug_words(SLUG_PATTERN.findall(description.lower()))
-    suffix = "".join(SLUG_PATTERN.findall(run_id.lower()))[:ARTIFACT_SUFFIX_CHARS]
-    return "-".join([*slug_tokens, suffix.ljust(ARTIFACT_SUFFIX_CHARS, "0")])
+    suffix = _artifact_suffix(run_id)
+    return "-".join([*slug_tokens, suffix])
+
+
+def _artifact_suffix(identifier: str | None) -> str:
+    """Return a stable suffix from an id, or a random fallback when no id exists."""
+    suffix = secrets.token_hex(ARTIFACT_SUFFIX_CHARS)[:ARTIFACT_SUFFIX_CHARS]
+    if identifier and identifier != "default":
+        stable_suffix = "".join(SLUG_PATTERN.findall(identifier.lower()))[:ARTIFACT_SUFFIX_CHARS]
+        if stable_suffix:
+            suffix = stable_suffix.ljust(ARTIFACT_SUFFIX_CHARS, "0")
+    return suffix
 
 
 def _slug_words(words: list[str]) -> list[str]:
-    """Return exactly three safe semantic slug words."""
+    """Return exactly two safe semantic slug words."""
     semantic_tokens = [token for word in words for token in SLUG_PATTERN.findall(word.lower()) if token not in SLUG_STOP_WORDS]
     slug_tokens = semantic_tokens[:ARTIFACT_WORD_COUNT]
     for fallback_word in SLUG_FALLBACK_WORDS:

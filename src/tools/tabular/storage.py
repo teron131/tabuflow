@@ -14,6 +14,8 @@ import sqlite3
 import time
 from typing import Any, cast
 
+from ...pipelines.namer import name_sql_artifact
+
 SQLITE_FILENAME = "tabular.sqlite"
 SQLITE_CONTENTS_TABLE = "_tabular_contents"
 SQLITE_SOURCES_TABLE = "_tabular_sources"
@@ -339,9 +341,20 @@ def _create_typed_sqlite_view(
     return typed_view_name, inferred_types
 
 
-def _content_table_name(content_id: str) -> str:
-    """Build the physical SQLite table name for a content identifier."""
-    return f"content_{content_id[:16]}"
+def _content_table_name(
+    *,
+    content_id: str,
+    columns: list[str],
+    source_path: str,
+    source_table_name: str,
+) -> str:
+    """Build the physical SQLite table name with the shared artifact namer."""
+    description_parts = [
+        *columns[:8],
+        Path(source_path).stem,
+        source_table_name,
+    ]
+    return name_sql_artifact(" ".join(description_parts), content_id)
 
 
 def _content_schema_json(columns: list[str], db_columns: list[str]) -> str:
@@ -378,11 +391,18 @@ def _load_or_reuse_content_table(
     *,
     columns: list[str],
     rows: list[list[str]],
+    source_path: str,
+    source_table_name: str,
     source_format: str,
 ) -> tuple[str, str, list[str], str]:
     """Ensure a raw content table exists and return its storage metadata."""
     content_id = _content_id(columns, rows)
-    table_name = _content_table_name(content_id)
+    table_name = _content_table_name(
+        content_id=content_id,
+        columns=columns,
+        source_path=source_path,
+        source_table_name=source_table_name,
+    )
     db_columns = _db_column_names(columns)
     existing = connection.execute(
         f"SELECT table_name FROM {SQLITE_CONTENTS_TABLE} WHERE content_id = ?",
@@ -476,6 +496,8 @@ def load_tables_into_sqlite(
                     connection,
                     columns=columns,
                     rows=rows,
+                    source_path=source_path,
+                    source_table_name=source_table_name,
                     source_format=source_format,
                 )
                 typed_view_name, typed_columns = _create_typed_sqlite_view(

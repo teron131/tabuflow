@@ -448,13 +448,14 @@ def _cached_database_catalog(
     database_path = Path(resolved_path)
     with closing(_open_read_only_connection(database_path)) as connection:
         has_catalog, content_rows, source_rows = _catalog_state(connection)
+        content_table_names = set(content_rows)
         targets = []
         targets_by_name: dict[str, dict[str, Any]] = {}
         for master_row in connection.execute(_TARGET_MASTER_SQL).fetchall():
             name = cast(str, master_row[0])
             target_type = cast(str, master_row[1])
             create_sql = cast(Any, master_row[2])
-            kind = classify_target(name)
+            kind = classify_target(name, content_table_names=content_table_names)
             columns = [
                 {
                     "name": cast(str, row[1]),
@@ -744,14 +745,15 @@ def resolve_db_path(
     return resolved_path
 
 
-def classify_target(name: str) -> str:
+def classify_target(name: str, content_table_names: set[str] | None = None) -> str:
     """Classify a SQLite target using current naming conventions."""
     if name in (SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE):
         return "internal_catalog"
-    if name.startswith("content_") and name.endswith("_typed"):
-        return "typed_content_view"
-    if name.startswith("content_"):
+    content_tables = content_table_names or set()
+    if name in content_tables:
         return "raw_content_table"
+    if name.endswith("_typed") and name.removesuffix("_typed") in content_tables:
+        return "typed_content_view"
     return "view_or_table"
 
 
