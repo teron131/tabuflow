@@ -7,7 +7,7 @@ export function fileBadge(name: string, kind = "") {
 	return "FILE";
 }
 
-export function targetBadge(kind: string) {
+export function sqlArtifactBadge(kind: string) {
 	if (kind === "raw_content_table") return "TABLE";
 	if (kind === "typed_content_view") return "TYPED";
 	if (kind === "view_or_table") return "VIEW";

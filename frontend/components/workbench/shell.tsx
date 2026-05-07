@@ -17,7 +17,7 @@ import {
 } from "@/components/workbench/constants";
 import { ExplorerPanel } from "@/components/workbench/explorer/panel";
 import { SettingsPanel } from "@/components/workbench/settings-panel";
-import { isTargetView } from "@/components/workbench/targets";
+import { isSqlArtifactView } from "@/components/workbench/sql-artifacts";
 import type {
 	ExplorerKey,
 	ExplorerRailMode,
@@ -42,11 +42,11 @@ import {
 	type SkillResourceEntry,
 	type SkillResourcePayload,
 	type SourceFile,
+	type SqlArtifact,
+	type SqlArtifactDetails,
 	type SqlResult,
 	saveSkillResource,
 	skillContent,
-	type Target,
-	type TargetDetails,
 	type UploadPayload,
 	uploadWorkspaceFile,
 } from "@/lib/api";
@@ -69,7 +69,7 @@ function preferredThemeMode(): ThemeMode {
 export function Workbench() {
 	const shellRef = useRef<HTMLElement | null>(null);
 	const centerRef = useRef<HTMLElement | null>(null);
-	const targetPreviewRequestId = useRef(0);
+	const sqlArtifactPreviewRequestId = useRef(0);
 	const sourcePreviewRequestId = useRef(0);
 	const didSkipInitialThemePersist = useRef(false);
 	const [activeExplorer, setActiveExplorer] = useState<ExplorerKey>("files");
@@ -88,11 +88,14 @@ export function Workbench() {
 	const [sqlResult, setSqlResult] = useState<SqlResult | null>(null);
 	const [sourcePreviewResult, setSourcePreviewResult] =
 		useState<SqlResult | null>(null);
-	const [targetPreviewResult, setTargetPreviewResult] =
+	const [sqlArtifactPreviewResult, setSqlArtifactPreviewResult] =
 		useState<SqlResult | null>(null);
-	const [selectedTarget, setSelectedTarget] = useState<Target | null>(null);
-	const [targetSourceName, setTargetSourceName] = useState<string | null>(null);
-	const [targetSourceFileName, setTargetSourceFileName] = useState<
+	const [selectedSqlArtifact, setSelectedSqlArtifact] =
+		useState<SqlArtifact | null>(null);
+	const [sqlArtifactSourceName, setSqlArtifactSourceName] = useState<
+		string | null
+	>(null);
+	const [sqlArtifactSourceFileName, setSqlArtifactSourceFileName] = useState<
 		string | null
 	>(null);
 	const [selectedSource, setSelectedSource] = useState<SourceFile | null>(null);
@@ -106,7 +109,7 @@ export function Workbench() {
 	const [savedSkillResourceText, setSavedSkillResourceText] = useState("");
 	const [isRunningSql, setIsRunningSql] = useState(false);
 	const [isPreviewingSource, setIsPreviewingSource] = useState(false);
-	const [isPreviewingTarget, setIsPreviewingTarget] = useState(false);
+	const [isPreviewingSqlArtifact, setIsPreviewingSqlArtifact] = useState(false);
 	const [uploadStatus, setUploadStatus] = useState("");
 	const {
 		isExplorerCollapsed,
@@ -143,12 +146,14 @@ export function Workbench() {
 			setSql(bootstrapPayload.sample_sql);
 			setSqlResult(bootstrapPayload.initial_result || null);
 			setSourcePreviewResult(null);
-			setTargetPreviewResult(null);
-			setTargetSourceName(null);
-			setTargetSourceFileName(null);
+			setSqlArtifactPreviewResult(null);
+			setSqlArtifactSourceName(null);
+			setSqlArtifactSourceFileName(null);
 			setSelectedSkillResource(null);
 			setSelectedSource(bootstrapPayload.source_files[0] || null);
-			setSelectedTarget(preferredTarget(bootstrapPayload.targets));
+			setSelectedSqlArtifact(
+				preferredSqlArtifact(bootstrapPayload.sql_artifacts),
+			);
 		} catch (error) {
 			setBootstrap(emptyBootstrap);
 			setSql(emptyBootstrap.sample_sql);
@@ -172,12 +177,12 @@ export function Workbench() {
 						null
 					: payload.source_files[0] || null,
 			);
-			setSelectedTarget((currentTarget) =>
-				currentTarget
-					? payload.targets.find(
-							(target) => target.name === currentTarget.name,
-						) || preferredTarget(payload.targets)
-					: preferredTarget(payload.targets),
+			setSelectedSqlArtifact((currentSqlArtifact) =>
+				currentSqlArtifact
+					? payload.sql_artifacts.find(
+							(sqlArtifact) => sqlArtifact.name === currentSqlArtifact.name,
+						) || preferredSqlArtifact(payload.sql_artifacts)
+					: preferredSqlArtifact(payload.sql_artifacts),
 			);
 		} catch {
 			// Keep the current explorer state when a transient refresh races the backend.
@@ -268,56 +273,60 @@ export function Workbench() {
 		setThemeMode((mode) => (mode === "dark" ? "light" : "dark"));
 	}, []);
 
-	const selectTarget = useCallback(
-		async (target: Target) => {
-			const requestId = targetPreviewRequestId.current + 1;
-			targetPreviewRequestId.current = requestId;
-			const isView = isTargetView(target);
+	const selectSqlArtifact = useCallback(
+		async (sqlArtifact: SqlArtifact) => {
+			const requestId = sqlArtifactPreviewRequestId.current + 1;
+			sqlArtifactPreviewRequestId.current = requestId;
+			const isView = isSqlArtifactView(sqlArtifact);
 			const explorerSection = isView ? "views" : "sql";
-			setSelectedTarget(target);
+			setSelectedSqlArtifact(sqlArtifact);
 			setSelectedSkillResource(null);
 			markExplorerSelection(explorerSection);
-			setInspectorView("target");
-			setIsPreviewingTarget(true);
+			setInspectorView("sqlArtifact");
+			setIsPreviewingSqlArtifact(true);
 			setSourcePreviewResult(null);
-			setTargetPreviewResult(null);
-			setTargetSourceName(null);
-			setTargetSourceFileName(firstSourceFileName(target));
+			setSqlArtifactPreviewResult(null);
+			setSqlArtifactSourceName(null);
+			setSqlArtifactSourceFileName(firstSourceFileName(sqlArtifact));
 			try {
 				const [result, details] = await Promise.all([
 					fetchJson<SqlResult>("/api/sql/run", {
 						method: "POST",
 						body: JSON.stringify({
-							sql: targetPreviewSql(target.name),
+							sql: sqlArtifactPreviewSql(sqlArtifact.name),
 							max_rows: previewRowLimit,
 						}),
 					}),
 					isView
-						? fetchTargetDetails(target.name).catch(() => null)
+						? fetchSqlArtifactDetails(sqlArtifact.name).catch(() => null)
 						: Promise.resolve(null),
 				]);
-				if (targetPreviewRequestId.current === requestId) {
-					setTargetPreviewResult(result);
-					setTargetSourceFileName(
-						firstSourceFileName(details) || firstSourceFileName(target),
+				if (sqlArtifactPreviewRequestId.current === requestId) {
+					setSqlArtifactPreviewResult(result);
+					setSqlArtifactSourceFileName(
+						firstSourceFileName(details) || firstSourceFileName(sqlArtifact),
 					);
 					if (details?.create_sql) {
-						setSql(queryFromCreateViewSql(details.create_sql, target.name));
-						setTargetSourceName(details.source_target_names?.[0] || null);
+						setSql(
+							queryFromCreateViewSql(details.create_sql, sqlArtifact.name),
+						);
+						setSqlArtifactSourceName(
+							details.source_sql_artifact_names?.[0] || null,
+						);
 					}
 				}
 			} catch (error) {
-				if (targetPreviewRequestId.current === requestId) {
-					setTargetPreviewResult({
+				if (sqlArtifactPreviewRequestId.current === requestId) {
+					setSqlArtifactPreviewResult({
 						status: "error",
 						message: (error as Error).message,
 					});
-					setTargetSourceName(null);
-					setTargetSourceFileName(null);
+					setSqlArtifactSourceName(null);
+					setSqlArtifactSourceFileName(null);
 				}
 			} finally {
-				if (targetPreviewRequestId.current === requestId) {
-					setIsPreviewingTarget(false);
+				if (sqlArtifactPreviewRequestId.current === requestId) {
+					setIsPreviewingSqlArtifact(false);
 				}
 			}
 		},
@@ -330,9 +339,9 @@ export function Workbench() {
 			sourcePreviewRequestId.current = requestId;
 			setSelectedSource(source);
 			setSelectedSkillResource(null);
-			setTargetSourceName(null);
-			setTargetSourceFileName(null);
-			setTargetPreviewResult(null);
+			setSqlArtifactSourceName(null);
+			setSqlArtifactSourceFileName(null);
+			setSqlArtifactPreviewResult(null);
 			markExplorerSelection("files");
 			setInspectorView("source");
 			const previewPath = source.source_path || source.destination_path || "";
@@ -384,8 +393,8 @@ export function Workbench() {
 			setSelectedSkill(skill);
 			setSelectedSkillResource(null);
 			setSourcePreviewResult(null);
-			setTargetSourceName(null);
-			setTargetSourceFileName(null);
+			setSqlArtifactSourceName(null);
+			setSqlArtifactSourceFileName(null);
 			setSkillEditorText(nextContent);
 			setSavedSkillText(nextContent);
 			markExplorerSelection("skills");
@@ -407,8 +416,8 @@ export function Workbench() {
 			}
 			setSelectedSkillResource(resource);
 			setSourcePreviewResult(null);
-			setTargetSourceName(null);
-			setTargetSourceFileName(null);
+			setSqlArtifactSourceName(null);
+			setSqlArtifactSourceFileName(null);
 			markExplorerSelection("skills");
 			setInspectorView("skillResource");
 			setSkillResourceEditorText(resource.content || "");
@@ -497,12 +506,12 @@ export function Workbench() {
 		setSql(payload.sample_sql);
 		setSqlResult(payload.initial_result || null);
 		setSourcePreviewResult(null);
-		setTargetPreviewResult(null);
-		setTargetSourceName(null);
-		setTargetSourceFileName(null);
+		setSqlArtifactPreviewResult(null);
+		setSqlArtifactSourceName(null);
+		setSqlArtifactSourceFileName(null);
 		setSelectedSkillResource(null);
 		setSelectedSource(payload.source_files[0] || null);
-		setSelectedTarget(preferredTarget(payload.targets));
+		setSelectedSqlArtifact(preferredSqlArtifact(payload.sql_artifacts));
 	}, []);
 
 	const uploadFiles = useCallback(
@@ -630,12 +639,12 @@ export function Workbench() {
 					selectedSkill={selectedSkill}
 					selectedSkillResource={selectedSkillResource}
 					selectedSource={selectedSource}
-					selectedTarget={selectedTarget}
+					selectedSqlArtifact={selectedSqlArtifact}
 					skills={skills}
 					onSelectSkill={selectSkill}
 					onSelectSkillResource={selectSkillResource}
 					onSelectSource={selectSource}
-					onSelectTarget={selectTarget}
+					onSelectSqlArtifact={selectSqlArtifact}
 					onToggle={toggleSidePanel}
 				/>
 			)}
@@ -651,20 +660,20 @@ export function Workbench() {
 				bootstrap={bootstrap}
 				centerRef={centerRef}
 				inspectorView={inspectorView}
-				isPreviewingTarget={isPreviewingTarget}
+				isPreviewingSqlArtifact={isPreviewingSqlArtifact}
 				isPreviewingSource={isPreviewingSource}
 				isRunningSql={isRunningSql}
-				isQueryVisible={shouldShowQueryPane(inspectorView, selectedTarget)}
+				isQueryVisible={shouldShowQueryPane(inspectorView, selectedSqlArtifact)}
 				rounding={rounding}
 				themeMode={themeMode}
 				selectedSkill={selectedSkill}
 				selectedSkillResource={selectedSkillResource}
 				selectedModel={selectedModel}
 				selectedSource={selectedSource}
-				selectedTarget={selectedTarget}
+				selectedSqlArtifact={selectedSqlArtifact}
 				sourcePreviewResult={sourcePreviewResult}
-				targetSourceFileName={targetSourceFileName}
-				targetSourceName={targetSourceName}
+				sqlArtifactSourceFileName={sqlArtifactSourceFileName}
+				sqlArtifactSourceName={sqlArtifactSourceName}
 				isSkillResourceSaved={
 					skillResourceEditorText === savedSkillResourceText
 				}
@@ -673,7 +682,7 @@ export function Workbench() {
 				skillText={skillEditorText}
 				sql={sql}
 				sqlResult={sqlResult}
-				targetPreviewResult={targetPreviewResult}
+				sqlArtifactPreviewResult={sqlArtifactPreviewResult}
 				onRunSql={runSql}
 				onRevertSkillResource={revertSelectedSkillResource}
 				onRevertSkill={revertSkill}
@@ -697,7 +706,7 @@ export function Workbench() {
 				modelOptions={modelOptions}
 				selectedModel={selectedModel}
 				skills={skills}
-				targets={bootstrap.targets}
+				sqlArtifacts={bootstrap.sql_artifacts}
 				uploadStatus={uploadStatus}
 				onChatSettled={refreshExplorerData}
 				onModelChange={setSelectedModel}
@@ -709,26 +718,28 @@ export function Workbench() {
 	);
 }
 
-function preferredTarget(targets: Target[]) {
+function preferredSqlArtifact(sqlArtifacts: SqlArtifact[]) {
 	return (
-		targets.find((target) => target.name === "analysis_result") ||
-		targets.find((target) => target.name.endsWith("_typed")) ||
-		targets[0] ||
+		sqlArtifacts.find(
+			(sqlArtifact) => sqlArtifact.name === "analysis_result",
+		) ||
+		sqlArtifacts.find((sqlArtifact) => sqlArtifact.name.endsWith("_typed")) ||
+		sqlArtifacts[0] ||
 		null
 	);
 }
 
-function targetPreviewSql(targetName: string) {
-	return `SELECT * FROM ${quoteSqlIdentifier(targetName)};`;
+function sqlArtifactPreviewSql(sqlArtifactName: string) {
+	return `SELECT * FROM ${quoteSqlIdentifier(sqlArtifactName)};`;
 }
 
 function quoteSqlIdentifier(identifier: string) {
 	return `"${identifier.replaceAll('"', '""')}"`;
 }
 
-function fetchTargetDetails(targetName: string) {
-	return fetchJson<TargetDetails>(
-		`/api/sql/targets/${encodeURIComponent(targetName)}`,
+function fetchSqlArtifactDetails(sqlArtifactName: string) {
+	return fetchJson<SqlArtifactDetails>(
+		`/api/sql/sql-artifacts/${encodeURIComponent(sqlArtifactName)}`,
 	);
 }
 
@@ -774,27 +785,27 @@ function skillResourcePathKey(resource: SkillResourcePayload) {
 	return resource.path || resource.relative_path || "";
 }
 
-function firstSourceFileName(target: Target | null) {
+function firstSourceFileName(sqlArtifact: SqlArtifact | null) {
 	return (
-		target?.source_file_names?.[0] ||
-		target?.source_references?.[0]?.name ||
+		sqlArtifact?.source_file_names?.[0] ||
+		sqlArtifact?.source_references?.[0]?.name ||
 		null
 	);
 }
 
-function queryFromCreateViewSql(createSql: string, targetName: string) {
+function queryFromCreateViewSql(createSql: string, sqlArtifactName: string) {
 	const trimmedSql = createSql.trim();
 	const createViewPrefix =
 		/^CREATE\s+(?:TEMP(?:ORARY)?\s+)?VIEW(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:"[^"]+"|`[^`]+`|\[[^\]]+\]|\S+)\s+AS\s+/i;
 	const match = createViewPrefix.exec(trimmedSql);
 	if (!match) {
-		return targetPreviewSql(targetName);
+		return sqlArtifactPreviewSql(sqlArtifactName);
 	}
 	const query = trimmedSql
 		.slice(match[0].length)
 		.trim()
 		.replace(/;+\s*$/, "");
-	return query ? `${query};` : targetPreviewSql(targetName);
+	return query ? `${query};` : sqlArtifactPreviewSql(sqlArtifactName);
 }
 
 function uploadedWorkspaceFile(
@@ -809,18 +820,18 @@ function uploadedWorkspaceFile(
 		name: upload.name || file.name || upload.path,
 		path: upload.path,
 		contentType: upload.content_type || file.type || undefined,
-		targetBackend: upload.target_backend,
+		artifactBackend: upload.artifact_backend,
 	};
 }
 
 function shouldShowQueryPane(
 	inspectorView: InspectorView,
-	selectedTarget: Target | null,
+	selectedSqlArtifact: SqlArtifact | null,
 ) {
 	if (inspectorView === "results") {
 		return true;
 	}
-	return inspectorView === "target" && selectedTarget
-		? isTargetView(selectedTarget)
+	return inspectorView === "sqlArtifact" && selectedSqlArtifact
+		? isSqlArtifactView(selectedSqlArtifact)
 		: false;
 }

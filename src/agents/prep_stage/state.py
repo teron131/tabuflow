@@ -22,7 +22,7 @@ class PrepStageOutput(BaseModel):
     status: Literal["pending", "prepared", "error"] = Field(default="pending", description="Terminal prep-stage status.")
     database_path: str | None = Field(default=None, description="SQLite database path produced by successful extraction.")
     extraction_results: list[dict[str, Any]] = Field(default_factory=list, description="Raw extraction tool results observed during prep.")
-    extracted_targets: list[dict[str, Any]] = Field(default_factory=list, description="SQL-ready targets collected from extraction results.")
+    extracted_sql_artifacts: list[dict[str, Any]] = Field(default_factory=list, description="SQL-ready artifacts collected from extraction results.")
     last_error: str | None = Field(default=None, description="Most relevant prep-stage error, when one occurred.")
     prep_attempts: int = Field(default=0, description="Number of prep attempts used to reach this output.")
     trace: list[str] = Field(default_factory=list, description="Compact prep-stage trace messages.")

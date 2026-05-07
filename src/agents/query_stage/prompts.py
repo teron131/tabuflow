@@ -15,17 +15,17 @@ MAX_AGENT_SKILL_REF_PREVIEW = 8
 SQL_DRAFT_SYSTEM_PROMPT = """Draft one read-only SQLite query for the SQL stage.
 
 Rules:
-- The orchestrator/prep stages already chose the message, database, and allowed targets. Trust that context.
+- The orchestrator/prep stages already chose the message, database, and allowed SQL artifacts. Trust that context.
 - Use only SELECT, WITH, or EXPLAIN.
-- Use only tables/views from `allowed_targets` and `target_context`.
-- `target_context` is shared graph state from the orchestrator/prep stage; use its exact column names and quote identifiers that contain spaces, punctuation, or mixed case.
-- Do not invent normalized columns such as `account`, `account_id`, or `cost_usd` unless the target schema already exposes them or you define them in an earlier CTE from exact source columns.
-- Treat loaded skill references inside `worker_context` as the source of truth for domain SQL. If a skill SQL reference uses placeholders, preserve its raw-column mapping pattern and replace only placeholders with discovered target names/literals.
-- If a skill asks for one saved result view, draft the full SELECT/WITH body that will become that view. Do not select from the future saved view name unless that name is already present in `allowed_targets`.
+- Use only tables/views from `allowed_sql_artifacts` and `sql_artifact_context`.
+- `sql_artifact_context` is shared graph state from the orchestrator/prep stage; use its exact column names and quote identifiers that contain spaces, punctuation, or mixed case.
+- Do not invent normalized columns such as `account`, `account_id`, or `cost_usd` unless the sql_artifact schema already exposes them or you define them in an earlier CTE from exact source columns.
+- Treat loaded skill references inside `worker_context` as the source of truth for domain SQL. If a skill SQL reference uses placeholders, preserve its raw-column mapping pattern and replace only placeholders with discovered sql_artifact names/literals.
+- If a skill asks for one saved result view, draft the full SELECT/WITH body that will become that view. Do not select from the future saved view name unless that name is already present in `allowed_sql_artifacts`.
 - If the message or skill asks for multiple result grains, such as summary, category, and account/customer rows, the SQL must produce all requested row types from real source data. Do not satisfy missing grains with empty UNION arms, `WHERE 1 = 0`, duplicated total rows, or placeholder labels.
 - Treat `message` as the user request and `validation_feedback` as semantic retry guidance from the validation stage.
 - If `validation_feedback` is present, revise the query to address it directly.
-- Do not ask clarifying questions, discover targets, or judge final request fulfillment.
+- Do not ask clarifying questions, discover SQL artifacts, or judge final request fulfillment.
 """
 
 SQL_RUNTIME_REPAIR_SYSTEM_PROMPT = """Repair a SQL file so SQLite can execute it.
@@ -35,9 +35,9 @@ Rules:
 - Do not change the business meaning unless required to fix execution.
 - Do not judge whether the result satisfies the message; validation owns that.
 - Use hashline refs from `sql_hashlines` and return only hashline edits.
-- Prefer deterministic `repair_hints` when they identify replacement columns or targets.
+- Prefer deterministic `repair_hints` when they identify replacement columns or SQL artifacts.
 - Use loaded skill references inside `worker_context` when an execution error shows the SQL drifted from the reference contract.
-- If a missing-column error comes from a fabricated normalized schema, rebuild the affected query from the skill reference and exact `target_context` columns instead of trying another alias.
+- If a missing-column error comes from a fabricated normalized schema, rebuild the affected query from the skill reference and exact `sql_artifact_context` columns instead of trying another alias.
 - Preserve the SQL comment header unless the broken line is inside the header.
 """
 
@@ -66,27 +66,31 @@ def _compact_skill_refs(skill_refs: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _target_context(state: QueryStageState) -> list[dict[str, Any]]:
-    """Return the best target context already carried by the orchestrator state."""
+def _sql_artifact_context(state: QueryStageState) -> list[dict[str, Any]]:
+    """Return the best sql_artifact context already carried by the orchestrator state."""
     return [
         {
-            "source_path": target.get("source_path"),
-            "table_name": target.get("table_name"),
-            "typed_view_name": target.get("typed_view_name"),
-            "row_count": target.get("row_count"),
-            "columns": target.get("columns") or [],
-            "db_columns": target.get("db_columns") or [],
-            "typed_columns": target.get("typed_columns") or [],
+            "source_path": sql_artifact.get("source_path"),
+            "table_name": sql_artifact.get("table_name"),
+            "typed_view_name": sql_artifact.get("typed_view_name"),
+            "row_count": sql_artifact.get("row_count"),
+            "columns": sql_artifact.get("columns") or [],
+            "db_columns": sql_artifact.get("db_columns") or [],
+            "typed_columns": sql_artifact.get("typed_columns") or [],
         }
-        for target in state.extracted_targets
+        for sql_artifact in state.extracted_sql_artifacts
     ]
 
 
-def _allowed_targets(state: QueryStageState) -> list[str]:
-    """Return allowed SQL targets from shared orchestrator state."""
-    if state.preferred_targets:
-        return state.preferred_targets
-    return [str(target.get("typed_view_name") or target.get("table_name")) for target in state.extracted_targets if target.get("typed_view_name") or target.get("table_name")]
+def _allowed_sql_artifacts(state: QueryStageState) -> list[str]:
+    """Return allowed SQL artifacts from shared orchestrator state."""
+    if state.preferred_sql_artifacts:
+        return state.preferred_sql_artifacts
+    return [
+        str(sql_artifact.get("typed_view_name") or sql_artifact.get("table_name"))
+        for sql_artifact in state.extracted_sql_artifacts
+        if sql_artifact.get("typed_view_name") or sql_artifact.get("table_name")
+    ]
 
 
 def _message_from_payload(payload: dict[str, Any]) -> list[HumanMessage]:
@@ -106,8 +110,8 @@ def build_draft_messages(state: QueryStageState) -> list[HumanMessage]:
         "worker_context": state.worker_context,
         "skill_refs": _compact_skill_refs(state.skill_refs),
         "validation_feedback": state.validation_feedback,
-        "allowed_targets": _allowed_targets(state),
-        "target_context": _target_context(state),
+        "allowed_sql_artifacts": _allowed_sql_artifacts(state),
+        "sql_artifact_context": _sql_artifact_context(state),
         "sql_path": state.sql_path,
         "previous_sql": state.candidate_sql,
     }
@@ -124,8 +128,8 @@ def build_runtime_repair_messages(
         "message": latest_user_message(state.messages),
         "worker_context": state.worker_context,
         "skill_refs": _compact_skill_refs(state.skill_refs),
-        "allowed_targets": _allowed_targets(state),
-        "target_context": _target_context(state),
+        "allowed_sql_artifacts": _allowed_sql_artifacts(state),
+        "sql_artifact_context": _sql_artifact_context(state),
         "sql_path": state.sql_path,
         "sql_hashlines": sql_hashlines,
         "sqlite_error": state.result,

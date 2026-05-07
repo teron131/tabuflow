@@ -1,26 +1,20 @@
 import {
 	BrainCircuit,
 	Cloud,
-	FileText,
 	ListTree,
 	type LucideIcon,
 	Play,
 	Table2,
 	Zap,
 } from "lucide-react";
-import type {
-	SkillEntry,
-	SkillResourcePayload,
-	SourceFile,
-	Target,
-} from "@/lib/api";
+import type { SkillEntry, SkillResourcePayload } from "@/lib/api";
 
 export type CommandItemAction = "demo-trace" | "prompt" | "run-sql";
 
 export type CommandIndexItem = {
 	id: string;
 	label: string;
-	category: "command" | "file" | "target" | "skill";
+	category: "command" | "skill";
 	description: string;
 	icon: LucideIcon;
 	action: CommandItemAction;
@@ -31,8 +25,6 @@ export type CommandIndexItem = {
 };
 
 export type CommandIndexInput = {
-	sourceFiles: SourceFile[];
-	targets: Target[];
 	skills: SkillEntry[];
 };
 
@@ -93,16 +85,23 @@ const staticCommandItems: CommandIndexItem[] = [
 				.join("\n\n"),
 	},
 	{
-		id: "command-list-targets",
-		label: "listTargets",
+		id: "command-list-sql-artifacts",
+		label: "listSqlArtifacts",
 		category: "command",
-		description: "Ask the agent for SQL tables and saved views",
+		description: "Ask the agent for SQL artifacts",
 		icon: Table2,
 		action: "prompt",
-		aliases: ["tables", "views"],
+		aliases: [
+			"listTables",
+			"listSqlArtifacts",
+			"sqlArtifacts",
+			"artifacts",
+			"tables",
+			"views",
+		],
 		prompt: (detail) =>
 			[
-				"List the available SQL targets with row counts and the most useful next query for each.",
+				"List the available SQL artifacts, including tables and views, with row counts and the most useful next query for each.",
 				detail,
 			]
 				.filter(Boolean)
@@ -111,16 +110,9 @@ const staticCommandItems: CommandIndexItem[] = [
 ];
 
 export function buildCommandIndex({
-	sourceFiles,
-	targets,
 	skills,
 }: CommandIndexInput): CommandIndexItem[] {
-	return [
-		...staticCommandItems,
-		...sourceFiles.map(sourceFileItem),
-		...targets.map(targetItem),
-		...skills.map(skillItem),
-	];
+	return [...staticCommandItems, ...skills.map(skillItem)];
 }
 
 export function filterCommandIndex(
@@ -241,56 +233,6 @@ export function commandDetailForItem(
 		return "";
 	}
 	return body.slice(matchedAlias.length).trim();
-}
-
-function sourceFileItem(source: SourceFile): CommandIndexItem {
-	const reference =
-		source.source_path || source.destination_path || source.name;
-	const status = [source.kind, source.status].filter(Boolean).join(" / ");
-	return {
-		id: `file-${source.id || reference}`,
-		label: source.name,
-		category: "file",
-		description: status || reference,
-		icon: FileText,
-		action: "prompt",
-		aliases: [
-			reference,
-			source.table_name || "",
-			source.sheet_name || "",
-		].filter(Boolean),
-		sourceFiles: reference ? [reference] : [],
-		prompt: (detail) =>
-			[
-				`Inspect source file ${reference}.`,
-				detail || "Summarize what it contains and the next useful data action.",
-			].join("\n\n"),
-	};
-}
-
-function targetItem(target: Target): CommandIndexItem {
-	const noun =
-		target.type === "view" || target.kind.includes("view")
-			? "saved view"
-			: "SQL target";
-	const count =
-		target.row_count == null ? "unknown rows" : `${target.row_count} rows`;
-	return {
-		id: `target-${target.name}`,
-		label: target.name,
-		category: "target",
-		description: `${noun} / ${count}`,
-		icon: Table2,
-		action: "prompt",
-		aliases: [target.type, target.kind, target.summary].filter(Boolean),
-		sourceFiles: target.source_references?.map((reference) => reference.path),
-		prompt: (detail) =>
-			[
-				`Inspect ${noun} ${target.name}.`,
-				detail ||
-					"Describe the schema, preview the useful rows, and suggest a next query.",
-			].join("\n\n"),
-	};
 }
 
 function skillItem(skill: SkillEntry): CommandIndexItem {

@@ -18,7 +18,7 @@ from langgraph.graph.state import CompiledStateGraph
 from ...tools.tabular import make_tabular_tools
 from ..base import ApplicationAgent
 from ..trace_utils import PREP_STAGE, append_stage_trace, append_trace
-from .payloads import collect_extracted_targets
+from .payloads import collect_extracted_sql_artifacts
 from .prompts import PREP_STAGE_SYSTEM_PROMPT, build_prep_request, parse_tool_content
 from .state import PrepStageDecision, PrepStageOutput
 
@@ -175,7 +175,7 @@ class PrepStage(ApplicationAgent):
                 trace = append_stage_trace(trace, PREP_STAGE, f"trial {prep_attempt} {message}")
 
             decision = trial.decision
-            extracted_targets = collect_extracted_targets(trial.extraction_results)
+            extracted_sql_artifacts = collect_extracted_sql_artifacts(trial.extraction_results)
             database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}
             trial_error = trial.last_error
             if trial_error is None:
@@ -183,21 +183,21 @@ class PrepStage(ApplicationAgent):
                     trial_error = "Prep agent finished without extracting any data."
                 elif len(database_paths) != 1:
                     trial_error = "Expected one shared SQLite database path after extraction."
-                elif not extracted_targets:
-                    trial_error = "Prep agent extracted data but did not produce usable targets."
+                elif not extracted_sql_artifacts:
+                    trial_error = "Prep agent extracted data but did not produce usable SQL artifacts."
 
             decision_summary = decision.summary if decision and decision.summary else trial_error or "Prep trial finished without a usable extraction."
             previous_attempts.append(f"trial {prep_attempt}: {decision_summary}")
 
-            extraction_ready = trial_error is None and len(database_paths) == 1 and bool(extracted_targets)
+            extraction_ready = trial_error is None and len(database_paths) == 1 and bool(extracted_sql_artifacts)
             if extraction_ready:
                 database_path = next(iter(database_paths))
-                success_message = f"prepared {len(extracted_targets)} target(s) into {database_path}"
+                success_message = f"prepared {len(extracted_sql_artifacts)} SQL artifact(s) into {database_path}"
                 return PrepStageOutput(
                     status="prepared",
                     database_path=database_path,
                     extraction_results=trial.extraction_results,
-                    extracted_targets=extracted_targets,
+                    extracted_sql_artifacts=extracted_sql_artifacts,
                     prep_attempts=prep_attempt,
                     trace=append_stage_trace(
                         trace,
@@ -211,7 +211,7 @@ class PrepStage(ApplicationAgent):
                 return PrepStageOutput(
                     status="error",
                     extraction_results=trial.extraction_results,
-                    extracted_targets=extracted_targets,
+                    extracted_sql_artifacts=extracted_sql_artifacts,
                     last_error=decision.last_error or trial_error or decision.summary,
                     prep_attempts=prep_attempt,
                     trace=append_stage_trace(
@@ -247,7 +247,7 @@ class PrepStage(ApplicationAgent):
         return PrepStageOutput(
             status="error",
             extraction_results=last_trial.extraction_results,
-            extracted_targets=collect_extracted_targets(last_trial.extraction_results),
+            extracted_sql_artifacts=collect_extracted_sql_artifacts(last_trial.extraction_results),
             last_error=final_error,
             prep_attempts=safe_max_prep_trials,
             trace=append_stage_trace(trace, PREP_STAGE, f"exhausted {safe_max_prep_trials} trial(s)"),

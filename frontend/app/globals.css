@@ -1540,13 +1540,13 @@ h1 {
 	gap: 14px;
 }
 
-.target-viewer {
+.data-preview-viewer {
 	display: flex;
 	min-height: 100%;
 	min-width: 0;
 }
 
-.target-preview-grid {
+.data-preview-grid {
 	flex: 1;
 	min-height: 0;
 	min-width: 0;
@@ -1934,7 +1934,7 @@ h1 {
 	grid-row: 2;
 	display: flex;
 	flex-direction: column;
-	overflow: hidden;
+	overflow: visible;
 	background: var(--panel-soft);
 }
 
@@ -2334,9 +2334,11 @@ h1 {
 	bottom: calc(100% + 8px);
 	left: 10px;
 	z-index: 20;
-	display: grid;
+	display: flex;
+	flex-direction: column;
 	gap: 0;
 	min-width: 0;
+	max-height: min(430px, 62dvh);
 	overflow: hidden;
 	border: 1px solid var(--line-strong);
 	background: var(--panel);
@@ -2345,34 +2347,12 @@ h1 {
 		inset 3px 0 0 var(--accent);
 }
 
-.command-palette header {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	min-height: 34px;
-	padding: 0 10px;
-	border-bottom: 1px solid var(--line);
-	background: var(--panel-soft);
-	color: var(--accent-strong);
-	font-family: var(--font-mono);
-	font-size: var(--font-size-sm);
-	font-weight: 600;
-}
-
-.command-palette kbd {
-	padding: 1px 5px;
-	border: 1px solid var(--line-strong);
-	background: var(--panel-strong);
-	color: var(--text);
-	font-family: var(--font-mono);
-	font-size: var(--font-size-xs);
-	font-weight: 500;
-}
-
 .command-options {
 	display: grid;
-	max-height: min(360px, 52dvh);
+	flex: 1 1 auto;
+	min-height: 0;
 	overflow: auto;
+	overscroll-behavior: contain;
 	padding: 6px;
 }
 
@@ -2409,41 +2389,21 @@ h1 {
 
 .command-copy {
 	display: grid;
-	grid-template-columns: minmax(96px, max-content) minmax(0, 1fr);
+	grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
 	align-items: baseline;
-	gap: 12px;
+	gap: 18px;
 	width: 100%;
 	min-width: 0;
 	justify-self: stretch;
 }
 
 .command-copy > span {
-	display: flex;
-	align-items: baseline;
-	gap: 8px;
 	min-width: 0;
 	overflow: hidden;
 	color: var(--text);
 	font-weight: 700;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-}
-
-.command-copy > span > span {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-
-.command-copy b {
-	flex: 0 0 auto;
-	padding: 1px 4px;
-	border: 1px solid var(--line);
-	color: var(--accent-strong);
-	font-size: var(--font-size-xs);
-	font-weight: 600;
-	line-height: 1.1;
-	text-transform: uppercase;
 }
 
 .command-copy small {
@@ -2487,6 +2447,10 @@ h1 {
 .composer .command-options button:hover {
 	background: var(--accent-wash);
 	color: var(--text);
+}
+
+.composer .command-options button.active {
+	box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .composer .command-options button.active svg,

@@ -13,8 +13,8 @@ class PreparedDataState(BaseModel):
 
     run_id: str = Field(default_factory=lambda: uuid4().hex[:8], description="Short workflow run identifier used for generated artifacts.")
     database_path: str | None = Field(default=None, description="SQLite database path prepared for SQL execution.")
-    preferred_targets: list[str] = Field(default_factory=list, description="Preferred SQL target names selected by prep.")
-    extracted_targets: list[dict[str, Any]] = Field(default_factory=list, description="Prepared table or view metadata available to SQL drafting.")
+    preferred_sql_artifacts: list[str] = Field(default_factory=list, description="Preferred SQL artifact names selected by prep.")
+    extracted_sql_artifacts: list[dict[str, Any]] = Field(default_factory=list, description="Prepared table or view metadata available to SQL drafting.")
     worker_context: str = Field(default="", description="Worker-facing context assembled from harness prompt and matched skills.")
     skill_refs: list[dict[str, Any]] = Field(default_factory=list, description="Loaded skill reference payloads relevant to this run.")
 
@@ -24,7 +24,7 @@ class SQLArtifactState(BaseModel):
 
     status: str = Field(default="pending", description="Current SQL-stage status.")
     sql_path: str | None = Field(default=None, description="Path to the current SQL artifact file.")
-    selected_targets: list[str] = Field(default_factory=list, description="SQL targets selected by the current draft.")
+    selected_sql_artifacts: list[str] = Field(default_factory=list, description="SQL artifacts selected by the current draft.")
     candidate_sql: str | None = Field(default=None, description="Current SQL text read from or written to the SQL artifact.")
     repair_hints: list[dict[str, Any]] = Field(default_factory=list, description="Deterministic hints for repairing SQLite runtime errors.")
     result: dict[str, Any] | None = Field(default=None, description="SQLite execution result payload.")

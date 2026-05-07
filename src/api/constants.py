@@ -10,7 +10,7 @@ DEFAULT_SQL = """SELECT
 
 SUGGESTED_QUESTIONS = [
     "What sources are loaded?",
-    "Show available SQL targets.",
+    "Show available SQL artifacts.",
     "Preview the selected result.",
 ]
 

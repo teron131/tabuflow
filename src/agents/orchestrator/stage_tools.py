@@ -73,15 +73,19 @@ def _tool_command(
 
 def _prep_visible_payload(state_payload: dict[str, Any]) -> dict[str, Any]:
     """Return the compact prep result shown to the model."""
-    extracted_targets = state_payload.get("extracted_targets") or []
-    target_names = [str(target.get("typed_view_name") or target.get("table_name")) for target in extracted_targets if target.get("typed_view_name") or target.get("table_name")]
+    extracted_sql_artifacts = state_payload.get("extracted_sql_artifacts") or []
+    sql_artifact_names = [
+        str(sql_artifact.get("typed_view_name") or sql_artifact.get("table_name"))
+        for sql_artifact in extracted_sql_artifacts
+        if sql_artifact.get("typed_view_name") or sql_artifact.get("table_name")
+    ]
     prep_output = state_payload.get("prep_output") or {}
     return {
-        "status": prep_output.get("status") or ("prepared" if target_names else "error"),
+        "status": prep_output.get("status") or ("prepared" if sql_artifact_names else "error"),
         "database_path": state_payload.get("database_path"),
-        "prepared_state_available": bool(target_names),
-        "target_count": len(target_names),
-        "preferred_targets": state_payload.get("preferred_targets") or target_names,
+        "prepared_state_available": bool(sql_artifact_names),
+        "sql_artifact_count": len(sql_artifact_names),
+        "preferred_sql_artifacts": state_payload.get("preferred_sql_artifacts") or sql_artifact_names,
         "trace": _trace_payload(state_payload),
     }
 
@@ -112,7 +116,7 @@ def _reset_query_fields(payload: dict[str, Any]) -> dict[str, Any]:
         "validation_attempts": 0,
         "status": "pending",
         "sql_path": None,
-        "selected_targets": [],
+        "selected_sql_artifacts": [],
         "candidate_sql": None,
         "repair_hints": [],
         "result": None,

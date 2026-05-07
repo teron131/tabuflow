@@ -225,15 +225,17 @@ def _orchestration_state_context(state: OrchestratorState | dict[str, Any]) -> s
     source_preview = normalized.source_files[:3]
     source_suffix = f" (+{len(normalized.source_files) - len(source_preview)} more)" if len(normalized.source_files) > len(source_preview) else ""
     source_label = ", ".join(source_preview) + source_suffix if source_preview else "(none)"
-    prepared_targets = normalized.preferred_targets or [
-        str(target.get("typed_view_name") or target.get("table_name")) for target in normalized.extracted_targets if target.get("typed_view_name") or target.get("table_name")
+    prepared_targets = normalized.preferred_sql_artifacts or [
+        str(sql_artifact.get("typed_view_name") or sql_artifact.get("table_name"))
+        for sql_artifact in normalized.extracted_sql_artifacts
+        if sql_artifact.get("typed_view_name") or sql_artifact.get("table_name")
     ]
     prep_status = "prepared" if normalized.database_path and prepared_targets else "not_prepared"
     lines = [
         "Current orchestration state:",
         f"- declared_source_files: {source_label}",
         f"- prep_status: {prep_status}",
-        f"- prepared_target_count: {len(prepared_targets)}",
+        f"- prepared_sql_artifact_count: {len(prepared_targets)}",
     ]
     if normalized.status != "pending":
         lines.append(f"- query_status: {normalized.status}")

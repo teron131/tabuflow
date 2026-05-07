@@ -14,10 +14,10 @@ export function downloadResult(
 	URL.revokeObjectURL(url);
 }
 
-export function downloadTargetView(targetName: string) {
+export function downloadSqlArtifactView(sqlArtifactName: string) {
 	const anchor = document.createElement("a");
-	anchor.href = `/api/sql/targets/${encodeURIComponent(targetName)}/download`;
-	anchor.download = `${safeCsvFilename(targetName)}.csv`;
+	anchor.href = `/api/sql/sql-artifacts/${encodeURIComponent(sqlArtifactName)}/download`;
+	anchor.download = `${safeCsvFilename(sqlArtifactName)}.csv`;
 	anchor.click();
 }
 

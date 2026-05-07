@@ -32,11 +32,11 @@ import type {
 	SkillResourceEntry,
 	SkillResourcePayload,
 	SourceFile,
-	Target,
+	SqlArtifact,
 } from "@/lib/api";
-import { isTargetView } from "../targets";
+import { isSqlArtifactView } from "../sql-artifacts";
 import type { ExplorerKey, ExplorerRailMode, InspectorView } from "../types";
-import { fileBadge, targetBadge } from "./badges";
+import { fileBadge, sqlArtifactBadge } from "./badges";
 
 type ExplorerPanelProps = {
 	activeExplorer: ExplorerKey;
@@ -48,12 +48,12 @@ type ExplorerPanelProps = {
 	selectedSkill: SkillEntry | null;
 	selectedSkillResource: SkillResourceEntry | null;
 	selectedSource: SourceFile | null;
-	selectedTarget: Target | null;
+	selectedSqlArtifact: SqlArtifact | null;
 	skills: SkillEntry[];
 	onSelectSkill: (skill: SkillEntry) => void;
 	onSelectSkillResource: (resource: SkillResourceEntry) => void;
 	onSelectSource: (source: SourceFile) => void;
-	onSelectTarget: (target: Target) => void;
+	onSelectSqlArtifact: (sqlArtifact: SqlArtifact) => void;
 	onToggle: () => void;
 };
 
@@ -168,12 +168,12 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 	selectedSkill,
 	selectedSkillResource,
 	selectedSource,
-	selectedTarget,
+	selectedSqlArtifact,
 	skills,
 	onSelectSkill,
 	onSelectSkillResource,
 	onSelectSource,
-	onSelectTarget,
+	onSelectSqlArtifact,
 	onToggle,
 }: ExplorerPanelProps) {
 	const [query, setQuery] = useState("");
@@ -219,12 +219,12 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 				selectedSkill,
 				selectedSkillResource,
 				selectedSource,
-				selectedTarget,
+				selectedSqlArtifact,
 				skills,
 				onSelectSkill,
 				onSelectSkillResource,
 				onSelectSource,
-				onSelectTarget,
+				onSelectSqlArtifact,
 			}),
 		[
 			bootstrap,
@@ -232,12 +232,12 @@ export const ExplorerPanel = memo(function ExplorerPanel({
 			selectedSkill,
 			selectedSkillResource,
 			selectedSource,
-			selectedTarget,
+			selectedSqlArtifact,
 			skills,
 			onSelectSkill,
 			onSelectSkillResource,
 			onSelectSource,
-			onSelectTarget,
+			onSelectSqlArtifact,
 		],
 	);
 
@@ -445,31 +445,31 @@ function buildGroups({
 	selectedSkill,
 	selectedSkillResource,
 	selectedSource,
-	selectedTarget,
+	selectedSqlArtifact,
 	skills,
 	onSelectSkill,
 	onSelectSkillResource,
 	onSelectSource,
-	onSelectTarget,
+	onSelectSqlArtifact,
 }: {
 	bootstrap: BootstrapPayload;
 	inspectorView: InspectorView;
 	selectedSkill: SkillEntry | null;
 	selectedSkillResource: SkillResourceEntry | null;
 	selectedSource: SourceFile | null;
-	selectedTarget: Target | null;
+	selectedSqlArtifact: SqlArtifact | null;
 	skills: SkillEntry[];
 	onSelectSkill: (skill: SkillEntry) => void;
 	onSelectSkillResource: (resource: SkillResourceEntry) => void;
 	onSelectSource: (source: SourceFile) => void;
-	onSelectTarget: (target: Target) => void;
+	onSelectSqlArtifact: (sqlArtifact: SqlArtifact) => void;
 }): ExplorerGroup[] {
-	const viewItems = bootstrap.targets.filter(isTargetView);
-	const targetItems = bootstrap.targets.filter(
-		(target) => !isTargetView(target),
+	const viewItems = bootstrap.sql_artifacts.filter(isSqlArtifactView);
+	const sqlArtifactItems = bootstrap.sql_artifacts.filter(
+		(sqlArtifact) => !isSqlArtifactView(sqlArtifact),
 	);
 	const isSourceView = inspectorView === "source";
-	const isTargetPreviewView = inspectorView === "target";
+	const isSqlArtifactPreviewView = inspectorView === "sqlArtifact";
 	const isSkillView = inspectorView === "skill";
 	return [
 		{
@@ -490,31 +490,35 @@ function buildGroups({
 		{
 			key: "sql",
 			label: groupLabels.sql,
-			rows: targetItems.map((target) => ({
-				id: `target-${target.name}`,
-				label: target.name,
-				type: targetBadge(target.kind),
-				status: target.size_label || "",
-				detail: target.summary,
-				metadata: `${target.size_label || ""} ${target.row_count ?? ""} rows ${target.column_count ?? ""} columns ${target.source_path_count} sources`,
-				iconType: targetIconType(target),
-				isActive: isTargetPreviewView && selectedTarget?.name === target.name,
-				onSelect: () => onSelectTarget(target),
+			rows: sqlArtifactItems.map((sqlArtifact) => ({
+				id: `sql-artifact-${sqlArtifact.name}`,
+				label: sqlArtifact.name,
+				type: sqlArtifactBadge(sqlArtifact.kind),
+				status: sqlArtifact.size_label || "",
+				detail: sqlArtifact.summary,
+				metadata: `${sqlArtifact.size_label || ""} ${sqlArtifact.row_count ?? ""} rows ${sqlArtifact.column_count ?? ""} columns ${sqlArtifact.source_path_count} sources`,
+				iconType: sqlArtifactIconType(sqlArtifact),
+				isActive:
+					isSqlArtifactPreviewView &&
+					selectedSqlArtifact?.name === sqlArtifact.name,
+				onSelect: () => onSelectSqlArtifact(sqlArtifact),
 			})),
 		},
 		{
 			key: "views",
 			label: groupLabels.views,
-			rows: viewItems.map((target) => ({
-				id: `view-${target.name}`,
-				label: target.name,
-				type: targetBadge(target.kind),
-				status: target.size_label || "",
-				detail: target.summary,
-				metadata: `${target.size_label || ""} ${target.row_count ?? ""} rows ${target.column_count ?? ""} columns ${target.source_path_count} sources`,
+			rows: viewItems.map((sqlArtifact) => ({
+				id: `view-${sqlArtifact.name}`,
+				label: sqlArtifact.name,
+				type: sqlArtifactBadge(sqlArtifact.kind),
+				status: sqlArtifact.size_label || "",
+				detail: sqlArtifact.summary,
+				metadata: `${sqlArtifact.size_label || ""} ${sqlArtifact.row_count ?? ""} rows ${sqlArtifact.column_count ?? ""} columns ${sqlArtifact.source_path_count} sources`,
 				iconType: "view",
-				isActive: isTargetPreviewView && selectedTarget?.name === target.name,
-				onSelect: () => onSelectTarget(target),
+				isActive:
+					isSqlArtifactPreviewView &&
+					selectedSqlArtifact?.name === sqlArtifact.name,
+				onSelect: () => onSelectSqlArtifact(sqlArtifact),
 			})),
 		},
 		{
@@ -646,14 +650,14 @@ function sourceIconType(source: SourceFile) {
 	return "file";
 }
 
-function targetIconType(target: Target) {
-	if (target.kind === "raw_content_table") {
+function sqlArtifactIconType(sqlArtifact: SqlArtifact) {
+	if (sqlArtifact.kind === "raw_content_table") {
 		return "raw";
 	}
-	if (target.kind === "typed_content_view") {
+	if (sqlArtifact.kind === "typed_content_view") {
 		return "view";
 	}
-	return isTargetView(target) ? "view" : "raw";
+	return isSqlArtifactView(sqlArtifact) ? "view" : "raw";
 }
 
 function isActiveSkillResourceRow(

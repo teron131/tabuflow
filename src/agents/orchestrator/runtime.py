@@ -25,7 +25,7 @@ class OrchestratorRun:
     run_id: str = field(default_factory=lambda: uuid4().hex[:8])
     trace: list[str] = field(default_factory=list)
     database_path: str | None = None
-    extracted_targets: list[dict[str, Any]] = field(default_factory=list)
+    extracted_sql_artifacts: list[dict[str, Any]] = field(default_factory=list)
 
     def result(
         self,
@@ -33,7 +33,7 @@ class OrchestratorRun:
         status: str,
         outcome: str,
         completion_reason: str | None,
-        selected_targets: list[str],
+        selected_sql_artifacts: list[str],
         candidate_sql: str | None,
         sql_result: dict[str, Any] | None,
         saved_view_name: str | None,
@@ -53,8 +53,8 @@ class OrchestratorRun:
             source_files=self.source_files,
             database_path=self.database_path,
             sql_path=sql_path,
-            extracted_targets=self.extracted_targets,
-            selected_targets=selected_targets,
+            extracted_sql_artifacts=self.extracted_sql_artifacts,
+            selected_sql_artifacts=selected_sql_artifacts,
             candidate_sql=candidate_sql,
             sql_result=sql_result,
             saved_view_name=saved_view_name,
@@ -84,7 +84,7 @@ def orchestrator_run_from_state(state: OrchestratorState) -> OrchestratorRun:
         run_id=state.run_id,
         trace=state.trace,
         database_path=state.database_path,
-        extracted_targets=state.extracted_targets,
+        extracted_sql_artifacts=state.extracted_sql_artifacts,
     )
 
 
@@ -105,7 +105,7 @@ def sql_output_from_state(state: OrchestratorState) -> SQLArtifactState | None:
     return SQLArtifactState(
         status=state.status,
         sql_path=state.sql_path,
-        selected_targets=state.selected_targets,
+        selected_sql_artifacts=state.selected_sql_artifacts,
         candidate_sql=state.candidate_sql,
         repair_hints=state.repair_hints,
         result=state.result,
@@ -119,7 +119,7 @@ def reset_sql_attempt_update() -> dict[str, Any]:
     """Reset SQL stage fields before routing into another SQL attempt."""
     return {
         "status": "pending",
-        "selected_targets": [],
+        "selected_sql_artifacts": [],
         "candidate_sql": None,
         "repair_hints": [],
         "result": None,
@@ -130,17 +130,17 @@ def reset_sql_attempt_update() -> dict[str, Any]:
     }
 
 
-def preferred_sql_targets(extracted_targets: list[dict[str, Any]]) -> list[str]:
-    """Return current-run SQL targets in the order they should be inspected."""
-    preferred_targets: list[str] = []
-    for target in extracted_targets:
-        typed_view_name = str(target.get("typed_view_name", "")).strip()
-        table_name = str(target.get("table_name", "")).strip()
+def preferred_sql_artifacts(extracted_sql_artifacts: list[dict[str, Any]]) -> list[str]:
+    """Return current-run SQL artifacts in the order they should be inspected."""
+    preferred_sql_artifacts: list[str] = []
+    for sql_artifact in extracted_sql_artifacts:
+        typed_view_name = str(sql_artifact.get("typed_view_name", "")).strip()
+        table_name = str(sql_artifact.get("table_name", "")).strip()
         if typed_view_name:
-            preferred_targets.append(typed_view_name)
+            preferred_sql_artifacts.append(typed_view_name)
         if table_name:
-            preferred_targets.append(table_name)
-    return list(dict.fromkeys(preferred_targets))
+            preferred_sql_artifacts.append(table_name)
+    return list(dict.fromkeys(preferred_sql_artifacts))
 
 
 def orchestrator_view_name(
@@ -160,7 +160,7 @@ def _sql_output_result_fields(
 ) -> dict[str, Any]:
     """Return result fields carried by one SQL-stage output."""
     return {
-        "selected_targets": sql_output.selected_targets,
+        "selected_sql_artifacts": sql_output.selected_sql_artifacts,
         "candidate_sql": sql_output.candidate_sql,
         "sql_result": sql_output.result,
         "saved_view_name": saved_view_name,
@@ -249,7 +249,7 @@ def build_sql_failure_result(
             status="error",
             outcome="failed",
             completion_reason="sql_execution_failed",
-            selected_targets=[],
+            selected_sql_artifacts=[],
             candidate_sql=None,
             sql_result=None,
             saved_view_name=None,

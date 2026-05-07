@@ -92,7 +92,7 @@ def _sql_with_header(
     *,
     run_id: str,
     description: str,
-    selected_targets: list[str] | None,
+    selected_sql_artifacts: list[str] | None,
 ) -> str:
     """Return SQL text with the standard artifact header."""
     normalized_sql = sql.strip()
@@ -100,8 +100,8 @@ def _sql_with_header(
         f"-- Description: {_comment_value(description) or 'SQL query artifact.'}",
         f"-- Run ID: {_comment_value(run_id)}",
     ]
-    if selected_targets:
-        header_lines.append(f"-- Targets: {_comment_value(', '.join(selected_targets))}")
+    if selected_sql_artifacts:
+        header_lines.append(f"-- SQL artifacts: {_comment_value(', '.join(selected_sql_artifacts))}")
     if normalized_sql:
         return "\n".join([*header_lines, "", normalized_sql, ""])
     return "\n".join([*header_lines, ""])
@@ -248,7 +248,7 @@ def write_sql_file(
     run_id: str = "default",
     description: str = DEFAULT_SQL_DESCRIPTION,
     filename_hint: str | None = None,
-    selected_targets: list[str] | None = None,
+    selected_sql_artifacts: list[str] | None = None,
 ) -> dict[str, Any]:
     """Write one SQL artifact into the bounded filesystem workspace."""
     try:
@@ -263,7 +263,7 @@ def write_sql_file(
             sql,
             run_id=run_id,
             description=description,
-            selected_targets=selected_targets,
+            selected_sql_artifacts=selected_sql_artifacts,
         )
         if location.path.exists():
             _replace_sql_text(location, sql_text)

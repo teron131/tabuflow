@@ -25,14 +25,14 @@ import {
 	type SkillEntry,
 	type SkillResourceEntry,
 	type SourceFile,
+	type SqlArtifact,
 	type SqlResult,
 	skillLineCount,
-	type Target,
 } from "@/lib/api";
-import { isTargetView } from "../targets";
+import { isSqlArtifactView } from "../sql-artifacts";
 import type { InspectorView, RoundingSettings, ThemeMode } from "../types";
 import { CodeEditor } from "./code-editor";
-import { downloadResult, downloadTargetView } from "./download";
+import { downloadResult, downloadSqlArtifactView } from "./download";
 import { renderHighlightedMarkdownLine } from "./markdown-highlight";
 import { ResultTable } from "./result-table";
 import {
@@ -50,7 +50,7 @@ type WorkspacePanelProps = {
 	bootstrap: BootstrapPayload;
 	centerRef: RefObject<HTMLElement | null>;
 	inspectorView: InspectorView;
-	isPreviewingTarget: boolean;
+	isPreviewingSqlArtifact: boolean;
 	isPreviewingSource: boolean;
 	isQueryVisible: boolean;
 	isRunningSql: boolean;
@@ -62,15 +62,15 @@ type WorkspacePanelProps = {
 	selectedSkillResource: SkillResourceEntry | null;
 	selectedModel: string;
 	selectedSource: SourceFile | null;
-	selectedTarget: Target | null;
+	selectedSqlArtifact: SqlArtifact | null;
 	sourcePreviewResult: SqlResult | null;
 	skillResourceText: string;
 	skillText: string;
 	sql: string;
 	sqlResult: SqlResult | null;
-	targetPreviewResult: SqlResult | null;
-	targetSourceFileName: string | null;
-	targetSourceName: string | null;
+	sqlArtifactPreviewResult: SqlResult | null;
+	sqlArtifactSourceFileName: string | null;
+	sqlArtifactSourceName: string | null;
 	onRevertSkill: () => void;
 	onRevertSkillResource: () => void;
 	onRunSql: () => void;
@@ -86,7 +86,7 @@ export function WorkspacePanel({
 	bootstrap,
 	centerRef,
 	inspectorView,
-	isPreviewingTarget,
+	isPreviewingSqlArtifact,
 	isPreviewingSource,
 	isQueryVisible,
 	isRunningSql,
@@ -98,15 +98,15 @@ export function WorkspacePanel({
 	selectedSkillResource,
 	selectedModel,
 	selectedSource,
-	selectedTarget,
+	selectedSqlArtifact,
 	sourcePreviewResult,
 	skillResourceText,
 	skillText,
 	sql,
 	sqlResult,
-	targetPreviewResult,
-	targetSourceFileName,
-	targetSourceName,
+	sqlArtifactPreviewResult,
+	sqlArtifactSourceFileName,
+	sqlArtifactSourceName,
 	onRevertSkill,
 	onRevertSkillResource,
 	onRunSql,
@@ -129,11 +129,11 @@ export function WorkspacePanel({
 		inspectorView === "skillResource" &&
 		selectedSkillResource &&
 		!isCsvSkillResource(selectedSkillResource, inspectorView);
-	const canDownloadTargetView =
-		inspectorView === "target" &&
-		!!selectedTarget &&
-		isTargetView(selectedTarget) &&
-		!!targetPreviewResult?.columns?.length;
+	const canDownloadSqlArtifactView =
+		inspectorView === "sqlArtifact" &&
+		!!selectedSqlArtifact &&
+		isSqlArtifactView(selectedSqlArtifact) &&
+		!!sqlArtifactPreviewResult?.columns?.length;
 	const hasResultLikeBody =
 		inspectorView === "results" ||
 		isCsvSkillResource(selectedSkillResource, inspectorView) ||
@@ -162,12 +162,12 @@ export function WorkspacePanel({
 		selectedSkill,
 		selectedSkillResource,
 		selectedSource,
-		selectedTarget,
+		selectedSqlArtifact,
 		sourcePreviewResult,
 		sqlResult,
-		targetPreviewResult,
-		targetSourceFileName,
-		targetSourceName,
+		sqlArtifactPreviewResult,
+		sqlArtifactSourceFileName,
+		sqlArtifactSourceName,
 	});
 	const InspectorIcon = inspector.icon;
 
@@ -304,12 +304,14 @@ export function WorkspacePanel({
 								CSV
 							</button>
 						) : null}
-						{canDownloadTargetView && selectedTarget ? (
+						{canDownloadSqlArtifactView && selectedSqlArtifact ? (
 							<button
-								aria-label={`Download ${selectedTarget.name} as CSV`}
+								aria-label={`Download ${selectedSqlArtifact.name} as CSV`}
 								className="outline-button"
 								type="button"
-								onClick={() => downloadTargetView(selectedTarget.name)}
+								onClick={() =>
+									downloadSqlArtifactView(selectedSqlArtifact.name)
+								}
 							>
 								<Download size={13} />
 								CSV
@@ -365,10 +367,10 @@ export function WorkspacePanel({
 									themeMode={themeMode}
 								/>
 							)}
-							{inspectorView === "target" && (
-								<div className="target-viewer">
-									<div className="target-preview-grid">
-										{isPreviewingTarget ? (
+							{inspectorView === "sqlArtifact" && (
+								<div className="data-preview-viewer">
+									<div className="data-preview-grid">
+										{isPreviewingSqlArtifact ? (
 											<div className="loading-state">
 												<strong>Loading preview</strong>
 												<div className="state-lines" aria-hidden="true">
@@ -377,15 +379,15 @@ export function WorkspacePanel({
 													<i />
 												</div>
 											</div>
-										) : targetPreviewResult ? (
+										) : sqlArtifactPreviewResult ? (
 											<ResultTable
-												result={targetPreviewResult}
+												result={sqlArtifactPreviewResult}
 												rounding={rounding}
 												themeMode={themeMode}
 											/>
 										) : (
 											<div className="empty-state">
-												<strong>Select a table or view</strong>
+												<strong>Select a SQL artifact</strong>
 												<span>Preview rows and lineage here.</span>
 											</div>
 										)}
@@ -477,37 +479,40 @@ function inspectorState({
 	selectedSkill,
 	selectedSkillResource,
 	selectedSource,
-	selectedTarget,
+	selectedSqlArtifact,
 	sourcePreviewResult,
 	sqlResult,
-	targetPreviewResult,
-	targetSourceFileName,
-	targetSourceName,
+	sqlArtifactPreviewResult,
+	sqlArtifactSourceFileName,
+	sqlArtifactSourceName,
 }: {
 	bootstrap: BootstrapPayload;
 	inspectorView: InspectorView;
 	selectedSkill: SkillEntry | null;
 	selectedSkillResource: SkillResourceEntry | null;
 	selectedSource: SourceFile | null;
-	selectedTarget: Target | null;
+	selectedSqlArtifact: SqlArtifact | null;
 	sourcePreviewResult: SqlResult | null;
 	sqlResult: SqlResult | null;
-	targetPreviewResult: SqlResult | null;
-	targetSourceFileName: string | null;
-	targetSourceName: string | null;
+	sqlArtifactPreviewResult: SqlResult | null;
+	sqlArtifactSourceFileName: string | null;
+	sqlArtifactSourceName: string | null;
 }): { title: ReactNode; detail: string; icon: LucideIcon } {
 	if (inspectorView === "results") {
 		return { title: "Results", detail: resultDetail(sqlResult), icon: Table2 };
 	}
-	if (inspectorView === "target") {
+	if (inspectorView === "sqlArtifact") {
 		return {
-			title: targetTitle(
-				selectedTarget,
-				targetSourceName,
-				targetSourceFileName,
+			title: sqlArtifactTitle(
+				selectedSqlArtifact,
+				sqlArtifactSourceName,
+				sqlArtifactSourceFileName,
 			),
-			detail: targetDetail(selectedTarget, targetPreviewResult),
-			icon: selectedTarget && isTargetView(selectedTarget) ? FileCode2 : Table2,
+			detail: sqlArtifactDetail(selectedSqlArtifact, sqlArtifactPreviewResult),
+			icon:
+				selectedSqlArtifact && isSqlArtifactView(selectedSqlArtifact)
+					? FileCode2
+					: Table2,
 		};
 	}
 	if (inspectorView === "skill") {
@@ -565,25 +570,28 @@ function sourceDetail(
 	return source.kind || "source";
 }
 
-function targetDetail(target: Target | null, previewResult: SqlResult | null) {
-	if (!target) return "target";
+function sqlArtifactDetail(
+	sqlArtifact: SqlArtifact | null,
+	previewResult: SqlResult | null,
+) {
+	if (!sqlArtifact) return "sql artifact";
 	if (previewResult?.status === "error") return "preview error";
 	if (previewResult?.row_count != null) {
 		return `preview ${previewResult.row_count} rows`;
 	}
-	return isTargetView(target) ? "queried view" : "extracted table";
+	return isSqlArtifactView(sqlArtifact) ? "queried view" : "extracted table";
 }
 
-function targetTitle(
-	target: Target | null,
+function sqlArtifactTitle(
+	sqlArtifact: SqlArtifact | null,
 	sourceName: string | null,
 	sourceFileName: string | null,
 ) {
-	if (!target) return "No table or view selected";
-	if (!isTargetView(target)) {
+	if (!sqlArtifact) return "No SQL artifact selected";
+	if (!isSqlArtifactView(sqlArtifact)) {
 		return (
 			<>
-				Extracted Table <em className="inspector-name">{target.name}</em>
+				Extracted Table <em className="inspector-name">{sqlArtifact.name}</em>
 				{sourceFileName ? (
 					<>
 						{" "}
@@ -595,7 +603,7 @@ function targetTitle(
 	}
 	return (
 		<>
-			Queried Result <em className="inspector-name">{target.name}</em>
+			Queried Result <em className="inspector-name">{sqlArtifact.name}</em>
 			{sourceName ? (
 				<>
 					{" "}

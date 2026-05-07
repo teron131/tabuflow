@@ -5,7 +5,7 @@ export type HealthPayload = {
 	database_ready: boolean;
 };
 
-export type Target = {
+export type SqlArtifact = {
 	name: string;
 	type: string;
 	kind: string;
@@ -15,11 +15,11 @@ export type Target = {
 	source_path_count: number;
 	source_file_names?: string[];
 	source_references?: SourceReference[];
-	source_target_names?: string[];
+	source_sql_artifact_names?: string[];
 	summary: string;
 };
 
-export type TargetDetails = Target & {
+export type SqlArtifactDetails = SqlArtifact & {
 	create_sql?: string;
 };
 
@@ -48,8 +48,8 @@ export type BootstrapPayload = {
 	suggested_questions: string[];
 	stage_cards: Array<{ name: string; status: string; summary: string }>;
 	source_files: SourceFile[];
-	targets: Target[];
-	target_summary: string;
+	sql_artifacts: SqlArtifact[];
+	sql_artifact_summary: string;
 	initial_result?: SqlResult;
 };
 
@@ -60,7 +60,7 @@ export type UploadPayload = {
 		name?: string;
 		path?: string;
 		format?: string;
-		target_backend?: string;
+		artifact_backend?: string;
 		content_type?: string;
 		size_bytes?: number;
 		recovered_table_count?: number;
@@ -140,7 +140,7 @@ export const emptyBootstrap: BootstrapPayload = {
   'Select a source, table, or saved result to inspect.' AS message;`,
 	suggested_questions: [
 		"What sources are loaded?",
-		"Show available SQL targets.",
+		"Show available SQL artifacts.",
 		"Preview the selected result.",
 	],
 	stage_cards: [
@@ -149,8 +149,8 @@ export const emptyBootstrap: BootstrapPayload = {
 		{ name: "Save", status: "ready", summary: "Persist useful views." },
 	],
 	source_files: [],
-	targets: [],
-	target_summary: "",
+	sql_artifacts: [],
+	sql_artifact_summary: "",
 };
 
 export async function fetchJson<T>(

@@ -7,7 +7,7 @@ const DEMO_TRACE_DELAYS = {
 const DEFAULT_DEMO_TRACE_MESSAGE = "show all demo trace steps";
 const DEMO_PREPARED_STATE = {
 	database_path: "data/demo.sqlite",
-	preferred_targets: ["prepared_table"],
+	preferred_sql_artifacts: ["prepared_table"],
 };
 const DEMO_SKILL_FILES = [
 	"skills/placeholder-analysis/SKILL.md",
@@ -108,15 +108,15 @@ const DEMO_STAGE_TOOL_BLUEPRINTS: DemoStageToolBlueprint[] = [
 				id: "prep-8",
 				name: "extract_tabular",
 				status: "completed",
-				summary: "loaded target prepared_table into data/demo.sqlite",
+				summary: "loaded SQL artifact prepared_table into data/demo.sqlite",
 			},
 		],
 		visiblePayload: {
 			status: "prepared",
 			database_path: "data/demo.sqlite",
 			prepared_state_available: true,
-			target_count: 1,
-			preferred_targets: ["prepared_table"],
+			sql_artifact_count: 1,
+			preferred_sql_artifacts: ["prepared_table"],
 			trace: [
 				"skill_context: load_skills: loaded placeholder skill descriptions for tabular analysis",
 				"skill_context: fs_list_files: listed SQL and schema references for placeholder-analysis",
@@ -125,11 +125,11 @@ const DEMO_STAGE_TOOL_BLUEPRINTS: DemoStageToolBlueprint[] = [
 				"skill_context: load_skill_resources: loaded schema hints, output contract, and SQL examples",
 				"prep: profile_tabular: profiled data/uploads/source_table.csv: 14,832 rows, 9 columns",
 				"prep: inspect_tabular: found entity_name, metric_a_usd, metric_b_usd, and period columns",
-				"prep: extract_tabular: loaded target prepared_table into data/demo.sqlite",
+				"prep: extract_tabular: loaded SQL artifact prepared_table into data/demo.sqlite",
 			],
 			skill_files: DEMO_SKILL_FILES,
 			prepared_state: DEMO_PREPARED_STATE,
-			selected_targets: ["prepared_table"],
+			selected_sql_artifacts: ["prepared_table"],
 		},
 	},
 	{

@@ -11,7 +11,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from ...pipelines.namer import build_sql_artifact_namer
 from ..prep_stage import PrepStage, PrepStageOutput
-from ..prep_stage.payloads import collect_extracted_targets
+from ..prep_stage.payloads import collect_extracted_sql_artifacts
 from ..prep_stage.prep_stage import collect_prep_trial_result
 from ..prep_stage.state import PrepStageDecision
 from ..query_stage import DraftFn, RuntimeRepairFn, build_sql_drafter, build_sql_runtime_repairer
@@ -31,7 +31,7 @@ from .runtime import (
     VALIDATION_STAGE_NAME,
     build_sql_failure_result,
     orchestrator_run_from_state,
-    preferred_sql_targets,
+    preferred_sql_artifacts,
     reset_sql_attempt_update,
     save_sql_result,
     sql_loop_from_state,
@@ -112,8 +112,8 @@ class PrepResultMiddleware(
             "prep_output": prep_artifact,
             "stage_artifacts": stage_artifacts,
             "database_path": prep_output.database_path,
-            "extracted_targets": prep_output.extracted_targets,
-            "preferred_targets": preferred_sql_targets(prep_output.extracted_targets),
+            "extracted_sql_artifacts": prep_output.extracted_sql_artifacts,
+            "preferred_sql_artifacts": preferred_sql_artifacts(prep_output.extracted_sql_artifacts),
             "trace": prep_output.trace,
         }
 
@@ -132,7 +132,7 @@ def build_prep_stage_output(state: OrchestratorState | dict[str, Any]) -> PrepSt
     for message in trial.trace:
         trace = append_stage_trace(trace, PREP_STAGE, message)
 
-    extracted_targets = collect_extracted_targets(trial.extraction_results)
+    extracted_sql_artifacts = collect_extracted_sql_artifacts(trial.extraction_results)
     database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}
     trial_error = trial.last_error
     if trial_error is None:
@@ -140,23 +140,23 @@ def build_prep_stage_output(state: OrchestratorState | dict[str, Any]) -> PrepSt
             trial_error = "Prep agent finished without extracting any data."
         elif len(database_paths) != 1:
             trial_error = "Expected one shared SQLite database path after extraction."
-        elif not extracted_targets:
-            trial_error = "Prep agent extracted data but did not produce usable targets."
+        elif not extracted_sql_artifacts:
+            trial_error = "Prep agent extracted data but did not produce usable SQL artifacts."
 
     decision = trial.decision
-    extraction_ready = trial_error is None and len(database_paths) == 1 and bool(extracted_targets)
+    extraction_ready = trial_error is None and len(database_paths) == 1 and bool(extracted_sql_artifacts)
     if extraction_ready:
         database_path = next(iter(database_paths))
         return PrepStageOutput(
             status="prepared",
             database_path=database_path,
             extraction_results=trial.extraction_results,
-            extracted_targets=extracted_targets,
+            extracted_sql_artifacts=extracted_sql_artifacts,
             prep_attempts=1,
             trace=append_stage_trace(
                 trace,
                 PREP_STAGE,
-                f"prepared {len(extracted_targets)} target(s) into {database_path}",
+                f"prepared {len(extracted_sql_artifacts)} SQL artifact(s) into {database_path}",
             ),
         )
 
@@ -166,7 +166,7 @@ def build_prep_stage_output(state: OrchestratorState | dict[str, Any]) -> PrepSt
     return PrepStageOutput(
         status="error",
         extraction_results=trial.extraction_results,
-        extracted_targets=extracted_targets,
+        extracted_sql_artifacts=extracted_sql_artifacts,
         last_error=last_error or "Prep agent did not produce a usable extraction.",
         prep_attempts=1,
         trace=append_stage_trace(trace, PREP_STAGE, "ended without a usable extraction"),
@@ -266,7 +266,7 @@ class OrchestratorNodes:
         """Write the SQL artifact directly from shared orchestrator state."""
         update = self.sql_write_node(state)
         if update.get("status") == "written":
-            content = f"Wrote SQL artifact {update.get('sql_path')} for targets: {', '.join(update.get('selected_targets', [])) or 'none'}."
+            content = f"Wrote SQL artifact {update.get('sql_path')} for SQL artifacts: {', '.join(update.get('selected_sql_artifacts', [])) or 'none'}."
         else:
             content = f"SQL write ended with status={update.get('status', state.status)}: {update.get('last_error') or 'No SQL artifact was written.'}"
         return {
@@ -353,8 +353,8 @@ class OrchestratorNodes:
         validation_output = self.validation_stage.invoke(
             message=latest_user_message(state.messages),
             source_files=state.source_files,
-            extracted_targets=state.extracted_targets,
-            selected_targets=sql_output.selected_targets,
+            extracted_sql_artifacts=state.extracted_sql_artifacts,
+            selected_sql_artifacts=sql_output.selected_sql_artifacts,
             candidate_sql=sql_output.candidate_sql,
             sql_result=sql_output.result,
             previous_feedback=state.validation_feedback,

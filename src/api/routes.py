@@ -25,7 +25,7 @@ from ..config import (
 )
 from ..pipelines.explainer import MissingExplainerModelError, explain_file
 from ..tools import list_skills, load_skills
-from ..tools.sql.query import describe_target, list_targets, run_query
+from ..tools.sql.query import describe_sql_artifact, list_sql_artifacts, run_query
 from ..tools.tabular.storage import quote_identifier
 from ..tools.tabular.tools import extract_tabular_file, inspect_tabular_file
 from .chat import ChatConfigurationError, ChatRuntimeError, run_chat, stream_chat_chunks
@@ -110,13 +110,13 @@ def _chat_runtime_error(message: str) -> HTTPException:
     )
 
 
-def _public_target(target: dict[str, Any]) -> dict[str, Any]:
-    """Remove private source path metadata from a SQL target payload."""
-    source_references = _public_source_references(target.get("source_mappings"))
-    public_target = {key: value for key, value in target.items() if key not in SOURCE_MAPPING_PRIVATE_KEYS}
-    public_target["source_references"] = source_references
-    public_target["source_file_names"] = list(dict.fromkeys(reference["name"] for reference in source_references))
-    return public_target
+def _public_sql_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
+    """Remove private source path metadata from a SQL artifact payload."""
+    source_references = _public_source_references(artifact.get("source_mappings"))
+    public_artifact = {key: value for key, value in artifact.items() if key not in SOURCE_MAPPING_PRIVATE_KEYS}
+    public_artifact["source_references"] = source_references
+    public_artifact["source_file_names"] = list(dict.fromkeys(reference["name"] for reference in source_references))
+    return public_artifact
 
 
 def _public_source_references(source_mappings: Any) -> list[dict[str, str]]:
@@ -164,9 +164,20 @@ def _public_source_path(source_path: str) -> str:
 def _public_sql_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Remove private local path metadata from SQL tool payloads."""
     result = {key: value for key, value in payload.items() if key != "database_path"}
-    if isinstance(result.get("targets"), list):
-        result["targets"] = [_public_target(target) for target in result["targets"] if isinstance(target, dict) and target.get("kind") != "typed_content_view"]
-    return _public_target(result)
+    if "sql_artifact_count" in result:
+        result["sql_artifact_count"] = result.pop("sql_artifact_count")
+    if isinstance(result.get("sql_artifacts"), list):
+        public_artifacts = [
+            _public_sql_artifact(sql_artifact)
+            for sql_artifact in result.pop("sql_artifacts")
+            if isinstance(sql_artifact, dict) and sql_artifact.get("kind") != "typed_content_view"
+        ]
+        result["sql_artifacts"] = public_artifacts
+        result["sql_artifact_count"] = len(public_artifacts)
+        result["summary"] = f"Listed {len(public_artifacts)} SQL artifact(s)."
+    elif isinstance(result.get("summary"), str):
+        result["summary"] = str(result["summary"]).replace("sql_artifact", "SQL artifact").replace("SQL Artifact", "SQL artifact")
+    return _public_sql_artifact(result)
 
 
 def _reject_private_sql(sql: str) -> None:
@@ -308,7 +319,7 @@ def _source_preview_payload(preview: dict[str, Any], *, max_rows: int) -> dict[s
 
 def _bootstrap_payload(database_path: Path) -> dict[str, Any]:
     """Build the initial workbench payload with a verified default result."""
-    target_payload = _public_sql_payload(list_targets(database_path=database_path))
+    sql_artifact_payload = _public_sql_payload(list_sql_artifacts(database_path=database_path))
     initial_result = _public_sql_payload(
         run_query(
             DEFAULT_SQL,
@@ -322,8 +333,8 @@ def _bootstrap_payload(database_path: Path) -> dict[str, Any]:
         "suggested_questions": SUGGESTED_QUESTIONS,
         "stage_cards": STAGE_CARDS,
         "source_files": _source_files_payload(database_path),
-        "targets": target_payload.get("targets", []),
-        "target_summary": target_payload.get("summary", ""),
+        "sql_artifacts": sql_artifact_payload.get("sql_artifacts", []),
+        "sql_artifact_summary": sql_artifact_payload.get("summary", ""),
         "initial_result": initial_result,
     }
 
@@ -337,7 +348,7 @@ def _pdf_upload_summary(path: Path) -> dict[str, Any]:
         preview_text = "\n".join(document.load_page(index).get_text("text").strip() for index in range(preview_pages)).strip()
         return {
             "status": "uploaded",
-            "target_backend": "pdf",
+            "artifact_backend": "pdf",
             "path": str(path),
             "page_count": document.page_count,
             "preview_text": preview_text[:2000],
@@ -352,7 +363,7 @@ def _image_upload_summary(
     """Return a lightweight image upload summary for pasted or attached screenshots."""
     return {
         "status": "uploaded",
-        "target_backend": "image",
+        "artifact_backend": "image",
         "name": path.name,
         "path": str(path),
         "content_type": content_type or "application/octet-stream",
@@ -559,28 +570,28 @@ def run_sql(request: SqlRunRequest) -> dict[str, Any]:
         raise _workspace_data_error(exc) from exc
 
 
-@router.get("/sql/targets")
-def sql_targets() -> dict[str, Any]:
-    """List queryable targets for the prepared SQLite database."""
+@router.get("/sql/sql-artifacts")
+def sql_artifacts() -> dict[str, Any]:
+    """List queryable SQL artifacts for the prepared SQLite database."""
     try:
-        return _public_sql_payload(list_targets(database_path=resolve_database_path()))
+        return _public_sql_payload(list_sql_artifacts(database_path=resolve_database_path()))
     except WorkspaceDataMissingError as exc:
         raise _workspace_data_error(exc) from exc
 
 
-@router.get("/sql/targets/{target_name}/download")
-def download_sql_view(target_name: str) -> StreamingResponse:
+@router.get("/sql/sql-artifacts/{sql_artifact_name}/download")
+def download_sql_artifact_view(sql_artifact_name: str) -> StreamingResponse:
     """Download one saved SQLite view as a CSV file."""
     try:
         database_path = default_database_path()
-        target = describe_target(target_name, database_path=database_path)
+        artifact = describe_sql_artifact(sql_artifact_name, database_path=database_path)
     except WorkspaceDataMissingError as exc:
         raise _workspace_data_error(exc) from exc
-    if target.get("status") == "error" and target.get("error_type") == "missing_target":
-        raise HTTPException(status_code=404, detail=target)
-    if target.get("status") == "error":
-        raise HTTPException(status_code=400, detail=target)
-    if target.get("type") != "view" or target.get("kind") == "typed_content_view":
+    if artifact.get("status") == "error" and artifact.get("error_type") == "missing_sql_artifact":
+        raise HTTPException(status_code=404, detail=artifact)
+    if artifact.get("status") == "error":
+        raise HTTPException(status_code=400, detail=artifact)
+    if artifact.get("type") != "view" or artifact.get("kind") == "typed_content_view":
         raise HTTPException(
             status_code=400,
             detail={
@@ -590,22 +601,22 @@ def download_sql_view(target_name: str) -> StreamingResponse:
             },
         )
 
-    filename = _safe_download_name(target_name)
+    filename = _safe_download_name(sql_artifact_name)
     return StreamingResponse(
-        _stream_view_csv(database_path, target_name),
+        _stream_view_csv(database_path, sql_artifact_name),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
-@router.get("/sql/targets/{target_name}")
-def sql_target(target_name: str) -> dict[str, Any]:
-    """Describe one queryable SQLite target."""
+@router.get("/sql/sql-artifacts/{sql_artifact_name}")
+def sql_artifact(sql_artifact_name: str) -> dict[str, Any]:
+    """Describe one queryable SQL artifact."""
     try:
-        payload = _public_sql_payload(describe_target(target_name, database_path=resolve_database_path()))
+        payload = _public_sql_payload(describe_sql_artifact(sql_artifact_name, database_path=resolve_database_path()))
     except WorkspaceDataMissingError as exc:
         raise _workspace_data_error(exc) from exc
-    if payload.get("status") == "error" and payload.get("error_type") == "missing_target":
+    if payload.get("status") == "error" and payload.get("error_type") == "missing_sql_artifact":
         raise HTTPException(status_code=404, detail=payload)
     return payload
 

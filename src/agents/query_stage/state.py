@@ -19,7 +19,7 @@ class SQLDraft(BaseModel):
     """Structured SQL draft output."""
 
     sql: str = Field(description="Read-only SQL query to write into the SQL artifact file.")
-    selected_targets: list[str] = Field(default_factory=list, description="Allowed targets used by the draft.")
+    selected_sql_artifacts: list[str] = Field(default_factory=list, description="Allowed SQL artifacts used by the draft.")
 
 
 class SQLRuntimeRepair(BaseModel):

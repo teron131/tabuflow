@@ -195,7 +195,7 @@ def extract_tabular_file(
         "format": recovered["format"],
         "sheet_name": recovered.get("sheet_name"),
         "status": "loaded",
-        "target_backend": "sqlite",
+        "artifact_backend": "sqlite",
         "database_path": loaded["database_path"],
         "fingerprint": profile["fingerprint"],
         "recovered_table_count": len(recovered["tables"]),

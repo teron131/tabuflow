@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..prep_stage.payloads import compact_extracted_targets
+from ..prep_stage.payloads import compact_extracted_sql_artifacts
 
 MAX_TRACE_PREVIEW = 8
 MAX_REPAIR_HINT_PREVIEW = 3
 MAX_VALIDATION_INSTRUCTION_PREVIEW = 4
-MAX_TARGET_NAME_PREVIEW = 4
+MAX_SQL_ARTIFACT_NAME_PREVIEW = 4
 MAX_SOURCE_FILE_PREVIEW = 3
 MAX_SQL_RESULT_COLUMN_PREVIEW = 8
 MAX_SQL_RESULT_ROW_PREVIEW = 2
@@ -105,8 +105,8 @@ def build_result_artifact(
     completion_reason: str | None,
     source_files: list[str],
     database_path: str | None,
-    extracted_targets: list[dict[str, Any]],
-    selected_targets: list[str],
+    extracted_sql_artifacts: list[dict[str, Any]],
+    selected_sql_artifacts: list[str],
     candidate_sql: str | None,
     sql_result: dict[str, Any] | None,
     saved_view_name: str | None,
@@ -126,8 +126,8 @@ def build_result_artifact(
         "source_files": source_files,
         "database_path": database_path,
         "sql_path": sql_path,
-        "extracted_targets": compact_extracted_targets(extracted_targets),
-        "selected_targets": selected_targets,
+        "extracted_sql_artifacts": compact_extracted_sql_artifacts(extracted_sql_artifacts),
+        "selected_sql_artifacts": selected_sql_artifacts,
         "candidate_sql": candidate_sql,
         "sql_result": compact_sql_result(sql_result),
         "saved_view_name": saved_view_name,
@@ -145,7 +145,7 @@ def build_result_message(artifact: dict[str, Any]) -> str:
     status = str(artifact.get("status", "pending"))
     message = str(artifact.get("message") or "").strip()
     source_files = [str(item) for item in artifact.get("source_files", [])]
-    selected_targets = [str(item) for item in artifact.get("selected_targets", [])]
+    selected_sql_artifacts = [str(item) for item in artifact.get("selected_sql_artifacts", [])]
     saved_view_name = artifact.get("saved_view_name")
     sql_path = artifact.get("sql_path")
     sql_result = artifact.get("sql_result") or {}
@@ -168,12 +168,12 @@ def build_result_message(artifact: dict[str, Any]) -> str:
         lines.append(f"Request: {message}")
     lines.append(f"Source files: {_preview_names(source_files, max_items=MAX_SOURCE_FILE_PREVIEW)}")
 
-    extracted_targets = artifact.get("extracted_targets") or {}
-    target_count = int(extracted_targets.get("count", 0))
-    if selected_targets:
-        lines.append(f"Targets used: {_preview_names(selected_targets, max_items=MAX_TARGET_NAME_PREVIEW)}")
-    elif target_count:
-        lines.append(f"Prepared targets: {target_count}")
+    extracted_sql_artifacts = artifact.get("extracted_sql_artifacts") or {}
+    sql_artifact_count = int(extracted_sql_artifacts.get("count", 0))
+    if selected_sql_artifacts:
+        lines.append(f"SQL artifacts used: {_preview_names(selected_sql_artifacts, max_items=MAX_SQL_ARTIFACT_NAME_PREVIEW)}")
+    elif sql_artifact_count:
+        lines.append(f"Prepared SQL artifacts: {sql_artifact_count}")
 
     if sql_result:
         row_count = sql_result.get("row_count")

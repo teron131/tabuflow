@@ -7,7 +7,7 @@ export type ThemeMode = "light" | "dark";
 export type InspectorView =
 	| "run"
 	| "results"
-	| "target"
+	| "sqlArtifact"
 	| "skill"
 	| "skillResource"
 	| "source";
@@ -21,7 +21,7 @@ export type UploadedWorkspaceFile = {
 	name: string;
 	path: string;
 	contentType?: string;
-	targetBackend?: string;
+	artifactBackend?: string;
 };
 
 export type ShellStyle = CSSProperties & {

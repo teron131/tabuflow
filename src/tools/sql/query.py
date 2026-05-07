@@ -20,7 +20,7 @@ MAX_QUERY_ROWS = 200
 MAX_DESCRIBE_SAMPLE_ROWS = 5
 MAX_REPAIR_CANDIDATES = 3
 MAX_TEXT_VALUE_HINTS = 5
-MAX_SUGGESTED_TARGETS = 5
+MAX_SUGGESTED_SQL_ARTIFACTS = 5
 MAX_SOURCE_PATH_PREVIEW = 3
 MAX_COLUMN_PREVIEW = 8
 MAX_REASON_PREVIEW = 3
@@ -30,14 +30,14 @@ _VIEW_SQL_PREFIXES = ("SELECT", "WITH")
 _LEADING_SQL_COMMENT = re.compile(r"\A(?:\s+|--[^\n]*(?:\n|\Z)|/\*.*?\*/)*", re.DOTALL)
 _TEXT_TYPE_MARKERS = ("CHAR", "CLOB", "TEXT", "VARCHAR")
 _TEXT_HINT_NAME_MARKERS = ("category", "code", "description", "group", "id", "identifier", "key", "kind", "label", "name", "segment", "status", "type")
-_TARGET_MASTER_SQL = """
+_SQL_ARTIFACT_MASTER_SQL = """
 SELECT name, type, sql
 FROM sqlite_master
 WHERE type IN ('table', 'view')
   AND name NOT LIKE 'sqlite_%'
 ORDER BY type, name
 """
-_TARGET_BY_NAME_SQL = """
+_SQL_ARTIFACT_BY_NAME_SQL = """
 SELECT name, type, sql
 FROM sqlite_master
 WHERE type IN ('table', 'view') AND name = ?
@@ -50,7 +50,7 @@ _VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$")
 
 
 class CatalogMetadataError(RuntimeError):
-    """Raised when a queryable catalog target is missing required lineage."""
+    """Raised when a queryable catalog sql_artifact is missing required lineage."""
 
 
 def _jsonable_value(value: object) -> object:
@@ -122,18 +122,18 @@ def _query_summary(
     return summary
 
 
-def _target_summary(
+def _sql_artifact_summary(
     *,
     name: str,
-    target_type: str,
+    sql_artifact_type: str,
     kind: str,
     row_count: int | None,
     column_names: list[str],
     source_paths: list[str],
     reasons: list[str] | None = None,
 ) -> str:
-    """Build one compact summary for a target suggestion or listing."""
-    summary_parts = [f"{name} ({kind}, {target_type})", f"{len(column_names)} column(s)"]
+    """Build one compact summary for a sql_artifact suggestion or listing."""
+    summary_parts = [f"{name} ({kind}, {sql_artifact_type})", f"{len(column_names)} column(s)"]
     if row_count is not None:
         summary_parts.append(f"{row_count} row(s)")
     if source_paths:
@@ -143,20 +143,20 @@ def _target_summary(
     return "; ".join(summary_parts)
 
 
-def _target_size_label(
+def _sql_artifact_size_label(
     *,
     row_count: int | None,
     column_count: int,
 ) -> str:
     """Return a compact table shape label for UI navigation."""
     row_label = "?" if row_count is None else str(row_count)
-    return f"{row_label}x{column_count}"
+    return f"{row_label} x {column_count}"
 
 
-def _target_row_count(connection: sqlite3.Connection, target_name: str) -> int | None:
-    """Return a SQLite target row count when catalog metadata is unavailable."""
+def _sql_artifact_row_count(connection: sqlite3.Connection, sql_artifact_name: str) -> int | None:
+    """Return a SQLite sql_artifact row count when catalog metadata is unavailable."""
     try:
-        row = connection.execute(f"SELECT COUNT(*) FROM {quote_identifier(target_name)}").fetchone()
+        row = connection.execute(f"SELECT COUNT(*) FROM {quote_identifier(sql_artifact_name)}").fetchone()
     except (sqlite3.Error, sqlite3.Warning):
         return None
     if row is None:
@@ -223,7 +223,7 @@ def _sqlite_object_names(connection: sqlite3.Connection) -> set[str]:
 def _sample_rows(
     connection: sqlite3.Connection,
     *,
-    target_name: str,
+    sql_artifact_name: str,
     limit: int,
 ) -> list[dict[str, Any]]:
     """Fetch a small row preview for one table or view."""
@@ -232,7 +232,7 @@ def _sample_rows(
         return []
 
     cursor = connection.execute(
-        f"SELECT * FROM {quote_identifier(target_name)} LIMIT ?",
+        f"SELECT * FROM {quote_identifier(sql_artifact_name)} LIMIT ?",
         [safe_limit],
     )
     description = cursor.description or []
@@ -322,7 +322,7 @@ def _base_table_name(name: str, kind: str) -> str:
     return name
 
 
-def _target_source_paths(
+def _sql_artifact_source_paths(
     *,
     name: str,
     kind: str,
@@ -333,13 +333,13 @@ def _target_source_paths(
     list[dict[str, Any]],
     list[str],
 ]:
-    """Return catalog metadata, source mappings, and source paths for one target."""
+    """Return catalog metadata, source mappings, and source paths for one sql_artifact."""
     content_metadata = content_rows.get(_base_table_name(name, kind))
     if content_metadata is None:
         return None, [], []
     source_mappings = _dedupe_source_mappings(source_rows.get(cast(str, content_metadata["content_id"]), []))
     if not source_mappings:
-        raise CatalogMetadataError(f"Source metadata is missing for queryable target `{content_metadata['table_name']}`.")
+        raise CatalogMetadataError(f"Source metadata is missing for queryable sql_artifact `{content_metadata['table_name']}`.")
     source_paths = _source_paths_from_mappings(source_mappings)
     return content_metadata, source_mappings, source_paths
 
@@ -349,25 +349,25 @@ def _source_paths_from_mappings(source_mappings: list[dict[str, Any]]) -> list[s
     return list(dict.fromkeys(source_path for mapping in source_mappings if (source_path := str(mapping.get("source_path") or "").strip())))
 
 
-SQL_TARGET_REFERENCE_PATTERN = re.compile(
+SQL_ARTIFACT_REFERENCE_PATTERN = re.compile(
     r'\b(?:FROM|JOIN)\s+(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*))',
     re.IGNORECASE,
 )
 
 
-def _referenced_target_names(
+def _referenced_sql_artifact_names(
     create_sql: str | None,
     *,
-    available_targets: set[str],
-    current_target: str,
+    available_sql_artifacts: set[str],
+    current_sql_artifact: str,
 ) -> list[str]:
-    """Return known SQLite targets referenced by a target's stored SQL."""
+    """Return known SQLite SQL artifacts referenced by a stored SQL artifact."""
     if not create_sql:
         return []
     references: list[str] = []
-    for match in SQL_TARGET_REFERENCE_PATTERN.finditer(create_sql):
+    for match in SQL_ARTIFACT_REFERENCE_PATTERN.finditer(create_sql):
         reference = next((value for value in match.groups() if value), "")
-        if reference and reference != current_target and reference in available_targets:
+        if reference and reference != current_sql_artifact and reference in available_sql_artifacts:
             references.append(reference)
     return list(dict.fromkeys(references))
 
@@ -393,32 +393,32 @@ def _dedupe_source_mappings(source_mappings: list[dict[str, Any]]) -> list[dict[
 
 
 def _lineage_source_mappings(
-    target_info: dict[str, Any],
-    targets_by_name: dict[str, dict[str, Any]],
+    sql_artifact_info: dict[str, Any],
+    sql_artifacts_by_name: dict[str, dict[str, Any]],
     *,
     visited: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return direct source mappings or inherit mappings from upstream targets."""
-    direct_mappings = _dedupe_source_mappings(cast(list[dict[str, Any]], target_info["source_mappings"]))
+    """Return direct source mappings or inherit mappings from upstream SQL artifacts."""
+    direct_mappings = _dedupe_source_mappings(cast(list[dict[str, Any]], sql_artifact_info["source_mappings"]))
     if direct_mappings:
         return direct_mappings
 
-    visited_targets = set() if visited is None else visited
-    target_name = cast(str, target_info["name"])
-    if target_name in visited_targets:
+    visited_sql_artifacts = set() if visited is None else visited
+    sql_artifact_name = cast(str, sql_artifact_info["name"])
+    if sql_artifact_name in visited_sql_artifacts:
         return []
-    visited_targets.add(target_name)
+    visited_sql_artifacts.add(sql_artifact_name)
 
     source_mappings: list[dict[str, Any]] = []
-    for referenced_name in cast(list[str], target_info.get("source_target_names", [])):
-        referenced_target = targets_by_name.get(referenced_name)
-        if referenced_target is None:
+    for referenced_name in cast(list[str], sql_artifact_info.get("source_sql_artifact_names", [])):
+        referenced_sql_artifact = sql_artifacts_by_name.get(referenced_name)
+        if referenced_sql_artifact is None:
             continue
         source_mappings.extend(
             _lineage_source_mappings(
-                referenced_target,
-                targets_by_name,
-                visited=visited_targets,
+                referenced_sql_artifact,
+                sql_artifacts_by_name,
+                visited=visited_sql_artifacts,
             )
         )
     return _dedupe_source_mappings(source_mappings)
@@ -449,13 +449,13 @@ def _cached_database_catalog(
     with closing(_open_read_only_connection(database_path)) as connection:
         has_catalog, content_rows, source_rows = _catalog_state(connection)
         content_table_names = set(content_rows)
-        targets = []
-        targets_by_name: dict[str, dict[str, Any]] = {}
-        for master_row in connection.execute(_TARGET_MASTER_SQL).fetchall():
+        sql_artifacts = []
+        sql_artifacts_by_name: dict[str, dict[str, Any]] = {}
+        for master_row in connection.execute(_SQL_ARTIFACT_MASTER_SQL).fetchall():
             name = cast(str, master_row[0])
-            target_type = cast(str, master_row[1])
+            sql_artifact_type = cast(str, master_row[1])
             create_sql = cast(Any, master_row[2])
-            kind = classify_target(name, content_table_names=content_table_names)
+            kind = classify_sql_artifact(name, content_table_names=content_table_names)
             columns = [
                 {
                     "name": cast(str, row[1]),
@@ -466,7 +466,7 @@ def _cached_database_catalog(
                 }
                 for row in connection.execute(f"PRAGMA table_info({quote_identifier(name)})").fetchall()
             ]
-            content_metadata, source_mappings, source_paths = _target_source_paths(
+            content_metadata, source_mappings, source_paths = _sql_artifact_source_paths(
                 name=name,
                 kind=kind,
                 content_rows=content_rows,
@@ -474,10 +474,10 @@ def _cached_database_catalog(
             )
             row_count = None if content_metadata is None else content_metadata["row_count"]
             if row_count is None:
-                row_count = _target_row_count(connection, name)
-            target_info = {
+                row_count = _sql_artifact_row_count(connection, name)
+            sql_artifact_info = {
                 "name": name,
-                "type": target_type,
+                "type": sql_artifact_type,
                 "kind": kind,
                 "create_sql": create_sql,
                 "columns": columns,
@@ -486,29 +486,29 @@ def _cached_database_catalog(
                 "row_count": row_count,
                 "source_mappings": source_mappings,
                 "source_paths": source_paths,
-                "source_target_names": [],
+                "source_sql_artifact_names": [],
             }
-            targets.append(target_info)
-            targets_by_name[name] = target_info
-        available_targets = set(targets_by_name)
-        for target_info in targets:
-            source_target_names = _referenced_target_names(
-                cast(str | None, target_info["create_sql"]),
-                available_targets=available_targets,
-                current_target=cast(str, target_info["name"]),
+            sql_artifacts.append(sql_artifact_info)
+            sql_artifacts_by_name[name] = sql_artifact_info
+        available_sql_artifacts = set(sql_artifacts_by_name)
+        for sql_artifact_info in sql_artifacts:
+            source_sql_artifact_names = _referenced_sql_artifact_names(
+                cast(str | None, sql_artifact_info["create_sql"]),
+                available_sql_artifacts=available_sql_artifacts,
+                current_sql_artifact=cast(str, sql_artifact_info["name"]),
             )
-            target_info["source_target_names"] = source_target_names
-        for target_info in targets:
+            sql_artifact_info["source_sql_artifact_names"] = source_sql_artifact_names
+        for sql_artifact_info in sql_artifacts:
             lineage_source_mappings = _lineage_source_mappings(
-                target_info,
-                targets_by_name,
+                sql_artifact_info,
+                sql_artifacts_by_name,
             )
-            target_info["source_mappings"] = lineage_source_mappings
-            target_info["source_paths"] = _source_paths_from_mappings(lineage_source_mappings)
+            sql_artifact_info["source_mappings"] = lineage_source_mappings
+            sql_artifact_info["source_paths"] = _source_paths_from_mappings(lineage_source_mappings)
         return {
             "has_catalog": has_catalog,
-            "targets": targets,
-            "targets_by_name": targets_by_name,
+            "sql_artifacts": sql_artifacts,
+            "sql_artifacts_by_name": sql_artifacts_by_name,
         }
 
 
@@ -529,7 +529,7 @@ def _looks_like_text_column(column_name: str, declared_type: str) -> bool:
 def _text_value_hints(
     connection: sqlite3.Connection,
     *,
-    target_name: str,
+    sql_artifact_name: str,
     columns: list[dict[str, Any]],
     max_columns: int,
     max_values: int,
@@ -554,7 +554,7 @@ def _text_value_hints(
         rows = connection.execute(
             f"""
             SELECT DISTINCT CAST({quote_identifier(column_name)} AS TEXT)
-            FROM {quote_identifier(target_name)}
+            FROM {quote_identifier(sql_artifact_name)}
             WHERE {quote_identifier(column_name)} IS NOT NULL
               AND TRIM(CAST({quote_identifier(column_name)} AS TEXT)) != ''
             LIMIT ?
@@ -568,7 +568,7 @@ def _text_value_hints(
 
 
 def _tokenize_query(text: str) -> list[str]:
-    """Tokenize a natural-language query for lightweight target suggestion."""
+    """Tokenize a natural-language query for lightweight sql_artifact suggestion."""
     tokens = [token for token in re.findall(r"[a-z0-9_]+", text.lower()) if len(token) >= 2]
     return [token for token in tokens if token not in _SUGGESTION_STOP_WORDS]
 
@@ -604,7 +604,7 @@ def _identifier_similarity(reference: str, candidate: str) -> float:
 
 
 def _rank_identifier_candidates(identifier: str, candidates: list[str], *, max_matches: int) -> list[str]:
-    """Return the best schema identifier matches for a missing target or column."""
+    """Return the best schema identifier matches for a missing sql_artifact or column."""
     if not identifier or max_matches <= 0:
         return []
 
@@ -627,16 +627,16 @@ def _error_identifier(error_message: str, prefix: str) -> str:
 def _format_repair_candidates(
     candidates: list[dict[str, Any]],
     *,
-    include_targets: bool,
+    include_sql_artifacts: bool,
 ) -> str:
     """Format repair candidates into one compact human-readable string."""
     parts = []
     for candidate in candidates:
         name = cast(str, candidate["name"])
-        if include_targets:
-            targets = cast(list[str], candidate.get("targets", []))
-            target_suffix = f" on {', '.join(targets)}" if targets else ""
-            parts.append(f"{name}{target_suffix}")
+        if include_sql_artifacts:
+            sql_artifacts = cast(list[str], candidate.get("sql_artifacts", []))
+            sql_artifact_suffix = f" on {', '.join(sql_artifacts)}" if sql_artifacts else ""
+            parts.append(f"{name}{sql_artifact_suffix}")
         else:
             parts.append(name)
     return ", ".join(parts)
@@ -660,19 +660,19 @@ def _repair_result(
     ]
 
 
-def _target_search_text(
+def _sql_artifact_search_text(
     *,
     name: str,
-    target_type: str,
+    sql_artifact_type: str,
     kind: str,
     column_names: list[str],
     source_paths: list[str],
     create_sql: str | None,
 ) -> str:
-    """Build a search blob for one target."""
+    """Build a search blob for one sql_artifact."""
     parts = [
         name.replace("_", " "),
-        target_type,
+        sql_artifact_type,
         kind.replace("_", " "),
         " ".join(column_names),
         " ".join(source_paths),
@@ -681,7 +681,7 @@ def _target_search_text(
     return " ".join(parts).lower()
 
 
-def _target_score(
+def _sql_artifact_score(
     *,
     tokens: list[str],
     name: str,
@@ -689,7 +689,7 @@ def _target_score(
     source_paths: list[str],
     search_text: str,
 ) -> tuple[int, list[str]]:
-    """Score one target against a lightweight NL query."""
+    """Score one sql_artifact against a lightweight NL query."""
     score = 0
     reasons: list[str] = []
     lowered_name = name.lower()
@@ -716,12 +716,12 @@ def _target_score(
 
     if tokens and all(token in lowered_name for token in tokens):
         score += 2
-        reasons.append("all tokens matched target name")
+        reasons.append("all tokens matched sql_artifact name")
     return score, reasons
 
 
 def _kind_bias(kind: str) -> int:
-    """Prefer stable views over raw storage artifacts during target suggestion."""
+    """Prefer stable views over raw storage artifacts during sql_artifact suggestion."""
     if kind == "typed_content_view":
         return 3
     if kind == "view_or_table":
@@ -745,8 +745,8 @@ def resolve_db_path(
     return resolved_path
 
 
-def classify_target(name: str, content_table_names: set[str] | None = None) -> str:
-    """Classify a SQLite target using current naming conventions."""
+def classify_sql_artifact(name: str, content_table_names: set[str] | None = None) -> str:
+    """Classify a SQLite sql_artifact using current naming conventions."""
     if name in (SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE):
         return "internal_catalog"
     content_tables = content_table_names or set()
@@ -930,7 +930,7 @@ def save_view(
             connection.execute(f"CREATE VIEW {quote_identifier(normalized_view_name)} AS {normalized_sql}")
             connection.commit()
 
-        description = describe_target(
+        description = describe_sql_artifact(
             normalized_view_name,
             root_dir=root_dir,
             database_path=resolved_path,
@@ -941,7 +941,7 @@ def save_view(
             "view_name": normalized_view_name,
             "replace": replace,
             "saved_sql": normalized_sql,
-            "target": description,
+            "sql_artifact": description,
         }
     except ValueError as exc:
         return _error_result(
@@ -961,7 +961,7 @@ def save_view(
         )
 
 
-def list_targets(
+def list_sql_artifacts(
     *,
     root_dir: str | Path | None = None,
     database_path: str | Path | None = None,
@@ -976,33 +976,33 @@ def list_targets(
         )
         catalog = _database_catalog(resolved_path)
         items = []
-        for target in cast(list[dict[str, Any]], catalog["targets"]):
-            kind = cast(str, target["kind"])
+        for sql_artifact in cast(list[dict[str, Any]], catalog["sql_artifacts"]):
+            kind = cast(str, sql_artifact["kind"])
             if not include_internal and kind == "internal_catalog":
                 continue
 
-            source_paths = cast(list[str], target["source_paths"])
-            source_mappings = cast(list[dict[str, Any]], target["source_mappings"])
+            source_paths = cast(list[str], sql_artifact["source_paths"])
+            source_mappings = cast(list[dict[str, Any]], sql_artifact["source_mappings"])
             source_path_preview, source_paths_truncated = _preview_list(source_paths, max_items=MAX_SOURCE_PATH_PREVIEW)
-            column_names = [cast(str, column["name"]) for column in cast(list[dict[str, Any]], target["columns"])]
+            column_names = [cast(str, column["name"]) for column in cast(list[dict[str, Any]], sql_artifact["columns"])]
             column_count = len(column_names)
-            row_count = cast(int | None, target["row_count"])
+            row_count = cast(int | None, sql_artifact["row_count"])
             items.append(
                 {
-                    "name": target["name"],
-                    "type": target["type"],
+                    "name": sql_artifact["name"],
+                    "type": sql_artifact["type"],
                     "kind": kind,
                     "row_count": row_count,
                     "column_count": column_count,
-                    "size_label": _target_size_label(row_count=row_count, column_count=column_count),
+                    "size_label": _sql_artifact_size_label(row_count=row_count, column_count=column_count),
                     "source_mappings": source_mappings,
                     "source_path_count": len(source_paths),
                     "source_path_preview": source_path_preview,
                     "source_paths_truncated": source_paths_truncated,
-                    "source_target_names": target["source_target_names"],
-                    "summary": _target_summary(
-                        name=cast(str, target["name"]),
-                        target_type=cast(str, target["type"]),
+                    "source_sql_artifact_names": sql_artifact["source_sql_artifact_names"],
+                    "summary": _sql_artifact_summary(
+                        name=cast(str, sql_artifact["name"]),
+                        sql_artifact_type=cast(str, sql_artifact["type"]),
                         kind=kind,
                         row_count=row_count,
                         column_names=column_names,
@@ -1015,9 +1015,9 @@ def list_targets(
             "database_path": str(resolved_path),
             "status": "ok",
             "has_tabular_catalog": catalog["has_catalog"],
-            "target_count": len(items),
-            "targets": items,
-            "summary": f"Listed {len(items)} queryable target(s).",
+            "sql_artifact_count": len(items),
+            "sql_artifacts": items,
+            "summary": f"Listed {len(items)} queryable SQL artifact(s).",
         }
     except ValueError as exc:
         return _error_result(
@@ -1039,8 +1039,8 @@ def list_targets(
         )
 
 
-def describe_target(
-    target_name: str,
+def describe_sql_artifact(
+    sql_artifact_name: str,
     *,
     root_dir: str | Path | None = None,
     database_path: str | Path | None = None,
@@ -1055,32 +1055,32 @@ def describe_target(
             database_path=database_path,
         )
         catalog = _database_catalog(resolved_path)
-        target_info = cast(dict[str, Any] | None, catalog["targets_by_name"].get(target_name))
-        if target_info is None:
+        sql_artifact_info = cast(dict[str, Any] | None, catalog["sql_artifacts_by_name"].get(sql_artifact_name))
+        if sql_artifact_info is None:
             return _error_result(
                 database_path=resolved_path,
-                error_type="missing_target",
-                message=f"SQLite target does not exist: {target_name}",
-                target_name=target_name,
+                error_type="missing_sql_artifact",
+                message=f"SQLite sql_artifact does not exist: {sql_artifact_name}",
+                sql_artifact_name=sql_artifact_name,
             )
 
-        name = cast(str, target_info["name"])
-        target_type = cast(str, target_info["type"])
-        kind = cast(str, target_info["kind"])
-        columns = cast(list[dict[str, Any]], target_info["columns"])
+        name = cast(str, sql_artifact_info["name"])
+        sql_artifact_type = cast(str, sql_artifact_info["type"])
+        kind = cast(str, sql_artifact_info["kind"])
+        columns = cast(list[dict[str, Any]], sql_artifact_info["columns"])
         column_count = len(columns)
-        row_count = cast(int | None, target_info["row_count"])
-        source_mappings = cast(list[dict[str, Any]], target_info["source_mappings"])
-        source_paths = cast(list[str], target_info["source_paths"])
+        row_count = cast(int | None, sql_artifact_info["row_count"])
+        source_mappings = cast(list[dict[str, Any]], sql_artifact_info["source_mappings"])
+        source_paths = cast(list[str], sql_artifact_info["source_paths"])
         with closing(_open_read_only_connection(resolved_path)) as connection:
             sample_row_items = _sample_rows(
                 connection,
-                target_name=name,
+                sql_artifact_name=name,
                 limit=sample_rows,
             )
             text_value_hint_map = _text_value_hints(
                 connection,
-                target_name=name,
+                sql_artifact_name=name,
                 columns=columns,
                 max_columns=text_value_hints,
                 max_values=MAX_TEXT_VALUE_HINTS,
@@ -1091,24 +1091,24 @@ def describe_target(
                 "status": "ok",
                 "has_tabular_catalog": catalog["has_catalog"],
                 "name": name,
-                "type": target_type,
+                "type": sql_artifact_type,
                 "kind": kind,
                 "row_count": row_count,
                 "column_count": column_count,
-                "size_label": _target_size_label(row_count=row_count, column_count=column_count),
+                "size_label": _sql_artifact_size_label(row_count=row_count, column_count=column_count),
                 "columns": columns,
                 "sample_rows": sample_row_items,
                 "text_value_hints": text_value_hint_map,
-                "create_sql": target_info["create_sql"],
-                "content_id": target_info["content_id"],
-                "content_schema": target_info["content_schema"],
+                "create_sql": sql_artifact_info["create_sql"],
+                "content_id": sql_artifact_info["content_id"],
+                "content_schema": sql_artifact_info["content_schema"],
                 "source_mappings": source_mappings,
                 "source_path_count": len(source_paths),
                 "source_path_preview": source_paths[:MAX_SOURCE_PATH_PREVIEW],
-                "source_target_names": target_info["source_target_names"],
-                "summary": _target_summary(
+                "source_sql_artifact_names": sql_artifact_info["source_sql_artifact_names"],
+                "summary": _sql_artifact_summary(
                     name=name,
-                    target_type=target_type,
+                    sql_artifact_type=sql_artifact_type,
                     kind=kind,
                     row_count=row_count,
                     column_names=[cast(str, column["name"]) for column in columns],
@@ -1120,31 +1120,31 @@ def describe_target(
             database_path=requested_path,
             error_type="missing_database",
             message=str(exc),
-            target_name=target_name,
+            sql_artifact_name=sql_artifact_name,
         )
     except CatalogMetadataError as exc:
         return _error_result(
             database_path=requested_path,
             error_type="catalog_metadata_error",
             message=str(exc),
-            target_name=target_name,
+            sql_artifact_name=sql_artifact_name,
         )
     except (sqlite3.Error, sqlite3.Warning) as exc:
         return _error_result(
             database_path=requested_path,
             error_type="sql_execution_error",
             message=str(exc),
-            target_name=target_name,
+            sql_artifact_name=sql_artifact_name,
         )
 
 
-def suggest_targets(
+def suggest_sql_artifacts(
     question: str,
     *,
     root_dir: str | Path | None = None,
     database_path: str | Path | None = None,
     include_internal: bool = False,
-    max_results: int = MAX_SUGGESTED_TARGETS,
+    max_results: int = MAX_SUGGESTED_SQL_ARTIFACTS,
 ) -> dict[str, Any]:
     """Suggest likely tables or views for a natural-language question."""
     requested_path = _requested_database_path(root_dir=root_dir, database_path=database_path)
@@ -1165,24 +1165,24 @@ def suggest_targets(
         )
         catalog = _database_catalog(resolved_path)
         suggestions = []
-        for target in cast(list[dict[str, Any]], catalog["targets"]):
-            name = cast(str, target["name"])
-            target_type = cast(str, target["type"])
-            kind = cast(str, target["kind"])
+        for sql_artifact in cast(list[dict[str, Any]], catalog["sql_artifacts"]):
+            name = cast(str, sql_artifact["name"])
+            sql_artifact_type = cast(str, sql_artifact["type"])
+            kind = cast(str, sql_artifact["kind"])
             if not include_internal and kind == "internal_catalog":
                 continue
 
-            column_names = [cast(str, column["name"]) for column in cast(list[dict[str, Any]], target["columns"])]
-            source_paths = cast(list[str], target["source_paths"])
-            search_text = _target_search_text(
+            column_names = [cast(str, column["name"]) for column in cast(list[dict[str, Any]], sql_artifact["columns"])]
+            source_paths = cast(list[str], sql_artifact["source_paths"])
+            search_text = _sql_artifact_search_text(
                 name=name,
-                target_type=target_type,
+                sql_artifact_type=sql_artifact_type,
                 kind=kind,
                 column_names=column_names,
                 source_paths=source_paths,
-                create_sql=cast(str | None, target["create_sql"]),
+                create_sql=cast(str | None, sql_artifact["create_sql"]),
             )
-            score, reasons = _target_score(
+            score, reasons = _sql_artifact_score(
                 tokens=tokens,
                 name=name,
                 column_names=column_names,
@@ -1198,7 +1198,7 @@ def suggest_targets(
             suggestions.append(
                 {
                     "name": name,
-                    "type": target_type,
+                    "type": sql_artifact_type,
                     "kind": kind,
                     "score": score,
                     "reasons": reasons[:MAX_REASON_PREVIEW],
@@ -1208,12 +1208,12 @@ def suggest_targets(
                     "source_path_count": len(source_paths),
                     "source_path_preview": source_path_preview,
                     "source_paths_truncated": source_paths_truncated,
-                    "row_count": target["row_count"],
-                    "summary": _target_summary(
+                    "row_count": sql_artifact["row_count"],
+                    "summary": _sql_artifact_summary(
                         name=name,
-                        target_type=target_type,
+                        sql_artifact_type=sql_artifact_type,
                         kind=kind,
-                        row_count=cast(int | None, target["row_count"]),
+                        row_count=cast(int | None, sql_artifact["row_count"]),
                         column_names=column_names,
                         source_paths=source_paths,
                         reasons=reasons,
@@ -1231,7 +1231,7 @@ def suggest_targets(
             "tokens": tokens,
             "suggestion_count": len(top_suggestions),
             "suggestions": top_suggestions,
-            "summary": f"Suggested {len(top_suggestions)} target(s) for {len(tokens)} search token(s).",
+            "summary": f"Suggested {len(top_suggestions)} SQL artifact(s) for {len(tokens)} search token(s).",
         }
     except ValueError as exc:
         return _error_result(
@@ -1262,8 +1262,8 @@ def suggest_targets(
 def suggest_sql_error_repair(
     error_message: str,
     *,
-    available_targets: list[str],
-    target_columns: dict[str, list[str]],
+    available_sql_artifacts: list[str],
+    sql_artifact_columns: dict[str, list[str]],
     max_matches: int = MAX_REPAIR_CANDIDATES,
 ) -> list[dict[str, Any]]:
     """Return deterministic schema-aware repair hints for common SQLite errors."""
@@ -1273,9 +1273,9 @@ def suggest_sql_error_repair(
     if lowered_error.startswith(_MISSING_COLUMN_ERROR_PREFIX):
         missing_column = _error_identifier(error_message, _MISSING_COLUMN_ERROR_PREFIX)
         columns_by_name: dict[str, list[str]] = {}
-        for target_name, columns in target_columns.items():
+        for sql_artifact_name, columns in sql_artifact_columns.items():
             for column_name in columns:
-                columns_by_name.setdefault(column_name, []).append(target_name)
+                columns_by_name.setdefault(column_name, []).append(sql_artifact_name)
 
         candidate_columns = _rank_identifier_candidates(
             missing_column,
@@ -1288,7 +1288,7 @@ def suggest_sql_error_repair(
         candidates = [
             {
                 "name": column_name,
-                "targets": sorted(columns_by_name[column_name]),
+                "sql_artifacts": sorted(columns_by_name[column_name]),
             }
             for column_name in candidate_columns
         ]
@@ -1296,39 +1296,41 @@ def suggest_sql_error_repair(
             kind="missing_column",
             identifier=missing_column,
             candidates=candidates,
-            message=(f"Column `{missing_column}` was not found. Closest inspected columns: {_format_repair_candidates(candidates, include_targets=True)}."),
+            message=(f"Column `{missing_column}` was not found. Closest inspected columns: {_format_repair_candidates(candidates, include_sql_artifacts=True)}."),
         )
 
     if lowered_error.startswith(_MISSING_TABLE_ERROR_PREFIX):
-        missing_target = _error_identifier(error_message, _MISSING_TABLE_ERROR_PREFIX)
-        candidate_targets = _rank_identifier_candidates(
-            missing_target,
-            available_targets,
+        missing_sql_artifact = _error_identifier(error_message, _MISSING_TABLE_ERROR_PREFIX)
+        candidate_sql_artifacts = _rank_identifier_candidates(
+            missing_sql_artifact,
+            available_sql_artifacts,
             max_matches=safe_max_matches,
         )
-        if not candidate_targets:
+        if not candidate_sql_artifacts:
             return []
 
-        candidates = [{"name": target_name} for target_name in candidate_targets]
+        candidates = [{"name": sql_artifact_name} for sql_artifact_name in candidate_sql_artifacts]
         return _repair_result(
-            kind="missing_target",
-            identifier=missing_target,
+            kind="missing_sql_artifact",
+            identifier=missing_sql_artifact,
             candidates=candidates,
-            message=(f"Target `{missing_target}` was not found. Closest inspected targets: {_format_repair_candidates(candidates, include_targets=False)}."),
+            message=(
+                f"SQL artifact `{missing_sql_artifact}` was not found. Closest inspected SQL artifacts: {_format_repair_candidates(candidates, include_sql_artifacts=False)}."
+            ),
         )
 
     if lowered_error.startswith(_AMBIGUOUS_COLUMN_ERROR_PREFIX):
         ambiguous_column = _error_identifier(error_message, _AMBIGUOUS_COLUMN_ERROR_PREFIX)
-        matching_targets = sorted(target_name for target_name, columns in target_columns.items() if ambiguous_column in columns)
-        if not matching_targets:
+        matching_sql_artifacts = sorted(sql_artifact_name for sql_artifact_name, columns in sql_artifact_columns.items() if ambiguous_column in columns)
+        if not matching_sql_artifacts:
             return []
 
-        candidates = [{"name": ambiguous_column, "targets": matching_targets}]
+        candidates = [{"name": ambiguous_column, "sql_artifacts": matching_sql_artifacts}]
         return _repair_result(
             kind="ambiguous_column",
             identifier=ambiguous_column,
             candidates=candidates,
-            message=f"Column `{ambiguous_column}` is ambiguous. Qualify it with one of: {', '.join(matching_targets)}.",
+            message=f"Column `{ambiguous_column}` is ambiguous. Qualify it with one of: {', '.join(matching_sql_artifacts)}.",
         )
 
     return []

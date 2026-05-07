@@ -112,38 +112,38 @@ def _error_update(
     }
 
 
-def _preferred_target_names(state: QueryStageState) -> list[str]:
-    """Return orchestrator-provided target names in first-seen order."""
-    target_names: list[str] = []
+def _preferred_sql_artifact_names(state: QueryStageState) -> list[str]:
+    """Return orchestrator-provided sql_artifact names in first-seen order."""
+    sql_artifact_names: list[str] = []
     seen_names: set[str] = set()
-    for name in state.preferred_targets:
-        target_name = name.strip()
-        if not target_name or target_name in seen_names:
+    for name in state.preferred_sql_artifacts:
+        sql_artifact_name = name.strip()
+        if not sql_artifact_name or sql_artifact_name in seen_names:
             continue
-        seen_names.add(target_name)
-        target_names.append(target_name)
-    for target in state.extracted_targets:
-        target_name = str(target.get("typed_view_name") or target.get("table_name") or "").strip()
-        if not target_name or target_name in seen_names:
+        seen_names.add(sql_artifact_name)
+        sql_artifact_names.append(sql_artifact_name)
+    for sql_artifact in state.extracted_sql_artifacts:
+        sql_artifact_name = str(sql_artifact.get("typed_view_name") or sql_artifact.get("table_name") or "").strip()
+        if not sql_artifact_name or sql_artifact_name in seen_names:
             continue
-        seen_names.add(target_name)
-        target_names.append(target_name)
-    return target_names
+        seen_names.add(sql_artifact_name)
+        sql_artifact_names.append(sql_artifact_name)
+    return sql_artifact_names
 
 
 def _runtime_repair_hints(state: QueryStageState, error_message: str) -> list[dict[str, Any]]:
     """Return deterministic hints for SQLite/runtime repair."""
-    target_columns: dict[str, list[str]] = {}
-    for target in state.extracted_targets:
-        target_name = str(target.get("typed_view_name") or target.get("table_name") or "").strip()
-        if not target_name:
+    sql_artifact_columns: dict[str, list[str]] = {}
+    for sql_artifact in state.extracted_sql_artifacts:
+        sql_artifact_name = str(sql_artifact.get("typed_view_name") or sql_artifact.get("table_name") or "").strip()
+        if not sql_artifact_name:
             continue
-        columns = target.get("typed_columns") or target.get("db_columns") or target.get("columns") or []
-        target_columns[target_name] = [str(column) for column in columns if str(column).strip()]
+        columns = sql_artifact.get("typed_columns") or sql_artifact.get("db_columns") or sql_artifact.get("columns") or []
+        sql_artifact_columns[sql_artifact_name] = [str(column) for column in columns if str(column).strip()]
     return suggest_sql_error_repair(
         error_message,
-        available_targets=sorted(set(_preferred_target_names(state))),
-        target_columns=target_columns,
+        available_sql_artifacts=sorted(set(_preferred_sql_artifact_names(state))),
+        sql_artifact_columns=sql_artifact_columns,
     )
 
 
@@ -178,12 +178,12 @@ def make_write_node(
 
     def write_node(state: QueryStageState) -> QueryStageUpdate:
         """Draft SQL from shared orchestrator context and persist it."""
-        target_names = _preferred_target_names(state)
-        if not target_names:
+        sql_artifact_names = _preferred_sql_artifact_names(state)
+        if not sql_artifact_names:
             return _error_update(
                 state,
-                last_error="SQL stage requires orchestrator-provided targets.",
-                trace_message="write_sql: blocked because no orchestrator targets were provided",
+                last_error="SQL stage requires orchestrator-provided SQL artifacts.",
+                trace_message="write_sql: blocked because no orchestrator SQL artifacts were provided",
             )
 
         draft = drafter(state)
@@ -194,14 +194,14 @@ def make_write_node(
                 trace_message="write_sql: skipped because SQL draft was empty",
             )
 
-        selected_targets = draft.selected_targets or target_names
+        selected_sql_artifacts = draft.selected_sql_artifacts or sql_artifact_names
         filename_hint = None
         if artifact_namer is not None:
             filename_hint = artifact_namer(
                 "\n".join(
                     [
                         f"User request: {latest_user_message(state.messages)}",
-                        f"Selected targets: {', '.join(selected_targets)}",
+                        f"Selected SQL artifacts: {', '.join(selected_sql_artifacts)}",
                         f"SQL:\n{draft.sql}",
                     ]
                 )
@@ -212,7 +212,7 @@ def make_write_node(
             run_id=state.run_id,
             description=latest_user_message(state.messages),
             filename_hint=filename_hint,
-            selected_targets=selected_targets,
+            selected_sql_artifacts=selected_sql_artifacts,
         )
         if write_result["status"] != "ok":
             return _file_error_update(
@@ -220,7 +220,7 @@ def make_write_node(
                 write_result,
                 default_message="Failed to write SQL artifact.",
                 trace_prefix="write_sql: failed",
-                selected_targets=selected_targets,
+                selected_sql_artifacts=selected_sql_artifacts,
                 sql_path=write_result.get("sql_path") or state.sql_path,
             )
 
@@ -228,7 +228,7 @@ def make_write_node(
             "status": "written",
             "sql_path": write_result["sql_path"],
             "candidate_sql": write_result["sql"].strip(),
-            "selected_targets": selected_targets,
+            "selected_sql_artifacts": selected_sql_artifacts,
             "trace": _append_trace(state, f"write_sql: wrote SQL file {write_result['sql_path']}"),
         }
 

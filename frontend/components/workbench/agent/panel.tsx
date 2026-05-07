@@ -6,6 +6,7 @@ import {
 	CheckCircle2,
 	ChevronDown,
 	CircleUserRound,
+	Database,
 	FileText,
 	Folder,
 	Loader2,
@@ -23,6 +24,7 @@ import type {
 	ReactElement,
 } from "react";
 import {
+	Fragment,
 	memo,
 	useCallback,
 	useEffect,
@@ -33,7 +35,7 @@ import {
 } from "react";
 import { FaRobot } from "react-icons/fa";
 import type { UploadedWorkspaceFile } from "@/components/workbench/types";
-import type { SkillEntry, SourceFile, Target } from "@/lib/api";
+import type { SkillEntry, SourceFile, SqlArtifact } from "@/lib/api";
 import type { WorkbenchMessage } from "@/lib/chat-contracts";
 import {
 	buildCommandIndex,
@@ -72,7 +74,8 @@ type ComposerSourceMention = {
 	name: string;
 	reference: string;
 	detail: string;
-	kind: "directory" | "source" | "skill";
+	kind: "artifact" | "directory" | "source" | "skill" | "sqlArtifact";
+	token: string;
 };
 type AgentPanelProps = {
 	bootstrapSourceFiles: SourceFile[];
@@ -80,7 +83,7 @@ type AgentPanelProps = {
 	modelOptions: string[];
 	selectedModel: string;
 	skills: SkillEntry[];
-	targets: Target[];
+	sqlArtifacts: SqlArtifact[];
 	uploadStatus: string;
 	onModelChange: (model: string) => void;
 	onRunSql: () => void;
@@ -98,7 +101,7 @@ const initialMessages: WorkbenchMessage[] = [
 		parts: [
 			{
 				type: "text",
-				text: "Data workbench online. Ask about loaded files, SQL targets, or the current result set.",
+				text: "Data workbench online. Ask about loaded files, SQL artifacts, or the current result set.",
 			},
 		],
 	},
@@ -109,6 +112,14 @@ const ACCEPTED_UPLOAD_TYPES = ".csv,.xlsx,.pdf,image/*";
 const TEXTAREA_MAX_HEIGHT_VAR = "--composer-textarea-max-height";
 const DEFAULT_TEXTAREA_MAX_HEIGHT = 150;
 const SOURCE_MENTION_TOKEN_PATTERN = /@([^\s@]+)/g;
+const COMMAND_CATEGORY_ORDER: CommandIndexItem["category"][] = [
+	"command",
+	"skill",
+];
+const COMMAND_CATEGORY_LABELS: Record<CommandIndexItem["category"], string> = {
+	command: "Commands",
+	skill: "Skills",
+};
 
 function isScrolledNearBottom(element: HTMLElement) {
 	return (
@@ -149,40 +160,6 @@ function revokeAttachmentPreview(
 	previewUrls.delete(attachment.previewUrl);
 }
 
-function attachmentPrompt(attachments: ComposerAttachment[]) {
-	const names = attachments.map((attachment) => attachment.name).join(", ");
-	return names ? `Attached files: ${names}` : "";
-}
-
-function attachmentReferenceText(attachments: ComposerAttachment[]) {
-	const references = attachedSourceFiles(attachments);
-	if (references.length === 0) {
-		return "";
-	}
-	return `Attached files:\n${references.map((reference) => `- ${reference}`).join("\n")}`;
-}
-
-function sourceMentionReferenceText(mentions: ComposerSourceMention[]) {
-	if (mentions.length === 0) {
-		return "";
-	}
-	return `Referenced paths:\n${mentions.map((mention) => `- ${mention.reference}`).join("\n")}`;
-}
-
-function messageTextWithFileContext(
-	text: string,
-	attachments: ComposerAttachment[],
-	sourceMentions: ComposerSourceMention[],
-) {
-	return [
-		text,
-		attachmentReferenceText(attachments),
-		sourceMentionReferenceText(sourceMentions),
-	]
-		.filter(Boolean)
-		.join("\n\n");
-}
-
 function attachedSourceFiles(attachments: ComposerAttachment[]) {
 	return attachments
 		.filter((attachment) => attachment.status === "attached")
@@ -194,18 +171,44 @@ function uniqueStrings(values: string[]) {
 	return Array.from(new Set(values.filter(Boolean)));
 }
 
+function commandSections(commands: CommandIndexItem[]) {
+	return COMMAND_CATEGORY_ORDER.map((category) => ({
+		category,
+		items: commands
+			.map((command, index) => ({ command, index }))
+			.filter((item) => item.command.category === category),
+	})).filter((section) => section.items.length > 0);
+}
+
+function sourceMentionSections(mentions: ComposerSourceMention[]) {
+	const fileItems = mentions
+		.map((mention, index) => ({ mention, index }))
+		.filter((item) => !isArtifactMention(item.mention));
+	const artifactItems = mentions
+		.map((mention, index) => ({ mention, index }))
+		.filter((item) => isArtifactMention(item.mention));
+	return [
+		{ label: "Files", items: fileItems },
+		{ label: "Artifacts", items: artifactItems },
+	].filter((section) => section.items.length > 0);
+}
+
 function sourceFileReference(source: SourceFile) {
 	return source.source_path || source.destination_path || source.name;
 }
 
 function sourceFileMention(source: SourceFile): ComposerSourceMention {
 	const reference = sourceFileReference(source);
+	const artifactKind = artifactMentionKind(reference || source.name);
 	return {
 		id: source.id || reference,
 		name: source.name,
 		reference,
-		detail: pathDirectory(reference),
-		kind: "source",
+		detail: artifactKind
+			? artifactMentionDetail(reference || source.name)
+			: pathDirectory(reference),
+		kind: artifactKind ? "artifact" : "source",
+		token: source.name,
 	};
 }
 
@@ -225,6 +228,7 @@ function skillFileMentions(skills: SkillEntry[]): ComposerSourceMention[] {
 				reference: instructionPath,
 				detail: pathDirectory(instructionPath),
 				kind: "skill",
+				token: skillFileLabel(instructionPath, "SKILL.md"),
 			});
 		}
 		for (const group of ["examples", "references", "scripts"] as const) {
@@ -237,13 +241,27 @@ function skillFileMentions(skills: SkillEntry[]): ComposerSourceMention[] {
 					id: `skill-file-${skill.name}-${path}`,
 					name: skillFileLabel(path, group),
 					reference: path,
-					detail: pathDirectory(path),
-					kind: "skill",
+					detail: artifactMentionDetail(path) || pathDirectory(path),
+					kind: artifactMentionKind(path) ? "artifact" : "skill",
+					token: skillFileLabel(path, group),
 				});
 			}
 		}
 		return mentions;
 	});
+}
+
+function sqlArtifactMentions(
+	sqlArtifacts: SqlArtifact[],
+): ComposerSourceMention[] {
+	return sqlArtifacts.map((sqlArtifact) => ({
+		id: `sql-artifact-${sqlArtifact.name}`,
+		name: sqlArtifact.name,
+		reference: sqlArtifact.name,
+		detail: sqlArtifactDetail(sqlArtifact),
+		kind: "sqlArtifact",
+		token: sqlArtifact.name,
+	}));
 }
 
 function directoryMentions(mentions: ComposerSourceMention[]) {
@@ -259,22 +277,87 @@ function directoryMentions(mentions: ComposerSourceMention[]) {
 				reference: directory,
 				detail: pathDirectory(directory),
 				kind: "directory",
+				token: pathBasename(directory),
 			});
 		}
 	}
 	return Array.from(directories.values());
 }
 
-function indexedPathMentions(sourceFiles: SourceFile[], skills: SkillEntry[]) {
+function indexedPathMentions(
+	sourceFiles: SourceFile[],
+	skills: SkillEntry[],
+	sqlArtifacts: SqlArtifact[],
+) {
 	const fileMentions = [
 		...sourceFiles.map(sourceFileMention),
 		...skillFileMentions(skills),
 	];
-	return [...directoryMentions(fileMentions), ...fileMentions];
+	return disambiguatedSourceMentionTokens([
+		...directoryMentions(fileMentions),
+		...fileMentions,
+		...sqlArtifactMentions(sqlArtifacts),
+	]);
+}
+
+function disambiguatedSourceMentionTokens(mentions: ComposerSourceMention[]) {
+	const tokenCounts = new Map<string, number>();
+	for (const mention of mentions) {
+		const token = sourceMentionToken(mention);
+		tokenCounts.set(token, (tokenCounts.get(token) || 0) + 1);
+	}
+	return mentions.map((mention) => {
+		const token = sourceMentionToken(mention);
+		if (tokenCounts.get(token) === 1) {
+			return mention;
+		}
+		return {
+			...mention,
+			token: mention.reference || mention.id,
+		};
+	});
 }
 
 function skillFileLabel(path: string, fallback: string) {
 	return pathBasename(path) || fallback;
+}
+
+function sqlArtifactDetail(sqlArtifact: SqlArtifact) {
+	const noun =
+		sqlArtifact.type === "view" || sqlArtifact.kind.includes("view")
+			? "view"
+			: "table";
+	if (sqlArtifact.row_count == null) {
+		return `${noun} / unknown size`;
+	}
+	if (sqlArtifact.column_count != null) {
+		return `${noun} / ${sqlArtifact.row_count} x ${sqlArtifact.column_count}`;
+	}
+	return `${noun} / ${sqlArtifact.row_count} rows`;
+}
+
+function artifactMentionKind(path: string) {
+	const extension = pathExtension(path);
+	if (extension === "sql") {
+		return "SQL file";
+	}
+	if (extension === "sqlite" || extension === "db") {
+		return "SQLite database";
+	}
+	return "";
+}
+
+function artifactMentionDetail(path: string) {
+	const kind = artifactMentionKind(path);
+	const directory = pathDirectory(path);
+	if (!kind) {
+		return "";
+	}
+	return directory ? `${kind} / ${directory}` : kind;
+}
+
+function isArtifactMention(mention: ComposerSourceMention) {
+	return mention.kind === "artifact" || mention.kind === "sqlArtifact";
 }
 
 function pathDirectory(path: string) {
@@ -285,6 +368,12 @@ function pathBasename(path: string) {
 	return path.split("/").filter(Boolean).at(-1) || path;
 }
 
+function pathExtension(path: string) {
+	const basename = pathBasename(path).toLowerCase();
+	const extension = basename.split(".").at(-1) || "";
+	return extension === basename ? "" : extension;
+}
+
 function pathDirectories(path: string) {
 	const parts = path.split("/").filter(Boolean).slice(0, -1);
 	return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
@@ -292,14 +381,14 @@ function pathDirectories(path: string) {
 
 function sourceMentionReferences(mentions: ComposerSourceMention[]) {
 	return mentions
-		.filter((mention) => mention.kind === "source")
+		.filter((mention) => mention.kind === "source" || isArtifactMention(mention))
 		.map((mention) => mention.reference);
 }
 
 function sourceMentionsInText(text: string, mentions: ComposerSourceMention[]) {
 	const tokenNames = sourceMentionTokenNames(text);
 	return mentions.filter((mention) =>
-		tokenNames.has(sourceMentionName(mention)),
+		tokenNames.has(sourceMentionToken(mention)),
 	);
 }
 
@@ -311,13 +400,19 @@ function sourceMentionTokenNames(text: string) {
 	);
 }
 
-function sourceMentionName(mention: ComposerSourceMention) {
-	return mention.name.toLowerCase();
+function sourceMentionToken(mention: ComposerSourceMention) {
+	return mention.token.toLowerCase();
 }
 
-function activeFileMentionTrigger(text: string) {
+function activeFileMentionTrigger(
+	text: string,
+	mentions: ComposerSourceMention[] = [],
+) {
 	const match = /(?:^|\s)@([^@]*)$/.exec(text);
 	if (!match) {
+		return null;
+	}
+	if (isCompletedFileMentionTrigger(match[1], mentions)) {
 		return null;
 	}
 	return {
@@ -331,10 +426,14 @@ function isCompletedFileMentionTrigger(
 	mentions: ComposerSourceMention[],
 ) {
 	const trimmedQuery = query.trim().toLowerCase();
-	return (
-		query.endsWith(" ") &&
-		mentions.some((mention) => sourceMentionName(mention) === trimmedQuery)
+	const selectedTokens = new Set(
+		mentions.map((mention) => sourceMentionToken(mention)),
 	);
+	if (query.endsWith(" ") && selectedTokens.has(trimmedQuery)) {
+		return true;
+	}
+	const [firstToken, ...remainingTokens] = trimmedQuery.split(/\s+/);
+	return remainingTokens.length > 0 && selectedTokens.has(firstToken);
 }
 
 function replaceActiveFileMention(
@@ -342,7 +441,7 @@ function replaceActiveFileMention(
 	mention: ComposerSourceMention,
 ) {
 	const trigger = activeFileMentionTrigger(text);
-	const token = `@${mention.name} `;
+	const token = `@${mention.token} `;
 	if (!trigger) {
 		return `${text}${text.endsWith(" ") || !text ? "" : " "}${token}`;
 	}
@@ -353,7 +452,7 @@ function removeSourceMentionToken(
 	text: string,
 	mention: ComposerSourceMention,
 ) {
-	const tokenPattern = new RegExp(`@${escapeRegExp(mention.name)}\\s?`, "gi");
+	const tokenPattern = new RegExp(`@${escapeRegExp(mention.token)}\\s?`, "gi");
 	return text.replace(tokenPattern, "").replace(/\s{2,}/g, " ");
 }
 
@@ -367,7 +466,7 @@ function composerHighlightParts(
 ) {
 	const parts: ReactElement[] = [];
 	const selectedMentionNames = new Set(
-		sourceMentions.map((mention) => sourceMentionName(mention)),
+		sourceMentions.map((mention) => sourceMentionToken(mention)),
 	);
 	const mentionPattern = new RegExp(SOURCE_MENTION_TOKEN_PATTERN);
 	let cursor = 0;
@@ -378,8 +477,8 @@ function composerHighlightParts(
 				<span key={`text-${cursor}`}>{text.slice(cursor, match.index)}</span>,
 			);
 		}
-		const mentionName = match[0].slice(1).toLowerCase();
-		const className = selectedMentionNames.has(mentionName)
+		const mentionToken = match[0].slice(1).toLowerCase();
+		const className = selectedMentionNames.has(mentionToken)
 			? "composer-mention-token"
 			: undefined;
 		parts.push(
@@ -808,13 +907,17 @@ function ComposerSourceMentionChip({
 	mention: ComposerSourceMention;
 	onRemove: (mention: ComposerSourceMention) => void;
 }) {
+	const icon =
+		mention.kind === "directory" ? (
+			<Folder size={14} />
+		) : isArtifactMention(mention) ? (
+			<Database size={14} />
+		) : (
+			<FileText size={14} />
+		);
 	return (
 		<li className="attachment-preview source-mention">
-			{mention.kind === "directory" ? (
-				<Folder size={14} />
-			) : (
-				<FileText size={14} />
-			)}
+			{icon}
 			<span>{mention.name}</span>
 			<button
 				type="button"
@@ -834,7 +937,7 @@ export const AgentPanel = memo(function AgentPanel({
 	onRunSql,
 	selectedModel,
 	skills,
-	targets,
+	sqlArtifacts,
 	uploadStatus,
 	onModelChange,
 	onChatSettled,
@@ -850,6 +953,8 @@ export const AgentPanel = memo(function AgentPanel({
 	const messageStreamRef = useRef<HTMLDivElement>(null);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const highlightLayerRef = useRef<HTMLDivElement>(null);
+	const commandOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+	const fileMentionOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
 	const uploadInputRef = useRef<HTMLInputElement>(null);
 	const dragDepthRef = useRef(0);
 	const attachmentPreviewUrlsRef = useRef(new Set<string>());
@@ -892,18 +997,12 @@ export const AgentPanel = memo(function AgentPanel({
 	const commandMenuOpen = commandText.startsWith("/") && !isBusy;
 	const commandQuery = commandMenuOpen ? commandText.slice(1) : "";
 	const fileMentionTrigger = !commandMenuOpen
-		? activeFileMentionTrigger(input)
+		? activeFileMentionTrigger(input, sourceMentions)
 		: null;
-	const fileMentionMenuOpen =
-		Boolean(fileMentionTrigger) &&
-		!isBusy &&
-		!isCompletedFileMentionTrigger(
-			fileMentionTrigger?.query || "",
-			sourceMentions,
-		);
+	const fileMentionMenuOpen = Boolean(fileMentionTrigger) && !isBusy;
 	const sourceMentionItems = useMemo(
-		() => indexedPathMentions(bootstrapSourceFiles, skills),
-		[bootstrapSourceFiles, skills],
+		() => indexedPathMentions(bootstrapSourceFiles, skills, sqlArtifacts),
+		[bootstrapSourceFiles, skills, sqlArtifacts],
 	);
 	const filteredSourceMentions = useMemo(() => {
 		if (!fileMentionMenuOpen) {
@@ -920,14 +1019,16 @@ export const AgentPanel = memo(function AgentPanel({
 			],
 		);
 	}, [fileMentionMenuOpen, fileMentionTrigger?.query, sourceMentionItems]);
+	const filteredSourceMentionSections = useMemo(
+		() => sourceMentionSections(filteredSourceMentions),
+		[filteredSourceMentions],
+	);
 	const commandIndex = useMemo(
 		() =>
 			buildCommandIndex({
-				sourceFiles: bootstrapSourceFiles,
-				targets,
 				skills,
 			}),
-		[bootstrapSourceFiles, skills, targets],
+		[skills],
 	);
 	const filteredCommands = useMemo(() => {
 		if (!commandMenuOpen) {
@@ -935,6 +1036,10 @@ export const AgentPanel = memo(function AgentPanel({
 		}
 		return filterCommandIndex(commandIndex, commandQuery);
 	}, [commandIndex, commandMenuOpen, commandQuery]);
+	const filteredCommandSections = useMemo(
+		() => commandSections(filteredCommands),
+		[filteredCommands],
+	);
 	const [activeCommandIndex, setActiveCommandIndex] = useState(0);
 	const [activeFileMentionIndex, setActiveFileMentionIndex] = useState(0);
 	const selectedCommandIndex = Math.min(
@@ -945,6 +1050,14 @@ export const AgentPanel = memo(function AgentPanel({
 		activeFileMentionIndex,
 		Math.max(filteredSourceMentions.length - 1, 0),
 	);
+	const activeCommandId =
+		commandMenuOpen && filteredCommands[selectedCommandIndex]
+			? `command-option-${filteredCommands[selectedCommandIndex].id}`
+			: undefined;
+	const activeFileMentionId =
+		fileMentionMenuOpen && filteredSourceMentions[selectedFileMentionIndex]
+			? `file-option-${filteredSourceMentions[selectedFileMentionIndex].id}`
+			: undefined;
 	const removeAttachment = useCallback((id: string) => {
 		setAttachments((currentAttachments) => {
 			const removedAttachment = currentAttachments.find(
@@ -1167,13 +1280,8 @@ export const AgentPanel = memo(function AgentPanel({
 			...attachedSourceFiles(attachments),
 		]);
 		const currentFileParts = messageFileParts(attachments);
-		const messageText = messageTextWithFileContext(
-			prompt,
-			attachments,
-			sourceMentions,
-		);
 		sendMessage(
-			{ text: messageText, files: currentFileParts },
+			{ text: prompt, files: currentFileParts },
 			{
 				body: {
 					selectedChatModel: selectedModel,
@@ -1220,6 +1328,24 @@ export const AgentPanel = memo(function AgentPanel({
 	useLayoutEffect(() => {
 		fitComposerTextarea(textareaRef.current);
 	});
+
+	useEffect(() => {
+		if (!commandMenuOpen) {
+			return;
+		}
+		commandOptionRefs.current[selectedCommandIndex]?.scrollIntoView({
+			block: "nearest",
+		});
+	}, [commandMenuOpen, selectedCommandIndex]);
+
+	useEffect(() => {
+		if (!fileMentionMenuOpen) {
+			return;
+		}
+		fileMentionOptionRefs.current[selectedFileMentionIndex]?.scrollIntoView({
+			block: "nearest",
+		});
+	}, [fileMentionMenuOpen, selectedFileMentionIndex]);
 
 	useEffect(
 		() => () => {
@@ -1309,14 +1435,13 @@ export const AgentPanel = memo(function AgentPanel({
 						...attachedSourceFiles(attachments),
 					]);
 					const currentFileParts = messageFileParts(attachments);
-					const messageText =
-						messageTextWithFileContext(text, attachments, sourceMentions) ||
-						attachmentPrompt(attachments);
-					if (!messageText) {
+					const hasFileContext =
+						currentFileParts.length > 0 || currentSourceFiles.length > 0;
+					if (!text && !hasFileContext) {
 						return;
 					}
 					sendMessage(
-						{ text: messageText, files: currentFileParts },
+						{ text, files: currentFileParts },
 						{
 							body: {
 								selectedChatModel: selectedModel,
@@ -1342,37 +1467,50 @@ export const AgentPanel = memo(function AgentPanel({
 				/>
 				{commandMenuOpen && (
 					<section className="command-palette" aria-label="Command index">
-						<header>
-							<span>Command index</span>
-							<kbd>/</kbd>
-						</header>
-						<div className="command-options" role="listbox">
+						<div
+							className="command-options"
+							id="command-options"
+							role="listbox"
+						>
 							{filteredCommands.length > 0 ? (
-								filteredCommands.map((command, commandIndex) => {
-									const Icon = command.icon;
-									return (
-										<button
-											type="button"
-											className={
-												commandIndex === selectedCommandIndex ? "active" : ""
-											}
-											key={command.id}
-											onMouseDown={(event) => event.preventDefault()}
-											onClick={() => submitCommandItem(command)}
-											role="option"
-											aria-selected={commandIndex === selectedCommandIndex}
-										>
-											<Icon size={15} />
-											<span className="command-copy">
-												<span>
-													<span>{command.label}</span>
-													<b>{command.category}</b>
-												</span>
-												<small>{command.description}</small>
-											</span>
-										</button>
-									);
-								})
+								filteredCommandSections.map((section) => (
+									<Fragment key={section.category}>
+										<span className="command-section-label">
+											{COMMAND_CATEGORY_LABELS[section.category]}
+										</span>
+										{section.items.map(({ command, index: commandIndex }) => {
+											const Icon = command.icon;
+											return (
+												<button
+													type="button"
+													className={
+														commandIndex === selectedCommandIndex
+															? "active"
+															: ""
+													}
+													id={`command-option-${command.id}`}
+													key={command.id}
+													onMouseDown={(event) => event.preventDefault()}
+													onMouseEnter={() =>
+														setActiveCommandIndex(commandIndex)
+													}
+													onClick={() => submitCommandItem(command)}
+													ref={(node) => {
+														commandOptionRefs.current[commandIndex] = node;
+													}}
+													role="option"
+													aria-selected={commandIndex === selectedCommandIndex}
+												>
+													<Icon size={15} />
+													<span className="command-copy">
+														<span>{command.label}</span>
+														<small>{command.description}</small>
+													</span>
+												</button>
+											);
+										})}
+									</Fragment>
+								))
 							) : (
 								<p>No matching commands</p>
 							)}
@@ -1381,40 +1519,51 @@ export const AgentPanel = memo(function AgentPanel({
 				)}
 				{fileMentionMenuOpen && (
 					<section className="command-palette" aria-label="File index">
-						<header>
-							<span>File index</span>
-							<kbd>@</kbd>
-						</header>
-						<div className="command-options" role="listbox">
+						<div className="command-options" id="file-options" role="listbox">
 							{filteredSourceMentions.length > 0 ? (
-								<>
-									<span className="command-section-label">Files</span>
-									{filteredSourceMentions.map((mention, mentionIndex) => (
-										<button
-											type="button"
-											className={
-												mentionIndex === selectedFileMentionIndex
-													? "active file-option"
-													: "file-option"
-											}
-											key={mention.id}
-											onMouseDown={(event) => event.preventDefault()}
-											onClick={() => selectSourceMention(mention)}
-											role="option"
-											aria-selected={mentionIndex === selectedFileMentionIndex}
-										>
-											{mention.kind === "directory" ? (
-												<Folder size={15} />
-											) : (
-												<FileText size={15} />
-											)}
-											<span className="file-option-copy">
-												<span>{mention.name}</span>
-												{mention.detail && <small>{mention.detail}</small>}
-											</span>
-										</button>
-									))}
-								</>
+								filteredSourceMentionSections.map((section) => (
+									<Fragment key={section.label}>
+										<span className="command-section-label">
+											{section.label}
+										</span>
+										{section.items.map(({ mention, index: mentionIndex }) => (
+											<button
+												type="button"
+												className={
+													mentionIndex === selectedFileMentionIndex
+														? "active file-option"
+														: "file-option"
+												}
+												id={`file-option-${mention.id}`}
+												key={mention.id}
+												onMouseDown={(event) => event.preventDefault()}
+												onMouseEnter={() =>
+													setActiveFileMentionIndex(mentionIndex)
+												}
+												onClick={() => selectSourceMention(mention)}
+												ref={(node) => {
+													fileMentionOptionRefs.current[mentionIndex] = node;
+												}}
+												role="option"
+												aria-selected={
+													mentionIndex === selectedFileMentionIndex
+												}
+											>
+												{mention.kind === "directory" ? (
+													<Folder size={15} />
+												) : isArtifactMention(mention) ? (
+													<Database size={15} />
+												) : (
+													<FileText size={15} />
+												)}
+												<span className="file-option-copy">
+													<span>{mention.name}</span>
+													{mention.detail && <small>{mention.detail}</small>}
+												</span>
+											</button>
+										))}
+									</Fragment>
+								))
 							) : (
 								<p>No matching files</p>
 							)}
@@ -1463,6 +1612,16 @@ export const AgentPanel = memo(function AgentPanel({
 					<textarea
 						ref={textareaRef}
 						aria-label="Ask the data agent"
+						aria-activedescendant={
+							commandMenuOpen ? activeCommandId : activeFileMentionId
+						}
+						aria-controls={
+							commandMenuOpen
+								? "command-options"
+								: fileMentionMenuOpen
+									? "file-options"
+									: undefined
+						}
 						onChange={(event) => {
 							const nextInput = event.target.value;
 							setComposerInput(nextInput);

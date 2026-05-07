@@ -29,8 +29,8 @@ export function SourceViewer({
 	}
 	if (sourcePreviewResult) {
 		return (
-			<div className="target-viewer">
-				<div className="target-preview-grid">
+			<div className="data-preview-viewer">
+				<div className="data-preview-grid">
 					<ResultTable
 						result={sourcePreviewResult}
 						rounding={rounding}
