@@ -6,7 +6,7 @@ from typing import Any
 from langgraph.graph.state import CompiledStateGraph
 
 from ..validation_stage import ValidationStage
-from ..query_stage import DraftFn, RuntimeRepairFn
+from ..query_stage import SQLRepairerFn, SQLWriterFn
 from .nodes import OrchestratorNodes
 
 
@@ -15,8 +15,8 @@ def build_query_stage_graph(
     prompt: str = "",
     root_dir: str | Path | None = None,
     llm: Any | None = None,
-    sql_drafter: DraftFn | None = None,
-    sql_runtime_repairer: RuntimeRepairFn | None = None,
+    sql_writer: SQLWriterFn | None = None,
+    sql_repairer: SQLRepairerFn | None = None,
     validation_stage: ValidationStage | None = None,
     name: str = "query",
 ) -> CompiledStateGraph:
@@ -26,8 +26,8 @@ def build_query_stage_graph(
         root_dir=root_dir,
         llm=llm,
         prep_stage=None,
-        sql_drafter=sql_drafter,
-        sql_runtime_repairer=sql_runtime_repairer,
+        sql_writer=sql_writer,
+        sql_repairer=sql_repairer,
         validation_stage=validation_stage,
     )
     return nodes.query_stage_graph(name=name)

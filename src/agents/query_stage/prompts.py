@@ -12,7 +12,7 @@ from .state import QueryStageState
 
 MAX_AGENT_SKILL_REF_PREVIEW = 8
 
-SQL_DRAFT_SYSTEM_PROMPT = """Draft one read-only SQLite query for the SQL stage.
+SQL_WRITE_SYSTEM_PROMPT = """Write one read-only SQLite query for the SQL stage.
 
 Rules:
 - The orchestrator/prep stages already chose the message, database, and allowed SQL artifacts. Trust that context.
@@ -21,15 +21,15 @@ Rules:
 - `sql_artifact_context` is shared graph state from the orchestrator/prep stage; use its exact column names and quote identifiers that contain spaces, punctuation, or mixed case.
 - Do not invent normalized columns such as `account`, `account_id`, or `cost_usd` unless the sql_artifact schema already exposes them or you define them in an earlier CTE from exact source columns.
 - Treat loaded skill references inside `worker_context` as the source of truth for domain SQL. If a skill SQL reference uses placeholders, preserve its raw-column mapping pattern and replace only placeholders with discovered sql_artifact names/literals.
-- If a skill asks for one saved result view, draft the full SELECT/WITH body that will become that view. Do not select from the future saved view name unless that name is already present in `allowed_sql_artifacts`.
+- If a skill asks for one saved result view, write the full SELECT/WITH body that will become that view. Do not select from the future saved view name unless that name is already present in `allowed_sql_artifacts`.
 - If the message or skill asks for multiple result grains, such as summary, category, and account/customer rows, the SQL must produce all requested row types from real source data. Do not satisfy missing grains with empty UNION arms, `WHERE 1 = 0`, duplicated total rows, or placeholder labels.
 - Treat `message` as the user request and `validation_feedback` as semantic retry guidance from the validation stage.
 - If `validation_feedback` is present, revise the query to address it directly.
-- If `previous_sql` is present, it is a related existing SQL artifact selected as draft context. Reuse its shape only when it helps; otherwise draft from zero while preserving the standard SQL header.
+- If `previous_sql` is present, it is a related existing SQL artifact selected as write context. Reuse its shape only when it helps; otherwise write from zero while preserving the standard SQL header.
 - Do not ask clarifying questions, discover SQL artifacts, or judge final request fulfillment.
 """
 
-SQL_RUNTIME_REPAIR_SYSTEM_PROMPT = """Repair a SQL file so SQLite can execute it.
+SQL_REPAIR_SYSTEM_PROMPT = """Repair a SQL file so SQLite can execute it.
 
 Rules:
 - Only fix SQLite execution errors, syntax errors, or identifier errors.
@@ -48,10 +48,10 @@ Rules:
 - Existing SQL artifacts are only reusable when their `-- Description` header and SQL preview clearly match the current user request.
 - Treat an existing SQL artifact like a loaded skill reference: it is a reusable contract only when its description is the same task, not merely a similar dataset.
 - Set reuse_existing_sql=true only when the SQL can be executed directly for this request.
-- If one related artifact is not directly reusable but is valuable to ride on with minor edits, set use_as_draft_context=true and return its exact `sql_path`.
-- Use draft context only when the artifact's description, selected SQL artifacts, and SQL shape are close enough to reduce risk versus drafting from zero.
+- If one related artifact is not directly reusable but is valuable to ride on with minor edits, set use_as_write_context=true and return its exact `sql_path`.
+- Use write context only when the artifact's description, selected SQL artifacts, and SQL shape are close enough to reduce risk versus writing from zero.
 - Choose at most one artifact. Do not choose because of filename alone, shared table names alone, or valid SQLite syntax alone.
-- If the artifacts are partial, stale, generic, or likely to confuse the draft, set both booleans false.
+- If the artifacts are partial, stale, generic, or likely to confuse the writer, set both booleans false.
 """
 
 
@@ -115,8 +115,8 @@ def _message_from_payload(payload: dict[str, Any]) -> list[HumanMessage]:
     ]
 
 
-def build_draft_messages(state: QueryStageState) -> list[HumanMessage]:
-    """Build draft messages for the structured SQL stage model."""
+def build_write_messages(state: QueryStageState) -> list[HumanMessage]:
+    """Build write messages for the structured SQL stage model."""
     payload = {
         "message": latest_user_message(state.messages),
         "source_files": state.source_files,
@@ -143,12 +143,12 @@ def build_existing_sql_messages(state: QueryStageState) -> list[HumanMessage]:
     return _message_from_payload(payload)
 
 
-def build_runtime_repair_messages(
+def build_repair_messages(
     state: QueryStageState,
     *,
     sql_hashlines: str,
 ) -> list[HumanMessage]:
-    """Build runtime-repair messages for SQLite execution errors."""
+    """Build repair messages for SQLite execution errors."""
     payload = {
         "message": latest_user_message(state.messages),
         "worker_context": state.worker_context,

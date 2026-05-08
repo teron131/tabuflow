@@ -14,7 +14,7 @@ class PreparedDataState(BaseModel):
     run_id: str = Field(default_factory=lambda: uuid4().hex[:8], description="Short workflow run identifier used for generated artifacts.")
     database_path: str | None = Field(default=None, description="SQLite database path prepared for SQL execution.")
     preferred_sql_artifacts: list[str] = Field(default_factory=list, description="Preferred SQL artifact names selected by prep.")
-    extracted_sql_artifacts: list[dict[str, Any]] = Field(default_factory=list, description="Prepared table or view metadata available to SQL drafting.")
+    extracted_sql_artifacts: list[dict[str, Any]] = Field(default_factory=list, description="Prepared table or view metadata available to SQL writing.")
     worker_context: str = Field(default="", description="Worker-facing context assembled from harness prompt and matched skills.")
     skill_refs: list[dict[str, Any]] = Field(default_factory=list, description="Loaded skill reference payloads relevant to this run.")
 
@@ -26,14 +26,14 @@ class SQLArtifactState(BaseModel):
     sql_path: str | None = Field(default=None, description="Path to the current SQL artifact file.")
     reuse_existing_sql: bool = Field(default=False, description="Whether the current SQL stage should execute an accepted existing SQL artifact.")
     related_sql_artifacts: list[dict[str, Any]] = Field(default_factory=list, description="Existing SQL artifacts considered for this request.")
-    selected_sql_artifacts: list[str] = Field(default_factory=list, description="SQL artifacts selected by the current draft.")
+    selected_sql_artifacts: list[str] = Field(default_factory=list, description="SQL artifacts selected by the current write.")
     candidate_sql: str | None = Field(default=None, description="Current SQL text read from or written to the SQL artifact.")
     repair_hints: list[dict[str, Any]] = Field(default_factory=list, description="Deterministic hints for repairing SQLite runtime errors.")
     result: dict[str, Any] | None = Field(default=None, description="SQLite execution result payload.")
     attempts: int = Field(default=0, description="Number of SQL execution attempts made in the current loop.")
     last_error: str | None = Field(default=None, description="Most recent SQL-stage error message.")
     trace: list[str] = Field(default_factory=list, description="Compact SQL-stage trace messages.")
-    validation_feedback: dict[str, Any] | None = Field(default=None, description="Semantic validation feedback for another SQL draft.")
+    validation_feedback: dict[str, Any] | None = Field(default=None, description="Semantic validation feedback for another SQL write.")
     validation_attempts: int = Field(default=0, description="Number of semantic validation retry requests made so far.")
 
 

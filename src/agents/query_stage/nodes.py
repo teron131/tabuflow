@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -23,63 +23,63 @@ from ..base import ApplicationAgent
 from ..orchestrator.state import latest_user_message
 from ..trace_utils import SQL_STAGE, append_stage_trace
 from .prompts import (
-    SQL_DRAFT_SYSTEM_PROMPT,
     SQL_REUSE_SYSTEM_PROMPT,
-    SQL_RUNTIME_REPAIR_SYSTEM_PROMPT,
-    build_draft_messages,
+    SQL_REPAIR_SYSTEM_PROMPT,
+    SQL_WRITE_SYSTEM_PROMPT,
     build_existing_sql_messages,
-    build_runtime_repair_messages,
+    build_repair_messages,
+    build_write_messages,
 )
 from .state import (
-    DraftFn,
     ExistingSQLDecision,
     ExistingSQLSelectorFn,
     QueryStageState,
-    RuntimeRepairFn,
-    SQLDraft,
-    SQLRuntimeRepair,
+    SQLRepair,
+    SQLRepairerFn,
+    SQLWrite,
+    SQLWriterFn,
 )
 
 QueryStageUpdate = dict[str, Any]
 MAX_RELATED_SQL_ARTIFACTS = 5
 
 
-def build_sql_drafter(llm: BaseChatModel) -> DraftFn:
-    """Build the SQL draft function from the orchestrator's shared model."""
-    draft_agent = create_agent(
+def build_sql_writer(llm: BaseChatModel) -> SQLWriterFn:
+    """Build the SQL write function from the orchestrator's shared model."""
+    write_agent = create_agent(
         model=llm,
         tools=[],
-        system_prompt=SQL_DRAFT_SYSTEM_PROMPT,
-        response_format=ToolStrategy(SQLDraft),
-        name="sql_drafter",
+        system_prompt=SQL_WRITE_SYSTEM_PROMPT,
+        response_format=ToolStrategy(SQLWrite),
+        name="sql_writer",
     )
 
-    def drafter(state: QueryStageState) -> SQLDraft:
-        """Draft the next SQL file contents."""
-        result = draft_agent.invoke({"messages": build_draft_messages(state)})
+    def writer(state: QueryStageState) -> SQLWrite:
+        """Write the next SQL file contents."""
+        result = write_agent.invoke({"messages": build_write_messages(state)})
         return ApplicationAgent.get_structured_response(
             result,
-            SQLDraft,
-            agent_name="sql_drafter",
+            SQLWrite,
+            agent_name="sql_writer",
         )
 
-    return drafter
+    return writer
 
 
-def build_sql_runtime_repairer(llm: BaseChatModel) -> RuntimeRepairFn:
-    """Build the SQL runtime repair function from the orchestrator's shared model."""
+def build_sql_repairer(llm: BaseChatModel) -> SQLRepairerFn:
+    """Build the SQL repair function from the orchestrator's shared model."""
     repair_agent = create_agent(
         model=llm,
         tools=[],
-        system_prompt=SQL_RUNTIME_REPAIR_SYSTEM_PROMPT,
-        response_format=ToolStrategy(SQLRuntimeRepair),
-        name="sql_runtime_repairer",
+        system_prompt=SQL_REPAIR_SYSTEM_PROMPT,
+        response_format=ToolStrategy(SQLRepair),
+        name="sql_repairer",
     )
 
-    def runtime_repairer(state: QueryStageState) -> SQLRuntimeRepair:
+    def repairer(state: QueryStageState) -> SQLRepair:
         """Repair the current SQL file after a runtime execution error."""
         if not state.sql_path:
-            return SQLRuntimeRepair()
+            return SQLRepair()
 
         sql_hashlines = state.sql_hashlines
         if sql_hashlines is None:
@@ -88,12 +88,12 @@ def build_sql_runtime_repairer(llm: BaseChatModel) -> RuntimeRepairFn:
                 run_id=state.run_id,
             )
             if hashline_result["status"] != "ok":
-                return SQLRuntimeRepair()
+                return SQLRepair()
             sql_hashlines = str(hashline_result["hashlines"])
 
         result = repair_agent.invoke(
             {
-                "messages": build_runtime_repair_messages(
+                "messages": build_repair_messages(
                     state,
                     sql_hashlines=sql_hashlines,
                 )
@@ -101,11 +101,11 @@ def build_sql_runtime_repairer(llm: BaseChatModel) -> RuntimeRepairFn:
         )
         return ApplicationAgent.get_structured_response(
             result,
-            SQLRuntimeRepair,
-            agent_name="sql_runtime_repairer",
+            SQLRepair,
+            agent_name="sql_repairer",
         )
 
-    return runtime_repairer
+    return repairer
 
 
 def build_existing_sql_selector(llm: BaseChatModel) -> ExistingSQLSelectorFn:
@@ -159,6 +159,25 @@ def _error_update(
     }
 
 
+def _file_error_update(
+    state: QueryStageState,
+    result: dict[str, Any],
+    *,
+    default_message: str,
+    trace_prefix: str,
+    **extra: Any,
+) -> QueryStageUpdate:
+    """Return a SQL-stage error update from a file-management result."""
+    message = str(result.get("message") or default_message)
+    return _error_update(
+        state,
+        last_error=message,
+        trace_message=f"{trace_prefix}: {message}",
+        result=result,
+        **extra,
+    )
+
+
 def _preferred_sql_artifact_names(state: QueryStageState) -> list[str]:
     """Return orchestrator-provided sql_artifact names in first-seen order."""
     sql_artifact_names: list[str] = []
@@ -196,7 +215,7 @@ def _selected_sql_artifact_update(
     related_sql_artifacts: list[dict[str, Any]],
     selected_artifact: dict[str, Any],
 ) -> QueryStageUpdate:
-    """Return state fields shared by direct reuse and draft-context reuse."""
+    """Return state fields shared by direct reuse and write-context reuse."""
     return {
         "related_sql_artifacts": related_sql_artifacts,
         "sql_path": selected_artifact["sql_path"],
@@ -205,25 +224,28 @@ def _selected_sql_artifact_update(
     }
 
 
-def make_select_sql_entrypoint_node(
-    selector: ExistingSQLSelectorFn,
-    *,
-    root_dir: str | Path | None = None,
-) -> Callable[[QueryStageState], QueryStageUpdate]:
-    """Create the node that chooses draft-from-zero or execute-ready-SQL."""
+@dataclass
+class QueryStageNodes:
+    """Dependency-bound nodes for the SQL query stage."""
 
-    def select_sql_entrypoint(state: QueryStageState) -> QueryStageUpdate:
+    selector: ExistingSQLSelectorFn
+    writer: SQLWriterFn
+    repairer: SQLRepairerFn
+    artifact_namer: ArtifactNamerFn | None = None
+    root_dir: str | Path | None = None
+
+    def check_existing_sql(self, state: QueryStageState) -> QueryStageUpdate:
         """Look at related SQL artifacts before the query stage writes a new SQL file."""
         search_result = search_sql_artifacts(
             latest_user_message(state.messages),
-            root_dir=root_dir,
+            root_dir=self.root_dir,
             top_k=MAX_RELATED_SQL_ARTIFACTS,
         )
         if search_result.get("status") != "ok":
             return {
                 "reuse_existing_sql": False,
                 "related_sql_artifacts": [],
-                "trace": _append_trace(state, f"select_sql_entrypoint: could not inspect existing SQL artifacts: {search_result.get('message') or 'unknown error'}"),
+                "trace": _append_trace(state, f"check_existing_sql: could not inspect existing SQL artifacts: {search_result.get('message') or 'unknown error'}"),
             }
 
         related_sql_artifacts = list(search_result.get("artifacts") or [])
@@ -231,7 +253,7 @@ def make_select_sql_entrypoint_node(
             return {
                 "reuse_existing_sql": False,
                 "related_sql_artifacts": [],
-                "trace": _append_trace(state, "select_sql_entrypoint: no related existing SQL artifacts found"),
+                "trace": _append_trace(state, "check_existing_sql: no related existing SQL artifacts found"),
             }
 
         decision_state = state.model_copy(
@@ -239,7 +261,7 @@ def make_select_sql_entrypoint_node(
                 "related_sql_artifacts": related_sql_artifacts,
             }
         )
-        decision = selector(decision_state)
+        decision = self.selector(decision_state)
         selected_artifact = _matching_related_sql_artifact(
             related_sql_artifacts,
             decision.sql_path,
@@ -251,84 +273,29 @@ def make_select_sql_entrypoint_node(
                     selected_artifact,
                 ),
                 "reuse_existing_sql": True,
-                "trace": _append_trace(state, f"select_sql_entrypoint: reusing existing SQL artifact {selected_artifact['sql_path']}"),
+                "trace": _append_trace(state, f"check_existing_sql: reusing existing SQL artifact {selected_artifact['sql_path']}"),
             }
 
-        if decision.use_as_draft_context and selected_artifact is not None:
-            reason = decision.reason.strip() or "related SQL artifact is useful draft context"
+        if decision.use_as_write_context and selected_artifact is not None:
+            reason = decision.reason.strip() or "related SQL artifact is useful write context"
             return {
                 **_selected_sql_artifact_update(
                     related_sql_artifacts,
                     selected_artifact,
                 ),
                 "reuse_existing_sql": False,
-                "trace": _append_trace(state, f"select_sql_entrypoint: adapting existing SQL artifact {selected_artifact['sql_path']} because {reason}"),
+                "trace": _append_trace(state, f"check_existing_sql: adapting existing SQL artifact {selected_artifact['sql_path']} because {reason}"),
             }
 
         reason = decision.reason.strip() or "existing SQL artifact was not an exact match"
         return {
             "reuse_existing_sql": False,
             "related_sql_artifacts": related_sql_artifacts,
-            "trace": _append_trace(state, f"select_sql_entrypoint: drafting from zero because {reason}"),
+            "trace": _append_trace(state, f"check_existing_sql: writing from zero because {reason}"),
         }
 
-    return select_sql_entrypoint
-
-
-def route_after_sql_entrypoint(state: QueryStageState) -> str:
-    """Route the query stage after inspecting existing SQL artifacts."""
-    if state.reuse_existing_sql and state.sql_path:
-        return "execute_sql"
-    return "write_sql"
-
-
-def _runtime_repair_hints(state: QueryStageState, error_message: str) -> list[dict[str, Any]]:
-    """Return deterministic hints for SQLite/runtime repair."""
-    sql_artifact_columns: dict[str, list[str]] = {}
-    for sql_artifact in state.extracted_sql_artifacts:
-        sql_artifact_name = str(sql_artifact.get("typed_view_name") or sql_artifact.get("table_name") or "").strip()
-        if not sql_artifact_name:
-            continue
-        columns = sql_artifact.get("typed_columns") or sql_artifact.get("db_columns") or sql_artifact.get("columns") or []
-        sql_artifact_columns[sql_artifact_name] = [str(column) for column in columns if str(column).strip()]
-    return suggest_sql_error_repair(
-        error_message,
-        available_sql_artifacts=sorted(set(_preferred_sql_artifact_names(state))),
-        sql_artifact_columns=sql_artifact_columns,
-    )
-
-
-def _file_error_update(
-    state: QueryStageState,
-    result: dict[str, Any],
-    *,
-    default_message: str,
-    trace_prefix: str,
-    **extra: Any,
-) -> QueryStageUpdate:
-    """Return a SQL-stage error update from a file-management result."""
-    message = str(result.get("message") or default_message)
-    return _error_update(
-        state,
-        last_error=message,
-        trace_message=f"{trace_prefix}: {message}",
-        result=result,
-        **extra,
-    )
-
-
-def make_write_node(
-    drafter: DraftFn,
-    *,
-    artifact_namer: ArtifactNamerFn | None = None,
-) -> Callable[
-    [QueryStageState],
-    QueryStageUpdate,
-]:
-    """Create the node that produces and writes the SQL artifact file."""
-
-    def write_node(state: QueryStageState) -> QueryStageUpdate:
-        """Draft SQL from shared orchestrator context and persist it."""
+    def write_sql(self, state: QueryStageState) -> QueryStageUpdate:
+        """Write SQL from shared orchestrator context and persist it."""
         sql_artifact_names = _preferred_sql_artifact_names(state)
         if not sql_artifact_names:
             return _error_update(
@@ -337,28 +304,28 @@ def make_write_node(
                 trace_message="write_sql: blocked because no orchestrator SQL artifacts were provided",
             )
 
-        draft = drafter(state)
-        if not draft.sql.strip():
+        write = self.writer(state)
+        if not write.sql.strip():
             return _error_update(
                 state,
-                last_error="SQL draft did not produce query text.",
-                trace_message="write_sql: skipped because SQL draft was empty",
+                last_error="SQL write did not produce query text.",
+                trace_message="write_sql: skipped because SQL write was empty",
             )
 
-        selected_sql_artifacts = draft.selected_sql_artifacts or sql_artifact_names
+        selected_sql_artifacts = write.selected_sql_artifacts or sql_artifact_names
         filename_hint = None
-        if artifact_namer is not None:
-            filename_hint = artifact_namer(
+        if self.artifact_namer is not None:
+            filename_hint = self.artifact_namer(
                 "\n".join(
                     [
                         f"User request: {latest_user_message(state.messages)}",
                         f"Selected SQL artifacts: {', '.join(selected_sql_artifacts)}",
-                        f"SQL:\n{draft.sql}",
+                        f"SQL:\n{write.sql}",
                     ]
                 )
             )
         write_result = write_sql_file(
-            draft.sql,
+            write.sql,
             state.sql_path,
             run_id=state.run_id,
             description=latest_user_message(state.messages),
@@ -383,10 +350,89 @@ def make_write_node(
             "trace": _append_trace(state, f"write_sql: wrote SQL file {write_result['sql_path']}"),
         }
 
-    return write_node
+    def repair_sql(self, state: QueryStageState) -> QueryStageUpdate:
+        """Apply hashline edits for SQLite/runtime execution errors."""
+        if not state.sql_path:
+            return _error_update(
+                state,
+                last_error="No SQL artifact path was available for repair.",
+                trace_message="repair_sql: skipped because no SQL file was available",
+            )
+
+        hashline_result = read_sql_hashlines(
+            state.sql_path,
+            run_id=state.run_id,
+        )
+        if hashline_result["status"] != "ok":
+            return _file_error_update(
+                state,
+                hashline_result,
+                default_message="Failed to read SQL hashlines.",
+                trace_prefix="repair_sql: failed to read SQL file",
+            )
+
+        repair_state = state.model_copy(
+            update={
+                "repair_count": state.repair_count + 1,
+                "sql_hashlines": str(hashline_result["hashlines"]),
+            }
+        )
+        repair = self.repairer(repair_state)
+        if not repair.edits:
+            return _error_update(
+                state,
+                last_error="Runtime repair did not produce any SQL file edits.",
+                trace_message="repair_sql: produced no edits",
+                repair_count=repair_state.repair_count,
+            )
+
+        edit_result = edit_sql_file(
+            state.sql_path,
+            repair.edits,
+            run_id=state.run_id,
+        )
+        if edit_result["status"] != "ok":
+            return _file_error_update(
+                state,
+                edit_result,
+                default_message="Failed to edit SQL file.",
+                trace_prefix="repair_sql: failed to edit SQL file",
+                repair_count=repair_state.repair_count,
+            )
+
+        return {
+            "status": "repaired",
+            "repair_count": repair_state.repair_count,
+            "candidate_sql": edit_result["sql"].strip(),
+            "sql_path": edit_result["sql_path"],
+            "trace": _append_trace(state, f"repair_sql: pass {repair_state.repair_count} edited SQL file"),
+        }
 
 
-def execute_node(state: QueryStageState) -> QueryStageUpdate:
+def route_after_existing_sql_check(state: QueryStageState) -> str:
+    """Route the query stage after inspecting existing SQL artifacts."""
+    if state.reuse_existing_sql and state.sql_path:
+        return "execute_sql"
+    return "write_sql"
+
+
+def _runtime_repair_hints(state: QueryStageState, error_message: str) -> list[dict[str, Any]]:
+    """Return deterministic hints for SQLite/runtime repair."""
+    sql_artifact_columns: dict[str, list[str]] = {}
+    for sql_artifact in state.extracted_sql_artifacts:
+        sql_artifact_name = str(sql_artifact.get("typed_view_name") or sql_artifact.get("table_name") or "").strip()
+        if not sql_artifact_name:
+            continue
+        columns = sql_artifact.get("typed_columns") or sql_artifact.get("db_columns") or sql_artifact.get("columns") or []
+        sql_artifact_columns[sql_artifact_name] = [str(column) for column in columns if str(column).strip()]
+    return suggest_sql_error_repair(
+        error_message,
+        available_sql_artifacts=sorted(set(_preferred_sql_artifact_names(state))),
+        sql_artifact_columns=sql_artifact_columns,
+    )
+
+
+def execute_sql_node(state: QueryStageState) -> QueryStageUpdate:
     """Execute SQL by reading the current SQL artifact file."""
     if state.status == "error":
         return {
@@ -453,69 +499,3 @@ def execute_node(state: QueryStageState) -> QueryStageUpdate:
         "last_error": error_message,
         "trace": _append_trace(state, trace_message),
     }
-
-
-def make_repair_sql_node(
-    repairer: RuntimeRepairFn,
-) -> Callable[[QueryStageState], QueryStageUpdate]:
-    """Create the repair_sql node using the supplied repairer."""
-
-    def repair_sql_node(state: QueryStageState) -> QueryStageUpdate:
-        """Apply hashline edits for SQLite/runtime execution errors."""
-        if not state.sql_path:
-            return _error_update(
-                state,
-                last_error="No SQL artifact path was available for repair.",
-                trace_message="repair_sql: skipped because no SQL file was available",
-            )
-
-        hashline_result = read_sql_hashlines(
-            state.sql_path,
-            run_id=state.run_id,
-        )
-        if hashline_result["status"] != "ok":
-            return _file_error_update(
-                state,
-                hashline_result,
-                default_message="Failed to read SQL hashlines.",
-                trace_prefix="repair_sql: failed to read SQL file",
-            )
-
-        repair_state = state.model_copy(
-            update={
-                "repair_count": state.repair_count + 1,
-                "sql_hashlines": str(hashline_result["hashlines"]),
-            }
-        )
-        repair = repairer(repair_state)
-        if not repair.edits:
-            return _error_update(
-                state,
-                last_error="Runtime repair did not produce any SQL file edits.",
-                trace_message="repair_sql: produced no edits",
-                repair_count=repair_state.repair_count,
-            )
-
-        edit_result = edit_sql_file(
-            state.sql_path,
-            repair.edits,
-            run_id=state.run_id,
-        )
-        if edit_result["status"] != "ok":
-            return _file_error_update(
-                state,
-                edit_result,
-                default_message="Failed to edit SQL file.",
-                trace_prefix="repair_sql: failed to edit SQL file",
-                repair_count=repair_state.repair_count,
-            )
-
-        return {
-            "status": "repaired",
-            "repair_count": repair_state.repair_count,
-            "candidate_sql": edit_result["sql"].strip(),
-            "sql_path": edit_result["sql_path"],
-            "trace": _append_trace(state, f"repair_sql: pass {repair_state.repair_count} edited SQL file"),
-        }
-
-    return repair_sql_node

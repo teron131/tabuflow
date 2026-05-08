@@ -14,15 +14,13 @@ from ..prep_stage import PrepStage, PrepStageOutput
 from ..prep_stage.payloads import collect_extracted_sql_artifacts
 from ..prep_stage.prep_stage import collect_prep_trial_result
 from ..prep_stage.state import PrepStageDecision
-from ..query_stage import DraftFn, RuntimeRepairFn, build_sql_drafter, build_sql_runtime_repairer
+from ..query_stage import SQLRepairerFn, SQLWriterFn, build_sql_repairer, build_sql_writer
 from ..query_stage.nodes import (
+    QueryStageNodes,
     build_existing_sql_selector,
-    execute_node,
-    make_repair_sql_node,
-    make_select_sql_entrypoint_node,
-    make_write_node,
+    execute_sql_node,
     never_reuse_existing_sql,
-    route_after_sql_entrypoint,
+    route_after_existing_sql_check,
 )
 from ..trace_utils import (
     PREP_STAGE,
@@ -218,28 +216,26 @@ class OrchestratorNodes:
         root_dir: str | Path | None,
         llm: Any | None,
         prep_stage: PrepStage | None,
-        sql_drafter: DraftFn | None,
-        sql_runtime_repairer: RuntimeRepairFn | None,
+        sql_writer: SQLWriterFn | None,
+        sql_repairer: SQLRepairerFn | None,
         validation_stage: ValidationStage | None,
     ):
         self.prompt = prompt
         self.root_dir = root_dir
         self.llm = llm
         self._prep_stage = prep_stage
-        if llm is None and (sql_drafter is None or sql_runtime_repairer is None):
+        if llm is None and (sql_writer is None or sql_repairer is None):
             raise ValueError("SQL stage model functions require the orchestrator's shared llm.")
-        self.sql_drafter = sql_drafter or build_sql_drafter(llm)
-        self.sql_runtime_repairer = sql_runtime_repairer or build_sql_runtime_repairer(llm)
+        self.sql_writer = sql_writer or build_sql_writer(llm)
+        self.sql_repairer = sql_repairer or build_sql_repairer(llm)
         self.existing_sql_selector = build_existing_sql_selector(llm) if llm is not None else never_reuse_existing_sql
-        self.select_sql_entrypoint_node = make_select_sql_entrypoint_node(
-            self.existing_sql_selector,
+        self.query_stage_nodes = QueryStageNodes(
+            selector=self.existing_sql_selector,
+            writer=self.sql_writer,
+            repairer=self.sql_repairer,
+            artifact_namer=build_sql_artifact_namer(llm) if llm is not None else None,
             root_dir=root_dir,
         )
-        self.sql_write_node = make_write_node(
-            self.sql_drafter,
-            artifact_namer=build_sql_artifact_namer(llm) if llm is not None else None,
-        )
-        self.repair_sql_node = make_repair_sql_node(self.sql_runtime_repairer)
         self.validation_stage = validation_stage or (ValidationStage(llm=llm) if llm is not None else ValidationStage())
 
     @property
@@ -277,7 +273,7 @@ class OrchestratorNodes:
 
     def write_sql(self, state: OrchestratorState) -> dict[str, Any]:
         """Write the SQL artifact directly from shared orchestrator state."""
-        update = self.sql_write_node(state)
+        update = self.query_stage_nodes.write_sql(state)
         if update.get("status") == "written":
             content = f"Wrote SQL artifact {update.get('sql_path')} for SQL artifacts: {', '.join(update.get('selected_sql_artifacts', [])) or 'none'}."
         else:
@@ -289,7 +285,7 @@ class OrchestratorNodes:
 
     def execute_sql(self, state: OrchestratorState) -> dict[str, Any]:
         """Execute the current SQL artifact directly from the orchestrator graph."""
-        update = execute_node(state)
+        update = execute_sql_node(state)
         if update.get("status") == "complete":
             row_count = (update.get("result") or {}).get("row_count")
             content = f"Executed SQL successfully on attempt {update.get('attempts')}; row_count={row_count}."
@@ -304,7 +300,7 @@ class OrchestratorNodes:
 
     def repair_sql(self, state: OrchestratorState) -> dict[str, Any]:
         """Repair SQLite runtime errors by editing the current SQL artifact."""
-        update = self.repair_sql_node(state)
+        update = self.query_stage_nodes.repair_sql(state)
         if update.get("status") == "repaired":
             content = f"SQL repair pass {update.get('repair_count')} edited SQL artifact {update.get('sql_path')}."
         else:
@@ -317,17 +313,17 @@ class OrchestratorNodes:
     def query_stage_graph(self, *, name: str = "query_stage") -> CompiledStateGraph:
         """Build the SQL-write, execution, repair, and validation loop."""
         builder = StateGraph(OrchestratorState)
-        builder.add_node("select_sql_entrypoint", self.select_sql_entrypoint_node)
+        builder.add_node("check_existing_sql", self.query_stage_nodes.check_existing_sql)
         builder.add_node("write_sql", self.write_sql)
         builder.add_node("execute_sql", self.execute_sql)
         builder.add_node("repair_sql", self.repair_sql)
         builder.add_node("validate", self.validate)
         builder.add_node("save_view", self.save_view)
 
-        builder.add_edge(START, "select_sql_entrypoint")
+        builder.add_edge(START, "check_existing_sql")
         builder.add_conditional_edges(
-            "select_sql_entrypoint",
-            route_after_sql_entrypoint,
+            "check_existing_sql",
+            route_after_existing_sql_check,
             {
                 "write_sql": "write_sql",
                 "execute_sql": "execute_sql",

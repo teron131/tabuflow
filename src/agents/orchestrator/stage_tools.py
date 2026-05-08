@@ -14,7 +14,7 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 
 from ..prep_stage import PrepStage
-from ..query_stage import DraftFn, RuntimeRepairFn
+from ..query_stage import SQLRepairerFn, SQLWriterFn
 from ..validation_stage import ValidationStage
 from .nodes import OrchestratorNodes
 from .state import OrchestratorState
@@ -135,8 +135,8 @@ def make_orchestrator_stages(
     root_dir: str | Path | None = None,
     llm: BaseChatModel | None = None,
     prep_stage: PrepStage | None = None,
-    sql_drafter: DraftFn | None = None,
-    sql_runtime_repairer: RuntimeRepairFn | None = None,
+    sql_writer: SQLWriterFn | None = None,
+    sql_repairer: SQLRepairerFn | None = None,
     validation_stage: ValidationStage | None = None,
 ) -> list[BaseTool]:
     """Build callable orchestrator stages for the user-facing agent."""
@@ -145,8 +145,8 @@ def make_orchestrator_stages(
         root_dir=root_dir,
         llm=llm,
         prep_stage=prep_stage,
-        sql_drafter=sql_drafter,
-        sql_runtime_repairer=sql_runtime_repairer,
+        sql_writer=sql_writer,
+        sql_repairer=sql_repairer,
         validation_stage=validation_stage,
     )
     prep_graph = nodes.prep_stage_graph()

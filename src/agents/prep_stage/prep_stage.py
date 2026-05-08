@@ -35,6 +35,28 @@ class PrepTrialResult:
     trace: list[str]
 
 
+@dataclass
+class PrepTrialSummary:
+    """Normalized readiness signals from one prep trial."""
+
+    extracted_sql_artifacts: list[dict[str, Any]]
+    database_paths: set[str]
+    trial_error: str | None
+    decision_summary: str
+
+    @property
+    def extraction_ready(self) -> bool:
+        """Return whether the trial produced one usable database and SQL artifacts."""
+        return self.trial_error is None and len(self.database_paths) == 1 and bool(self.extracted_sql_artifacts)
+
+    @property
+    def database_path(self) -> str | None:
+        """Return the single prepared database path when it is available."""
+        if len(self.database_paths) != 1:
+            return None
+        return next(iter(self.database_paths))
+
+
 def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
     """Collect structured decisions and tool artifacts from one prep-stage run."""
     trace: list[str] = []
@@ -87,6 +109,100 @@ def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
         extraction_results=extraction_results,
         last_error=last_error,
         trace=trace,
+    )
+
+
+def summarize_prep_trial(trial: PrepTrialResult) -> PrepTrialSummary:
+    """Return the readiness summary for one prep trial."""
+    extracted_sql_artifacts = collect_extracted_sql_artifacts(trial.extraction_results)
+    database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}
+    trial_error = trial.last_error
+    if trial_error is None:
+        if not trial.extraction_results:
+            trial_error = "Prep agent finished without extracting any data."
+        elif len(database_paths) != 1:
+            trial_error = "Expected one shared SQLite database path after extraction."
+        elif not extracted_sql_artifacts:
+            trial_error = "Prep agent extracted data but did not produce usable SQL artifacts."
+
+    decision = trial.decision
+    decision_summary = decision.summary if decision and decision.summary else trial_error or "Prep trial finished without a usable extraction."
+    return PrepTrialSummary(
+        extracted_sql_artifacts=extracted_sql_artifacts,
+        database_paths=database_paths,
+        trial_error=trial_error,
+        decision_summary=decision_summary,
+    )
+
+
+def _prepared_output(
+    *,
+    trial: PrepTrialResult,
+    summary: PrepTrialSummary,
+    prep_attempt: int,
+    trace: list[str],
+) -> PrepStageOutput:
+    """Build the successful prep-stage output."""
+    database_path = summary.database_path or ""
+    success_message = f"prepared {len(summary.extracted_sql_artifacts)} SQL artifact(s) into {database_path}"
+    return PrepStageOutput(
+        status="prepared",
+        database_path=database_path,
+        extraction_results=trial.extraction_results,
+        extracted_sql_artifacts=summary.extracted_sql_artifacts,
+        prep_attempts=prep_attempt,
+        trace=append_stage_trace(
+            trace,
+            PREP_STAGE,
+            success_message,
+        ),
+    )
+
+
+def _stopped_output(
+    *,
+    trial: PrepTrialResult,
+    summary: PrepTrialSummary,
+    prep_attempt: int,
+    trace: list[str],
+) -> PrepStageOutput:
+    """Build the prep-stage output for non-retryable stop decisions."""
+    decision = trial.decision
+    stop_message = f"stopped after trial {prep_attempt} with status={decision.status if decision else 'error'}"
+    return PrepStageOutput(
+        status="error",
+        extraction_results=trial.extraction_results,
+        extracted_sql_artifacts=summary.extracted_sql_artifacts,
+        last_error=(decision.last_error if decision else None) or summary.trial_error or (decision.summary if decision else None),
+        prep_attempts=prep_attempt,
+        trace=append_stage_trace(
+            trace,
+            PREP_STAGE,
+            stop_message,
+        ),
+    )
+
+
+def _exhausted_output(
+    *,
+    trial: PrepTrialResult,
+    safe_max_prep_trials: int,
+    trace: list[str],
+) -> PrepStageOutput:
+    """Build the prep-stage output after all retry trials are exhausted."""
+    final_decision = trial.decision
+    final_error = (
+        final_decision.last_error
+        if final_decision and final_decision.last_error
+        else trial.last_error or (final_decision.summary if final_decision else None) or f"Prep agent exhausted {safe_max_prep_trials} trial(s) without a usable extraction."
+    )
+    return PrepStageOutput(
+        status="error",
+        extraction_results=trial.extraction_results,
+        extracted_sql_artifacts=collect_extracted_sql_artifacts(trial.extraction_results),
+        last_error=final_error,
+        prep_attempts=safe_max_prep_trials,
+        trace=append_stage_trace(trace, PREP_STAGE, f"exhausted {safe_max_prep_trials} trial(s)"),
     )
 
 
@@ -175,50 +291,23 @@ class PrepStage(ApplicationAgent):
                 trace = append_stage_trace(trace, PREP_STAGE, f"trial {prep_attempt} {message}")
 
             decision = trial.decision
-            extracted_sql_artifacts = collect_extracted_sql_artifacts(trial.extraction_results)
-            database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}
-            trial_error = trial.last_error
-            if trial_error is None:
-                if not trial.extraction_results:
-                    trial_error = "Prep agent finished without extracting any data."
-                elif len(database_paths) != 1:
-                    trial_error = "Expected one shared SQLite database path after extraction."
-                elif not extracted_sql_artifacts:
-                    trial_error = "Prep agent extracted data but did not produce usable SQL artifacts."
+            summary = summarize_prep_trial(trial)
+            previous_attempts.append(f"trial {prep_attempt}: {summary.decision_summary}")
 
-            decision_summary = decision.summary if decision and decision.summary else trial_error or "Prep trial finished without a usable extraction."
-            previous_attempts.append(f"trial {prep_attempt}: {decision_summary}")
-
-            extraction_ready = trial_error is None and len(database_paths) == 1 and bool(extracted_sql_artifacts)
-            if extraction_ready:
-                database_path = next(iter(database_paths))
-                success_message = f"prepared {len(extracted_sql_artifacts)} SQL artifact(s) into {database_path}"
-                return PrepStageOutput(
-                    status="prepared",
-                    database_path=database_path,
-                    extraction_results=trial.extraction_results,
-                    extracted_sql_artifacts=extracted_sql_artifacts,
-                    prep_attempts=prep_attempt,
-                    trace=append_stage_trace(
-                        trace,
-                        PREP_STAGE,
-                        success_message,
-                    ),
+            if summary.extraction_ready:
+                return _prepared_output(
+                    trial=trial,
+                    summary=summary,
+                    prep_attempt=prep_attempt,
+                    trace=trace,
                 )
 
             if decision is not None and decision.status in {"blocked", "error"}:
-                stop_message = f"stopped after trial {prep_attempt} with status={decision.status}"
-                return PrepStageOutput(
-                    status="error",
-                    extraction_results=trial.extraction_results,
-                    extracted_sql_artifacts=extracted_sql_artifacts,
-                    last_error=decision.last_error or trial_error or decision.summary,
-                    prep_attempts=prep_attempt,
-                    trace=append_stage_trace(
-                        trace,
-                        PREP_STAGE,
-                        stop_message,
-                    ),
+                return _stopped_output(
+                    trial=trial,
+                    summary=summary,
+                    prep_attempt=prep_attempt,
+                    trace=trace,
                 )
 
             retry_instructions = decision.retry_instructions if decision is not None else []
@@ -226,7 +315,7 @@ class PrepStage(ApplicationAgent):
                 trace = append_stage_trace(
                     trace,
                     PREP_STAGE,
-                    f"retrying after trial {prep_attempt}: {decision_summary}",
+                    f"retrying after trial {prep_attempt}: {summary.decision_summary}",
                 )
 
         if last_trial is None:
@@ -236,19 +325,8 @@ class PrepStage(ApplicationAgent):
                 trace=append_stage_trace(trace, PREP_STAGE, "failed before starting"),
             )
 
-        final_decision = last_trial.decision
-        final_error = (
-            final_decision.last_error
-            if final_decision and final_decision.last_error
-            else last_trial.last_error
-            or (final_decision.summary if final_decision else None)
-            or f"Prep agent exhausted {safe_max_prep_trials} trial(s) without a usable extraction."
-        )
-        return PrepStageOutput(
-            status="error",
-            extraction_results=last_trial.extraction_results,
-            extracted_sql_artifacts=collect_extracted_sql_artifacts(last_trial.extraction_results),
-            last_error=final_error,
-            prep_attempts=safe_max_prep_trials,
-            trace=append_stage_trace(trace, PREP_STAGE, f"exhausted {safe_max_prep_trials} trial(s)"),
+        return _exhausted_output(
+            trial=last_trial,
+            safe_max_prep_trials=safe_max_prep_trials,
+            trace=trace,
         )
