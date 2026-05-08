@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
 
 from ..pipelines.namer import name_sql_artifact
@@ -9,6 +10,8 @@ from ..tools.fs import HashlineEdit, SandboxFS
 
 DEFAULT_SQL_DIR = "data/sql"
 DEFAULT_SQL_DESCRIPTION = "SQL query artifact."
+MAX_SQL_ARTIFACT_PREVIEW_CHARS = 4_000
+SQL_HEADER_RE = re.compile(r"^--\s*([^:]+):\s*(.*)$")
 
 
 @dataclass(frozen=True)
@@ -85,6 +88,51 @@ def _sql_location(
 def _comment_value(value: str) -> str:
     """Return one SQL-line-comment-safe value."""
     return " ".join(value.strip().split())
+
+
+def _parse_sql_header(sql: str) -> dict[str, Any]:
+    """Return metadata from the standard SQL artifact comment header."""
+    metadata: dict[str, Any] = {
+        "description": DEFAULT_SQL_DESCRIPTION,
+        "run_id": "",
+        "selected_sql_artifacts": [],
+    }
+    for line in sql.splitlines():
+        stripped_line = line.strip()
+        if not stripped_line:
+            if metadata.get("description") != DEFAULT_SQL_DESCRIPTION or metadata.get("run_id"):
+                break
+            continue
+        match = SQL_HEADER_RE.match(stripped_line)
+        if match is None:
+            break
+        key = match.group(1).strip().lower()
+        value = match.group(2).strip()
+        if key == "description" and value:
+            metadata["description"] = value
+        elif key == "run id":
+            metadata["run_id"] = value
+        elif key == "sql artifacts":
+            metadata["selected_sql_artifacts"] = [item.strip() for item in value.split(",") if item.strip()]
+    return metadata
+
+
+def _sql_artifact_payload(
+    fs: SandboxFS,
+    path: Path,
+) -> dict[str, Any]:
+    """Return one SQL artifact payload with header metadata and preview text."""
+    relative_path = path.relative_to(fs.root_dir).as_posix()
+    sql = fs.read_text(relative_path)
+    metadata = _parse_sql_header(sql)
+    return {
+        "path": relative_path,
+        "sql_path": str(path),
+        "description": metadata["description"],
+        "run_id": metadata["run_id"],
+        "selected_sql_artifacts": metadata["selected_sql_artifacts"],
+        "sql_preview": sql[:MAX_SQL_ARTIFACT_PREVIEW_CHARS].rstrip(),
+    }
 
 
 def _sql_with_header(
@@ -172,6 +220,88 @@ def read_sql_file(
             message=str(exc),
             sql_path=sql_path,
         )
+
+
+def list_sql_artifacts(
+    *,
+    root_dir: str | Path | None = None,
+    sql_dir: str = DEFAULT_SQL_DIR,
+    max_files: int = 100,
+) -> dict[str, Any]:
+    """List SQL artifacts with their standard header metadata."""
+    try:
+        fs = _sandbox(root_dir)
+        sql_root = fs.resolve(sql_dir)
+        if not sql_root.exists():
+            return {"status": "ok", "artifacts": []}
+        if not sql_root.is_dir():
+            return _error_result(
+                error_type="invalid_sql_dir",
+                message=f"SQL artifact directory is not a directory: {sql_dir}",
+                sql_path=sql_dir,
+            )
+
+        artifacts: list[dict[str, Any]] = []
+        for path in sorted(sql_root.rglob("*.sql"), key=lambda item: item.stat().st_mtime, reverse=True):
+            artifacts.append(_sql_artifact_payload(fs, path))
+            if len(artifacts) >= max(0, max_files):
+                break
+        return {"status": "ok", "artifacts": artifacts}
+    except OSError as exc:
+        return _error_result(
+            error_type="list_failed",
+            message=str(exc),
+            sql_path=sql_dir,
+        )
+    except ValueError as exc:
+        return _error_result(
+            error_type="invalid_sql_dir",
+            message=str(exc),
+            sql_path=sql_dir,
+        )
+
+
+def _search_tokens(value: str) -> set[str]:
+    """Return coarse lexical tokens for SQL artifact discovery."""
+    return {token for token in re.findall(r"[a-z0-9_]+", value.lower()) if len(token) > 2}
+
+
+def _sql_artifact_search_text(artifact: dict[str, Any]) -> str:
+    """Return searchable metadata for a SQL artifact."""
+    selected_sql_artifacts = " ".join(str(item) for item in artifact.get("selected_sql_artifacts", []))
+    return " ".join(
+        [
+            str(artifact.get("description") or ""),
+            str(artifact.get("path") or ""),
+            selected_sql_artifacts,
+        ]
+    )
+
+
+def search_sql_artifacts(
+    query: str,
+    *,
+    root_dir: str | Path | None = None,
+    top_k: int = 5,
+) -> dict[str, Any]:
+    """Search SQL artifacts from their descriptions and standard headers."""
+    result = list_sql_artifacts(root_dir=root_dir)
+    if result.get("status") != "ok":
+        return result
+
+    query_tokens = _search_tokens(query)
+    scored_artifacts: list[tuple[int, int, dict[str, Any]]] = []
+    for idx, artifact in enumerate(result.get("artifacts", [])):
+        artifact_tokens = _search_tokens(_sql_artifact_search_text(artifact))
+        score = len(query_tokens & artifact_tokens)
+        if score > 0 or not query_tokens:
+            scored_artifacts.append((score, -idx, artifact))
+
+    scored_artifacts.sort(reverse=True)
+    return {
+        "status": "ok",
+        "artifacts": [artifact for _, _, artifact in scored_artifacts[: max(0, top_k)]],
+    }
 
 
 def read_sql_hashlines(

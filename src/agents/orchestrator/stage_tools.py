@@ -116,6 +116,8 @@ def _reset_query_fields(payload: dict[str, Any]) -> dict[str, Any]:
         "validation_attempts": 0,
         "status": "pending",
         "sql_path": None,
+        "reuse_existing_sql": False,
+        "related_sql_artifacts": [],
         "selected_sql_artifacts": [],
         "candidate_sql": None,
         "repair_hints": [],

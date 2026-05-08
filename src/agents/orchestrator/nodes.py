@@ -15,7 +15,15 @@ from ..prep_stage.payloads import collect_extracted_sql_artifacts
 from ..prep_stage.prep_stage import collect_prep_trial_result
 from ..prep_stage.state import PrepStageDecision
 from ..query_stage import DraftFn, RuntimeRepairFn, build_sql_drafter, build_sql_runtime_repairer
-from ..query_stage.nodes import execute_node, make_repair_sql_node, make_write_node
+from ..query_stage.nodes import (
+    build_existing_sql_selector,
+    execute_node,
+    make_repair_sql_node,
+    make_select_sql_entrypoint_node,
+    make_write_node,
+    never_reuse_existing_sql,
+    route_after_sql_entrypoint,
+)
 from ..trace_utils import (
     PREP_STAGE,
     SKILL_CONTEXT_STAGE,
@@ -222,6 +230,11 @@ class OrchestratorNodes:
             raise ValueError("SQL stage model functions require the orchestrator's shared llm.")
         self.sql_drafter = sql_drafter or build_sql_drafter(llm)
         self.sql_runtime_repairer = sql_runtime_repairer or build_sql_runtime_repairer(llm)
+        self.existing_sql_selector = build_existing_sql_selector(llm) if llm is not None else never_reuse_existing_sql
+        self.select_sql_entrypoint_node = make_select_sql_entrypoint_node(
+            self.existing_sql_selector,
+            root_dir=root_dir,
+        )
         self.sql_write_node = make_write_node(
             self.sql_drafter,
             artifact_namer=build_sql_artifact_namer(llm) if llm is not None else None,
@@ -304,13 +317,22 @@ class OrchestratorNodes:
     def query_stage_graph(self, *, name: str = "query_stage") -> CompiledStateGraph:
         """Build the SQL-write, execution, repair, and validation loop."""
         builder = StateGraph(OrchestratorState)
+        builder.add_node("select_sql_entrypoint", self.select_sql_entrypoint_node)
         builder.add_node("write_sql", self.write_sql)
         builder.add_node("execute_sql", self.execute_sql)
         builder.add_node("repair_sql", self.repair_sql)
         builder.add_node("validate", self.validate)
         builder.add_node("save_view", self.save_view)
 
-        builder.add_edge(START, "write_sql")
+        builder.add_edge(START, "select_sql_entrypoint")
+        builder.add_conditional_edges(
+            "select_sql_entrypoint",
+            route_after_sql_entrypoint,
+            {
+                "write_sql": "write_sql",
+                "execute_sql": "execute_sql",
+            },
+        )
         builder.add_edge("write_sql", "execute_sql")
         builder.add_conditional_edges(
             "execute_sql",

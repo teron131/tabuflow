@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain_core.language_models import BaseChatModel
 
-from ...file_management import edit_sql_file, read_sql_file, read_sql_hashlines, write_sql_file
+from ...file_management import (
+    edit_sql_file,
+    read_sql_file,
+    read_sql_hashlines,
+    search_sql_artifacts,
+    write_sql_file,
+)
 from ...pipelines.namer import ArtifactNamerFn
 from ...tools.sql.query import run_query, suggest_sql_error_repair
 from ..base import ApplicationAgent
@@ -17,14 +24,24 @@ from ..orchestrator.state import latest_user_message
 from ..trace_utils import SQL_STAGE, append_stage_trace
 from .prompts import (
     SQL_DRAFT_SYSTEM_PROMPT,
+    SQL_REUSE_SYSTEM_PROMPT,
     SQL_RUNTIME_REPAIR_SYSTEM_PROMPT,
     build_draft_messages,
+    build_existing_sql_messages,
     build_runtime_repair_messages,
 )
-from .state import DraftFn, RuntimeRepairFn, QueryStageState, SQLDraft, SQLRuntimeRepair
-
+from .state import (
+    DraftFn,
+    ExistingSQLDecision,
+    ExistingSQLSelectorFn,
+    QueryStageState,
+    RuntimeRepairFn,
+    SQLDraft,
+    SQLRuntimeRepair,
+)
 
 QueryStageUpdate = dict[str, Any]
+MAX_RELATED_SQL_ARTIFACTS = 5
 
 
 def build_sql_drafter(llm: BaseChatModel) -> DraftFn:
@@ -91,6 +108,36 @@ def build_sql_runtime_repairer(llm: BaseChatModel) -> RuntimeRepairFn:
     return runtime_repairer
 
 
+def build_existing_sql_selector(llm: BaseChatModel) -> ExistingSQLSelectorFn:
+    """Build the selector that can reuse a ready existing SQL artifact."""
+    selector_agent = create_agent(
+        model=llm,
+        tools=[],
+        system_prompt=SQL_REUSE_SYSTEM_PROMPT,
+        response_format=ToolStrategy(ExistingSQLDecision),
+        name="existing_sql_selector",
+    )
+
+    def selector(state: QueryStageState) -> ExistingSQLDecision:
+        """Choose whether one discovered SQL artifact is an exact reuse fit."""
+        if not state.related_sql_artifacts:
+            return ExistingSQLDecision(reason="No related SQL artifacts were discovered.")
+
+        result = selector_agent.invoke({"messages": build_existing_sql_messages(state)})
+        return ApplicationAgent.get_structured_response(
+            result,
+            ExistingSQLDecision,
+            agent_name="existing_sql_selector",
+        )
+
+    return selector
+
+
+def never_reuse_existing_sql(_: QueryStageState) -> ExistingSQLDecision:
+    """Return the default decision when no selector model is available."""
+    return ExistingSQLDecision(reason="No existing SQL selector is configured.")
+
+
 def _append_trace(state: QueryStageState, message: str) -> list[str]:
     """Append one trace message."""
     return append_stage_trace(state.trace, SQL_STAGE, message)
@@ -129,6 +176,110 @@ def _preferred_sql_artifact_names(state: QueryStageState) -> list[str]:
         seen_names.add(sql_artifact_name)
         sql_artifact_names.append(sql_artifact_name)
     return sql_artifact_names
+
+
+def _matching_related_sql_artifact(
+    related_sql_artifacts: list[dict[str, Any]],
+    sql_path: str | None,
+) -> dict[str, Any] | None:
+    """Return the discovered artifact that matches a selector-chosen path."""
+    if not sql_path:
+        return None
+    normalized_sql_path = str(sql_path)
+    for artifact in related_sql_artifacts:
+        if normalized_sql_path in {str(artifact.get("sql_path") or ""), str(artifact.get("path") or "")}:
+            return artifact
+    return None
+
+
+def _selected_sql_artifact_update(
+    related_sql_artifacts: list[dict[str, Any]],
+    selected_artifact: dict[str, Any],
+) -> QueryStageUpdate:
+    """Return state fields shared by direct reuse and draft-context reuse."""
+    return {
+        "related_sql_artifacts": related_sql_artifacts,
+        "sql_path": selected_artifact["sql_path"],
+        "candidate_sql": selected_artifact.get("sql_preview"),
+        "selected_sql_artifacts": list(selected_artifact.get("selected_sql_artifacts") or []),
+    }
+
+
+def make_select_sql_entrypoint_node(
+    selector: ExistingSQLSelectorFn,
+    *,
+    root_dir: str | Path | None = None,
+) -> Callable[[QueryStageState], QueryStageUpdate]:
+    """Create the node that chooses draft-from-zero or execute-ready-SQL."""
+
+    def select_sql_entrypoint(state: QueryStageState) -> QueryStageUpdate:
+        """Look at related SQL artifacts before the query stage writes a new SQL file."""
+        search_result = search_sql_artifacts(
+            latest_user_message(state.messages),
+            root_dir=root_dir,
+            top_k=MAX_RELATED_SQL_ARTIFACTS,
+        )
+        if search_result.get("status") != "ok":
+            return {
+                "reuse_existing_sql": False,
+                "related_sql_artifacts": [],
+                "trace": _append_trace(state, f"select_sql_entrypoint: could not inspect existing SQL artifacts: {search_result.get('message') or 'unknown error'}"),
+            }
+
+        related_sql_artifacts = list(search_result.get("artifacts") or [])
+        if not related_sql_artifacts:
+            return {
+                "reuse_existing_sql": False,
+                "related_sql_artifacts": [],
+                "trace": _append_trace(state, "select_sql_entrypoint: no related existing SQL artifacts found"),
+            }
+
+        decision_state = state.model_copy(
+            update={
+                "related_sql_artifacts": related_sql_artifacts,
+            }
+        )
+        decision = selector(decision_state)
+        selected_artifact = _matching_related_sql_artifact(
+            related_sql_artifacts,
+            decision.sql_path,
+        )
+        if decision.reuse_existing_sql and selected_artifact is not None:
+            return {
+                **_selected_sql_artifact_update(
+                    related_sql_artifacts,
+                    selected_artifact,
+                ),
+                "reuse_existing_sql": True,
+                "trace": _append_trace(state, f"select_sql_entrypoint: reusing existing SQL artifact {selected_artifact['sql_path']}"),
+            }
+
+        if decision.use_as_draft_context and selected_artifact is not None:
+            reason = decision.reason.strip() or "related SQL artifact is useful draft context"
+            return {
+                **_selected_sql_artifact_update(
+                    related_sql_artifacts,
+                    selected_artifact,
+                ),
+                "reuse_existing_sql": False,
+                "trace": _append_trace(state, f"select_sql_entrypoint: adapting existing SQL artifact {selected_artifact['sql_path']} because {reason}"),
+            }
+
+        reason = decision.reason.strip() or "existing SQL artifact was not an exact match"
+        return {
+            "reuse_existing_sql": False,
+            "related_sql_artifacts": related_sql_artifacts,
+            "trace": _append_trace(state, f"select_sql_entrypoint: drafting from zero because {reason}"),
+        }
+
+    return select_sql_entrypoint
+
+
+def route_after_sql_entrypoint(state: QueryStageState) -> str:
+    """Route the query stage after inspecting existing SQL artifacts."""
+    if state.reuse_existing_sql and state.sql_path:
+        return "execute_sql"
+    return "write_sql"
 
 
 def _runtime_repair_hints(state: QueryStageState, error_message: str) -> list[dict[str, Any]]:
@@ -306,10 +457,7 @@ def execute_node(state: QueryStageState) -> QueryStageUpdate:
 
 def make_repair_sql_node(
     repairer: RuntimeRepairFn,
-) -> Callable[
-    [QueryStageState],
-    QueryStageUpdate,
-]:
+) -> Callable[[QueryStageState], QueryStageUpdate]:
     """Create the repair_sql node using the supplied repairer."""
 
     def repair_sql_node(state: QueryStageState) -> QueryStageUpdate:

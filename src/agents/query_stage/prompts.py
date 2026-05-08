@@ -25,6 +25,7 @@ Rules:
 - If the message or skill asks for multiple result grains, such as summary, category, and account/customer rows, the SQL must produce all requested row types from real source data. Do not satisfy missing grains with empty UNION arms, `WHERE 1 = 0`, duplicated total rows, or placeholder labels.
 - Treat `message` as the user request and `validation_feedback` as semantic retry guidance from the validation stage.
 - If `validation_feedback` is present, revise the query to address it directly.
+- If `previous_sql` is present, it is a related existing SQL artifact selected as draft context. Reuse its shape only when it helps; otherwise draft from zero while preserving the standard SQL header.
 - Do not ask clarifying questions, discover SQL artifacts, or judge final request fulfillment.
 """
 
@@ -39,6 +40,18 @@ Rules:
 - Use loaded skill references inside `worker_context` when an execution error shows the SQL drifted from the reference contract.
 - If a missing-column error comes from a fabricated normalized schema, rebuild the affected query from the skill reference and exact `sql_artifact_context` columns instead of trying another alias.
 - Preserve the SQL comment header unless the broken line is inside the header.
+"""
+
+SQL_REUSE_SYSTEM_PROMPT = """Decide how one existing SQL artifact should influence the current request.
+
+Rules:
+- Existing SQL artifacts are only reusable when their `-- Description` header and SQL preview clearly match the current user request.
+- Treat an existing SQL artifact like a loaded skill reference: it is a reusable contract only when its description is the same task, not merely a similar dataset.
+- Set reuse_existing_sql=true only when the SQL can be executed directly for this request.
+- If one related artifact is not directly reusable but is valuable to ride on with minor edits, set use_as_draft_context=true and return its exact `sql_path`.
+- Use draft context only when the artifact's description, selected SQL artifacts, and SQL shape are close enough to reduce risk versus drafting from zero.
+- Choose at most one artifact. Do not choose because of filename alone, shared table names alone, or valid SQLite syntax alone.
+- If the artifacts are partial, stale, generic, or likely to confuse the draft, set both booleans false.
 """
 
 
@@ -114,6 +127,18 @@ def build_draft_messages(state: QueryStageState) -> list[HumanMessage]:
         "sql_artifact_context": _sql_artifact_context(state),
         "sql_path": state.sql_path,
         "previous_sql": state.candidate_sql,
+    }
+    return _message_from_payload(payload)
+
+
+def build_existing_sql_messages(state: QueryStageState) -> list[HumanMessage]:
+    """Build the decision prompt for reusing a ready SQL artifact."""
+    payload = {
+        "message": latest_user_message(state.messages),
+        "source_files": state.source_files,
+        "allowed_sql_artifacts": _allowed_sql_artifacts(state),
+        "sql_artifact_context": _sql_artifact_context(state),
+        "related_sql_artifacts": state.related_sql_artifacts,
     }
     return _message_from_payload(payload)
 

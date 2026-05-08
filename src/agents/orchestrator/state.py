@@ -24,6 +24,8 @@ class SQLArtifactState(BaseModel):
 
     status: str = Field(default="pending", description="Current SQL-stage status.")
     sql_path: str | None = Field(default=None, description="Path to the current SQL artifact file.")
+    reuse_existing_sql: bool = Field(default=False, description="Whether the current SQL stage should execute an accepted existing SQL artifact.")
+    related_sql_artifacts: list[dict[str, Any]] = Field(default_factory=list, description="Existing SQL artifacts considered for this request.")
     selected_sql_artifacts: list[str] = Field(default_factory=list, description="SQL artifacts selected by the current draft.")
     candidate_sql: str | None = Field(default=None, description="Current SQL text read from or written to the SQL artifact.")
     repair_hints: list[dict[str, Any]] = Field(default_factory=list, description="Deterministic hints for repairing SQLite runtime errors.")
