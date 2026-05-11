@@ -12,7 +12,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 
-from ...tools import list_skills, load_skills, search_skills
+from ...tools import create_skill_package, list_skills, load_skills, search_skills
 from ...tools.fs import allow_sql_or_skill_write, make_fs_tools
 from ..base import ApplicationAgent
 from ..prep_stage import PrepStage
@@ -41,7 +41,8 @@ If query_stage reports that prepared data is missing, call prep_stage and then q
 After query_stage returns outcome=fulfilled or status=saved, answer from that result. Do not call query_stage again for more rows or a reformatted result unless the user explicitly asked for that.
 For a vague attached-file request such as "get the result", do not ask what result means; produce the most useful default summary supported by the matched skill and prepared schema.
 Use fs_list_files, fs_search_text, fs_read_text, and fs_read_hashline to inspect workspace files when needed.
-Use fs_edit_hashline for requested SQL or workspace SKILL.md edits. Read current hashlines first; writes are tool-scoped to .sql files and skills/**/SKILL.md files.
+Use create_skill_package when the user asks to create a new reusable skill package frame.
+After create_skill_package creates the frame, use fs_read_hashline and fs_edit_hashline for requested SQL or workspace skill edits. Read current hashlines first; writes are tool-scoped to .sql files and skills/**/SKILL.md, references, and scripts files.
 Do not invent saved view names, SQL paths, row counts, or artifact details; use tool results for those facts.
 """
 ORCHESTRATOR_SUMMARY_PROMPT = """Write the final user-facing response after tool use.
@@ -358,8 +359,9 @@ class Orchestrator(ApplicationAgent):
                 include_discovery=True,
                 include_write_text=False,
                 can_write=allow_sql_or_skill_write,
-                write_denied_message="Scoped writes are only allowed for .sql files or skills/**/SKILL.md files.",
+                write_denied_message="Scoped writes are only allowed for .sql files or workspace skill instructions, references, and scripts.",
             ),
+            create_skill_package,
             load_skills,
             search_skills,
         ]

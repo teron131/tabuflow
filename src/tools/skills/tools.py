@@ -108,6 +108,207 @@ class SkillsSearchIndex:
 _SEARCH_SKILLS_CACHE: dict[tuple[str, str], SkillsSearchIndex] = {}
 
 
+def _skill_name_error(name: str) -> str | None:
+    """Return a validation error for a skill package name."""
+    if not name:
+        return "Missing required skills name."
+    if not SKILLS_NAME_PATTERN.fullmatch(name) or name.startswith("-") or name.endswith("-") or "--" in name:
+        return f"Invalid skills name: {name!r}."
+    return None
+
+
+def _skill_title(name: str) -> str:
+    """Return a readable heading from a kebab-case skill name."""
+    return " ".join(part.upper() if len(part) <= 3 else part.capitalize() for part in name.split("-"))
+
+
+def _skill_error_result(error_type: str, message: str) -> dict[str, Any]:
+    """Return the shared skill-package creation error payload."""
+    return {
+        "status": "error",
+        "error_type": error_type,
+        "message": message,
+    }
+
+
+def _skill_frame_text(*, name: str, description: str) -> str:
+    """Return the deterministic initial SKILL.md scaffold."""
+    frontmatter = yaml.safe_dump(
+        {
+            "name": name,
+            "description": description,
+        },
+        sort_keys=False,
+        allow_unicode=False,
+        width=1000,
+    ).strip()
+    return "\n".join(
+        [
+            "---",
+            frontmatter,
+            "---",
+            "",
+            f"# {_skill_title(name)}",
+            "",
+            "## Workflow",
+            "",
+            "- TODO: Describe the repeatable workflow this skill owns.",
+            "",
+            "## References",
+            "",
+            "- Add detailed contracts, schemas, or SQL under `references/` when needed.",
+            "",
+            "## Scripts",
+            "",
+            "- Add deterministic scripts under `scripts/` when the workflow needs executable support.",
+            "",
+        ]
+    )
+
+
+def _resource_path_error(path: str) -> str | None:
+    """Return a validation error for a starter resource file path."""
+    candidate = Path(path)
+    if not path.strip():
+        return "Resource file names cannot be empty."
+    if candidate.is_absolute() or path.startswith("~") or ".." in candidate.parts:
+        return f"Resource file must be a relative path without traversal: {path!r}."
+    if any(part in {"", ".", ".."} for part in candidate.parts):
+        return f"Resource file contains an invalid path segment: {path!r}."
+    return None
+
+
+def _resource_frame_text(path: str) -> str:
+    """Return editable starter content for one optional resource file."""
+    resource_path = Path(path)
+    title = _skill_title(resource_path.stem.replace("_", "-"))
+    suffix = resource_path.suffix.lower()
+    if suffix == ".sql":
+        return "-- Description: TODO\n\n"
+    if suffix in {".md", ".markdown"}:
+        return f"# {title}\n\n"
+    if suffix == ".py":
+        return '"""TODO: Describe this skill support script."""\n'
+    if suffix == ".sh":
+        return "#!/usr/bin/env bash\nset -euo pipefail\n\n"
+    return "TODO\n"
+
+
+def _write_starter_resources(
+    *,
+    skill_dir: Path,
+    resource_dir_name: str,
+    resource_files: list[str] | None,
+) -> list[Path]:
+    """Write optional editable starter resources under a skill resource directory."""
+    created_paths: list[Path] = []
+    for resource_file in resource_files or []:
+        if error_message := _resource_path_error(resource_file):
+            raise ValueError(error_message)
+        resource_path = (skill_dir / resource_dir_name / resource_file).resolve()
+        try:
+            resource_path.relative_to(skill_dir / resource_dir_name)
+        except ValueError as exc:
+            raise ValueError(f"Resource file must stay inside {resource_dir_name}/: {resource_file!r}.") from exc
+        if resource_path.exists():
+            raise FileExistsError(f"Resource file already exists: {resource_path}")
+        resource_path.parent.mkdir(parents=True, exist_ok=True)
+        resource_path.write_text(_resource_frame_text(resource_file), encoding="utf-8")
+        created_paths.append(resource_path)
+    return created_paths
+
+
+def create_skill_package_frame(
+    *,
+    path: str = "skills",
+    name: str,
+    description: str,
+    reference_files: list[str] | None = None,
+    script_files: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create a deterministic skill package frame for later scoped edits."""
+    normalized_name = name.strip()
+    normalized_description = " ".join(description.strip().split())
+    normalized_reference_files = list(reference_files or [])
+    normalized_script_files = list(script_files or [])
+
+    if error_message := _skill_name_error(normalized_name):
+        return _skill_error_result("invalid_skill_name", error_message)
+    if not normalized_description:
+        return _skill_error_result("invalid_description", "Missing required skills description.")
+    for resource_files in (normalized_reference_files, normalized_script_files):
+        if len(set(resource_files)) != len(resource_files):
+            return _skill_error_result(
+                "duplicate_resource_path",
+                "Starter resource file names must be unique within each resource directory.",
+            )
+    for resource_file in [*normalized_reference_files, *normalized_script_files]:
+        if error_message := _resource_path_error(resource_file):
+            return _skill_error_result("invalid_resource_path", error_message)
+
+    skills_root = _resolve_search_path(root_dir=Path.cwd().resolve(), path=path)
+    skill_dir = (skills_root / normalized_name).resolve()
+
+    try:
+        skill_dir.relative_to(skills_root.resolve())
+    except ValueError:
+        return _skill_error_result("invalid_skill_path", f"Skill package path must stay inside {skills_root}.")
+
+    if skill_dir.exists():
+        return _skill_error_result("skill_exists", f"Skill package already exists: {skill_dir}")
+
+    try:
+        skill_dir.mkdir(parents=True)
+        references_dir = skill_dir / "references"
+        scripts_dir = skill_dir / "scripts"
+        references_dir.mkdir()
+        scripts_dir.mkdir()
+
+        skills_file = skill_dir / SKILL_FILENAME
+        skills_file.write_text(
+            _skill_frame_text(
+                name=normalized_name,
+                description=normalized_description,
+            ),
+            encoding="utf-8",
+        )
+        created_resource_paths = [
+            *_write_starter_resources(
+                skill_dir=skill_dir,
+                resource_dir_name="references",
+                resource_files=normalized_reference_files,
+            ),
+            *_write_starter_resources(
+                skill_dir=skill_dir,
+                resource_dir_name="scripts",
+                resource_files=normalized_script_files,
+            ),
+        ]
+    except (OSError, ValueError) as exc:
+        return _skill_error_result("create_failed", str(exc))
+
+    created_paths = [
+        skills_file,
+        references_dir,
+        scripts_dir,
+        *created_resource_paths,
+    ]
+    return {
+        "status": "created",
+        "name": normalized_name,
+        "description": normalized_description,
+        "skill_dir": str(skill_dir),
+        "skills_path": str(skills_file),
+        "relative_path": str(skills_file.relative_to(skills_root)),
+        "directories": [
+            str(references_dir),
+            str(scripts_dir),
+        ],
+        "created_paths": [str(created_path) for created_path in created_paths],
+        "summary": "Skill package frame created.",
+    }
+
+
 def _search_tokens(text: str) -> set[str]:
     """Return normalized lexical tokens used by the skills fallback search."""
     return {token for token in re.findall(r"[a-z0-9]+", text.lower()) if len(token) >= 2}
@@ -428,6 +629,33 @@ def _result_payload(
     if diagnostics:
         result["diagnostics"] = diagnostics
     return result
+
+
+@tool(parse_docstring=True)
+def create_skill_package(
+    name: str,
+    description: str,
+    path: str = "skills",
+    reference_files: list[str] | None = None,
+    script_files: list[str] | None = None,
+) -> dict[str, Any]:
+    """Create a deterministic skill package frame for later scoped edits.
+
+    Args:
+        name: Kebab-case skill package name. It must match the created folder name.
+        description: Frontmatter routing description written at the top of SKILL.md.
+        path: Skills root directory relative to the current working directory, or an absolute path.
+        reference_files: Optional starter file names created under references/. Use .sql for SQL reference frames.
+        script_files: Optional starter file names created under scripts/.
+    """
+
+    return create_skill_package_frame(
+        path=path,
+        name=name,
+        description=description,
+        reference_files=reference_files,
+        script_files=script_files,
+    )
 
 
 def _searchable_skills_entry(skills_file: SkillsFile) -> tuple[tuple[dict[str, Any], str] | None, str | None]:

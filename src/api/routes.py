@@ -24,7 +24,7 @@ from ..config import (
     has_llm_environment,
 )
 from ..pipelines.explainer import MissingExplainerModelError, explain_file
-from ..tools import list_skills, load_skills
+from ..tools import create_skill_package, list_skills, load_skills
 from ..tools.sql.query import describe_sql_artifact, list_sql_artifacts, run_query
 from ..tools.tabular.storage import quote_identifier
 from ..tools.tabular.tools import extract_tabular_file, inspect_tabular_file
@@ -40,6 +40,7 @@ from .constants import (
 from .schemas import (
     ChatRequest,
     FileExplanationRequest,
+    SkillCreateRequest,
     SkillResourceSaveRequest,
     SkillSaveRequest,
     SourcePreviewRequest,
@@ -685,6 +686,22 @@ def skills() -> dict[str, Any]:
     if diagnostics:
         result["diagnostics"] = diagnostics
     return result
+
+
+@router.post("/skills/create")
+def create_skill(request: SkillCreateRequest) -> dict[str, Any]:
+    """Create a deterministic workspace skill package frame."""
+    result = create_skill_package.func(
+        path=str(SKILLS_DIR),
+        name=request.name,
+        description=request.description,
+        reference_files=request.reference_files,
+        script_files=request.script_files,
+    )
+    if result.get("status") == "created":
+        return result
+    status_code = 409 if result.get("error_type") == "skill_exists" else 400
+    raise HTTPException(status_code=status_code, detail=result)
 
 
 @router.post("/skills/save")

@@ -52,6 +52,15 @@ class SkillSaveRequest(BaseModel):
     content: str = ""
 
 
+class SkillCreateRequest(BaseModel):
+    """Request body for creating a skill package frame."""
+
+    name: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+    reference_files: list[str] = Field(default_factory=list)
+    script_files: list[str] = Field(default_factory=list)
+
+
 class SkillResourceSaveRequest(BaseModel):
     """Request body for saving a workspace skill resource file."""
 

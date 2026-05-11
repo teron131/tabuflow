@@ -118,10 +118,11 @@ def allow_sql_or_skill_write(
     resolved_path: Path,
     relative_path: Path,
 ) -> bool:
-    """Return whether a resolved sandbox path is an editable SQL or workspace skill file."""
+    """Return whether a resolved sandbox path is an editable SQL or workspace skill resource."""
     is_sql_file = resolved_path.suffix.lower() == ".sql"
     is_skill_file = resolved_path.name == "SKILL.md" and relative_path.parts[:1] == ("skills",)
-    return is_sql_file or is_skill_file
+    is_skill_resource = len(relative_path.parts) >= 4 and relative_path.parts[0] == "skills" and relative_path.parts[2] in {"references", "scripts"}
+    return is_sql_file or is_skill_file or is_skill_resource
 
 
 def _require_write_allowed(
