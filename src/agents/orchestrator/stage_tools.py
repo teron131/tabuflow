@@ -14,13 +14,14 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 
 from ..prep_csv import PrepCsv
+from ..prep_pdf import PrepPdf
 from ..query_stage import SQLRepairerFn, SQLWriterFn
 from ..validation_stage import ValidationStage
 from .nodes import OrchestratorNodes
 from .state import OrchestratorState
 
-PREP_CSV_RECURSION_LIMIT_PER_SOURCE_FILE = 30
-MIN_PREP_CSV_RECURSION_LIMIT = PREP_CSV_RECURSION_LIMIT_PER_SOURCE_FILE * 3
+PREP_RECURSION_LIMIT_PER_SOURCE_FILE = 30
+MIN_PREP_RECURSION_LIMIT = PREP_RECURSION_LIMIT_PER_SOURCE_FILE * 3
 TOOL_STATE_EXCLUDE = {"messages", "structured_response"}
 MAX_VISIBLE_TRACE_ITEMS = 80
 
@@ -72,7 +73,7 @@ def _tool_command(
 
 
 def _prep_visible_payload(state_payload: dict[str, Any]) -> dict[str, Any]:
-    """Return the compact prep_csv result shown to the model."""
+    """Return the compact prep result shown to the model."""
     extracted_sql_artifacts = state_payload.get("extracted_sql_artifacts") or []
     sql_artifact_names = [
         str(sql_artifact.get("typed_view_name") or sql_artifact.get("table_name"))
@@ -135,6 +136,7 @@ def make_orchestrator_stages(
     root_dir: str | Path | None = None,
     llm: BaseChatModel | None = None,
     prep_csv: PrepCsv | None = None,
+    prep_pdf: PrepPdf | None = None,
     sql_writer: SQLWriterFn | None = None,
     sql_repairer: SQLRepairerFn | None = None,
     validation_stage: ValidationStage | None = None,
@@ -145,12 +147,20 @@ def make_orchestrator_stages(
         root_dir=root_dir,
         llm=llm,
         prep_csv=prep_csv,
+        prep_pdf=prep_pdf,
         sql_writer=sql_writer,
         sql_repairer=sql_repairer,
         validation_stage=validation_stage,
     )
     prep_csv_graph = nodes.prep_csv_graph()
+    prep_pdf_graph = nodes.prep_pdf_graph()
     query_graph = nodes.query_stage_graph()
+
+    def prep_recursion_limit(source_files: list[str]) -> int:
+        return max(
+            MIN_PREP_RECURSION_LIMIT,
+            PREP_RECURSION_LIMIT_PER_SOURCE_FILE * len(source_files),
+        )
 
     @tool("prep_csv")
     def prep_csv(
@@ -176,15 +186,47 @@ def make_orchestrator_stages(
             state.model_dump(mode="python"),
             config=patch_config(
                 None,
-                recursion_limit=max(
-                    MIN_PREP_CSV_RECURSION_LIMIT,
-                    PREP_CSV_RECURSION_LIMIT_PER_SOURCE_FILE * len(safe_source_files),
-                ),
+                recursion_limit=prep_recursion_limit(safe_source_files),
             ),
         )
         state_payload = _compact_state(result)
         return _tool_command(
             tool_name="prep_csv",
+            tool_call_id=tool_call_id,
+            state_payload=state_payload,
+            visible_payload=_prep_visible_payload(state_payload),
+        )
+
+    @tool("prep_pdf")
+    def prep_pdf(
+        message: str,
+        tool_call_id: Annotated[str, InjectedToolCallId],
+        orchestrator_state: Annotated[Any, InjectedState],
+        source_files: list[str] | None = None,
+        max_validation_retries: int = 2,
+    ) -> Command:
+        """Prepare PDF source files and store compact state for later query_stage calls."""
+        current_state = OrchestratorState.model_validate(orchestrator_state)
+        safe_source_files = source_files or current_state.source_files
+        state = OrchestratorState(
+            messages=[HumanMessage(content=message, name="user")],
+            source_files=safe_source_files,
+            max_validation_retries=max_validation_retries,
+        )
+        state = _merge_state_update(
+            state,
+            nodes.pdf_skill_context(state),
+        )
+        result = prep_pdf_graph.invoke(
+            state.model_dump(mode="python"),
+            config=patch_config(
+                None,
+                recursion_limit=prep_recursion_limit(safe_source_files),
+            ),
+        )
+        state_payload = _compact_state(result)
+        return _tool_command(
+            tool_name="prep_pdf",
             tool_call_id=tool_call_id,
             state_payload=state_payload,
             visible_payload=_prep_visible_payload(state_payload),
@@ -214,4 +256,4 @@ def make_orchestrator_stages(
             visible_payload=_query_visible_payload(state_payload),
         )
 
-    return [prep_csv, query_stage]
+    return [prep_csv, prep_pdf, query_stage]

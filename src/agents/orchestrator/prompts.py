@@ -3,6 +3,7 @@
 from langchain_core.messages import HumanMessage
 
 from ..prep_csv.prompts import build_prep_request
+from ..prep_pdf.prompts import build_prep_request as build_pdf_prep_request
 from .skill_context import format_skill_references_for_sql, summarize_skill_refs
 
 
@@ -41,6 +42,31 @@ def build_prep_csv_message(
             retry_instructions=[],
         ),
         name="prep_csv",
+    )
+
+
+def build_prep_pdf_message(
+    prompt: str,
+    *,
+    message: str,
+    source_files: list[str],
+    worker_instructions: str,
+    skill_refs: list[dict],
+) -> HumanMessage:
+    """Build the first prep_pdf ReAct message for an orchestrator run."""
+    return HumanMessage(
+        content=build_pdf_prep_request(
+            prompt,
+            message,
+            source_files,
+            prep_attempt=1,
+            max_prep_trials=1,
+            worker_instructions=worker_instructions,
+            skill_refs=skill_refs,
+            previous_attempts=[],
+            retry_instructions=[],
+        ),
+        name="prep_pdf",
     )
 
 

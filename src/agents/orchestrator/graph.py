@@ -26,6 +26,7 @@ def build_query_stage_graph(
         root_dir=root_dir,
         llm=llm,
         prep_csv=None,
+        prep_pdf=None,
         sql_writer=sql_writer,
         sql_repairer=sql_repairer,
         validation_stage=validation_stage,

@@ -13,7 +13,7 @@ class PreparedDataState(BaseModel):
 
     run_id: str = Field(default_factory=lambda: uuid4().hex[:8], description="Short workflow run identifier used for generated artifacts.")
     database_path: str | None = Field(default=None, description="SQLite database path prepared for SQL execution.")
-    preferred_sql_artifacts: list[str] = Field(default_factory=list, description="Preferred SQL artifact names selected by prep_csv.")
+    preferred_sql_artifacts: list[str] = Field(default_factory=list, description="Preferred SQL artifact names selected by a prep stage.")
     extracted_sql_artifacts: list[dict[str, Any]] = Field(default_factory=list, description="Prepared table or view metadata available to SQL writing.")
     worker_context: str = Field(default="", description="Worker-facing context assembled from harness prompt and matched skills.")
     skill_refs: list[dict[str, Any]] = Field(default_factory=list, description="Loaded skill reference payloads relevant to this run.")
@@ -72,7 +72,7 @@ class OrchestratorState(
 
     skills_overview: str = Field(default="", description="Listed workspace skills available to the public chat orchestrator.")
     structured_response: Any | None = Field(default=None, description="Structured response produced by a create_agent subgraph.")
-    prep_output: dict[str, Any] | None = Field(default=None, description="Serialized prep_csv stage output artifact.")
+    prep_output: dict[str, Any] | None = Field(default=None, description="Serialized prep stage output artifact.")
 
 
 def _content_block_text(block: Any) -> str:
@@ -108,8 +108,8 @@ def latest_user_message(messages: list[AnyMessage]) -> str:
         if isinstance(message, dict) and message.get("role") in {"user", "human"} and message.get("name") == "user":
             return message_text(message)
     for message in reversed(messages):
-        if isinstance(message, HumanMessage) and message.name != "prep_csv":
+        if isinstance(message, HumanMessage) and message.name not in {"prep_csv", "prep_pdf"}:
             return message_text(message)
-        if isinstance(message, dict) and message.get("role") in {"user", "human"} and message.get("name") != "prep_csv":
+        if isinstance(message, dict) and message.get("role") in {"user", "human"} and message.get("name") not in {"prep_csv", "prep_pdf"}:
             return message_text(message)
     return ""

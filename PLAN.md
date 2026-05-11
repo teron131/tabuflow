@@ -152,7 +152,7 @@ Once the shell is solid, the next valuable backend-facing work is:
 
 The architecture is now a chat-facing orchestrator with explicit data stages:
 
-`orchestrator -> prep_csv -> query_stage -> save_view -> answer`
+`orchestrator -> prep_csv/prep_pdf -> query_stage -> save_view -> answer`
 
 The orchestrator is the only assistant-speaking layer. For normal chat, it answers directly. For data work, it decides when to call stage tools. The fixed `data_workflow` graph remains available for deterministic prep_csv/query/save execution, but the public graph is the user-facing orchestrator agent.
 
@@ -164,7 +164,7 @@ The near-term goal is to keep this shape small, typed, traceable, and easy to in
 
 1. The user-facing `orchestrator` receives chat messages.
 2. For ordinary messages such as "hello", it answers directly without tools.
-3. For data work, it calls `prep_csv` to prepare source files into a shared SQLite database and target metadata.
+3. For data work, it calls `prep_csv` or `prep_pdf` to prepare source files into a shared SQLite database and target metadata.
 4. It calls `query_stage` with the prepared state to draft SQL, execute it, repair runtime errors, validate the result, and save a view.
 5. `answer` returns the final user-facing content and compact artifact.
 
@@ -178,6 +178,7 @@ Current stage packages:
 
 - `src/agents/orchestrator/`: user-facing agent, data-workflow graph, stage tool wrappers, payload shaping, skill context, runtime helpers, shared state.
 - `src/agents/prep_csv/`: ReAct-style prep_csv stage for inspect/profile/extract tabular data.
+- `src/agents/prep_pdf/`: ReAct-style prep_pdf stage for inspect/extract PDF table data.
 - `src/agents/query_stage/`: SQL drafting, execution, runtime repair, and query-stage state.
 - `src/agents/validation_stage/`: deterministic and model-backed validation for query results.
 
@@ -186,6 +187,7 @@ LangGraph entrypoints in `langgraph.json`:
 - `orchestrator`: user-facing chat agent with stage tools.
 - `data_workflow`: fixed prep_csv/query/save/answer workflow.
 - `prep_csv`: visible prep_csv ReAct graph.
+- `prep_pdf`: visible prep_pdf ReAct graph.
 - `query`: visible query-stage graph.
 
 ## State Model
@@ -236,6 +238,25 @@ Responsibilities:
 - receive orchestrator-owned worker context and skill refs
 
 Prep CSV does not search skills on its own.
+
+### Prep PDF Stage
+
+Primary files:
+
+- `src/agents/prep_pdf/prep_pdf.py`
+- `src/agents/prep_pdf/prompts.py`
+- `src/agents/prep_pdf/payloads.py`
+- `src/agents/prep_pdf/state.py`
+
+Responsibilities:
+
+- inspect supplied PDF files with raw page text and optional rendered page-image artifacts
+- extract visually detected PDF tables into the shared SQLite cache
+- produce `PrepPdfOutput`
+- expose extracted target metadata for query drafting
+- receive orchestrator-owned worker context and skill refs
+
+Prep PDF does not profile PDFs. PDF table extraction is table-aware and visual, so inspection stays raw/evidence-oriented.
 
 ### Query Stage
 

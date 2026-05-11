@@ -14,6 +14,10 @@ from ..prep_csv import PrepCsv, PrepCsvOutput
 from ..prep_csv.payloads import collect_extracted_sql_artifacts
 from ..prep_csv.prep_csv import collect_prep_trial_result
 from ..prep_csv.state import PrepCsvDecision
+from ..prep_pdf import PrepPdf, PrepPdfOutput
+from ..prep_pdf.payloads import collect_extracted_sql_artifacts as collect_pdf_extracted_sql_artifacts
+from ..prep_pdf.prep_pdf import collect_prep_trial_result as collect_pdf_prep_trial_result
+from ..prep_pdf.state import PrepPdfDecision
 from ..query_stage import SQLRepairerFn, SQLWriterFn, build_sql_repairer, build_sql_writer
 from ..query_stage.nodes import (
     QueryStageNodes,
@@ -24,15 +28,17 @@ from ..query_stage.nodes import (
 )
 from ..trace_utils import (
     PREP_CSV_STAGE,
+    PREP_PDF_STAGE,
     SKILL_CONTEXT_STAGE,
     VALIDATION_STAGE,
     append_stage_trace,
     append_trace_messages,
 )
 from ..validation_stage import ValidationStage
-from .prompts import build_prep_csv_message, build_sql_worker_context, build_user_request_message
+from .prompts import build_prep_csv_message, build_prep_pdf_message, build_sql_worker_context, build_user_request_message
 from .runtime import (
     PREP_CSV_STAGE_NAME,
+    PREP_PDF_STAGE_NAME,
     QUERY_STAGE_NAME,
     VALIDATION_STAGE_NAME,
     build_sql_failure_result,
@@ -58,6 +64,7 @@ def build_skill_context_update(
     message: str,
     source_files: list[str],
     trace: list[str],
+    prep_message_builder=build_prep_csv_message,
     config: RunnableConfig | None = None,
 ) -> dict[str, Any]:
     """Build the deterministic skill-context update for stage tools."""
@@ -72,7 +79,7 @@ def build_skill_context_update(
                 message=message,
                 source_files=source_files,
             ),
-            build_prep_csv_message(
+            prep_message_builder(
                 prompt,
                 message=message,
                 source_files=source_files,
@@ -179,6 +186,96 @@ def build_prep_csv_output(state: OrchestratorState | dict[str, Any]) -> PrepCsvO
     )
 
 
+class PrepPdfResultMiddleware(
+    AgentMiddleware[
+        OrchestratorState,
+        None,
+        PrepPdfDecision,
+    ]
+):
+    """Collect the prep_pdf ReAct graph output into shared orchestrator fields."""
+
+    state_schema = OrchestratorState
+
+    def after_agent(
+        self,
+        state: OrchestratorState | dict[str, Any],
+        runtime: Any,
+    ) -> dict[str, Any]:
+        """Store prep_pdf artifacts after the create_agent graph reaches its end."""
+        _ = runtime
+        state = normalize_orchestrator_state(state)
+        prep_output = build_prep_pdf_output(state)
+        prep_artifact = prep_output.model_dump(mode="json")
+        stage_artifacts = {
+            **state.stage_artifacts,
+            PREP_PDF_STAGE_NAME: prep_artifact,
+        }
+        return {
+            "prep_output": prep_artifact,
+            "stage_artifacts": stage_artifacts,
+            "database_path": prep_output.database_path,
+            "extracted_sql_artifacts": prep_output.extracted_sql_artifacts,
+            "preferred_sql_artifacts": preferred_sql_artifacts(prep_output.extracted_sql_artifacts),
+            "trace": prep_output.trace,
+        }
+
+
+def build_prep_pdf_output(state: OrchestratorState | dict[str, Any]) -> PrepPdfOutput:
+    """Collect the visible prep_pdf ReAct graph result into orchestrator state."""
+    state = normalize_orchestrator_state(state)
+
+    trial = collect_pdf_prep_trial_result(
+        {
+            "messages": state.messages,
+            "structured_response": state.structured_response,
+        }
+    )
+    trace = state.trace
+    for message in trial.trace:
+        trace = append_stage_trace(trace, PREP_PDF_STAGE, message)
+
+    extracted_sql_artifacts = collect_pdf_extracted_sql_artifacts(trial.extraction_results)
+    database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}
+    trial_error = trial.last_error
+    if trial_error is None:
+        if not trial.extraction_results:
+            trial_error = "prep_pdf stage finished without extracting any data."
+        elif len(database_paths) != 1:
+            trial_error = "Expected one shared SQLite database path after extraction."
+        elif not extracted_sql_artifacts:
+            trial_error = "prep_pdf stage extracted data but did not produce usable SQL artifacts."
+
+    decision = trial.decision
+    extraction_ready = trial_error is None and len(database_paths) == 1 and bool(extracted_sql_artifacts)
+    if extraction_ready:
+        database_path = next(iter(database_paths))
+        return PrepPdfOutput(
+            status="prepared",
+            database_path=database_path,
+            extraction_results=trial.extraction_results,
+            extracted_sql_artifacts=extracted_sql_artifacts,
+            prep_attempts=1,
+            trace=append_stage_trace(
+                trace,
+                PREP_PDF_STAGE,
+                f"prepared {len(extracted_sql_artifacts)} SQL artifact(s) into {database_path}",
+            ),
+        )
+
+    last_error = trial_error
+    if decision is not None:
+        last_error = decision.last_error or last_error or decision.summary
+    return PrepPdfOutput(
+        status="error",
+        extraction_results=trial.extraction_results,
+        extracted_sql_artifacts=extracted_sql_artifacts,
+        last_error=last_error or "prep_pdf stage did not produce a usable extraction.",
+        prep_attempts=1,
+        trace=append_stage_trace(trace, PREP_PDF_STAGE, "ended without a usable extraction"),
+    )
+
+
 def normalize_orchestrator_state(state: OrchestratorState | dict[str, Any]) -> OrchestratorState:
     """Normalize LangGraph dict state into the orchestrator state model."""
     if isinstance(state, OrchestratorState):
@@ -216,6 +313,7 @@ class OrchestratorNodes:
         root_dir: str | Path | None,
         llm: Any | None,
         prep_csv: PrepCsv | None,
+        prep_pdf: PrepPdf | None,
         sql_writer: SQLWriterFn | None,
         sql_repairer: SQLRepairerFn | None,
         validation_stage: ValidationStage | None,
@@ -224,6 +322,7 @@ class OrchestratorNodes:
         self.root_dir = root_dir
         self.llm = llm
         self._prep_csv = prep_csv
+        self._prep_pdf = prep_pdf
         if llm is None and (sql_writer is None or sql_repairer is None):
             raise ValueError("SQL stage model functions require the orchestrator's shared llm.")
         self.sql_writer = sql_writer or build_sql_writer(llm)
@@ -249,6 +348,17 @@ class OrchestratorNodes:
             )
         return self._prep_csv
 
+    @property
+    def prep_pdf(self) -> PrepPdf:
+        """Return the prep_pdf stage, building it only when the prep_pdf stage is used."""
+        if self._prep_pdf is None:
+            self._prep_pdf = PrepPdf(
+                llm=self.llm,
+                prompt=self.prompt,
+                root_dir=self.root_dir,
+            )
+        return self._prep_pdf
+
     def skill_context(
         self,
         state: OrchestratorState,
@@ -264,11 +374,34 @@ class OrchestratorNodes:
             config=config,
         )
 
+    def pdf_skill_context(
+        self,
+        state: OrchestratorState,
+        config: RunnableConfig | None = None,
+    ) -> dict[str, Any]:
+        """Load message-relevant skill context for a prep_pdf stage run."""
+        message = latest_user_message(state.messages)
+        return build_skill_context_update(
+            self.prompt,
+            message=message,
+            source_files=state.source_files,
+            trace=state.trace,
+            prep_message_builder=build_prep_pdf_message,
+            config=config,
+        )
+
     def prep_csv_graph(self) -> CompiledStateGraph:
         """Build the prep_csv stage as the visible prep_csv ReAct graph."""
         return self.prep_csv.build_graph(
             state_schema=OrchestratorState,
             middleware=[PrepCsvResultMiddleware()],
+        )
+
+    def prep_pdf_graph(self) -> CompiledStateGraph:
+        """Build the prep_pdf stage as the visible prep_pdf ReAct graph."""
+        return self.prep_pdf.build_graph(
+            state_schema=OrchestratorState,
+            middleware=[PrepPdfResultMiddleware()],
         )
 
     def write_sql(self, state: OrchestratorState) -> dict[str, Any]:
