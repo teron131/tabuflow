@@ -5,9 +5,9 @@ type WorkbenchScaleStyle = Partial<ShellStyle> & {
 };
 
 export const workbenchScale = {
-	default: 1,
-	min: 0.85,
-	max: 1.25,
+	default: 1.1,
+	min: 0.75,
+	max: 1.5,
 	step: 0.05,
 };
 
