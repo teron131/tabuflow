@@ -16,13 +16,15 @@ Engine choices, language choices, and provider-specific workflows matter only wh
 
 The repo already has a meaningful workbench skeleton rather than only a plan:
 
-- Python backend under `src/api/` exposes health, bootstrap, upload, chat, streaming chat, SQL run/targets/download, file explanation, and skill save/resource save routes.
-- The user-facing orchestrator remains Python-first and LangGraph-shaped, with prep_csv, prep_pdf, query, validation, skill, SQL, tabular, PDF, filesystem, and artifact tools behind it.
-- The tool surface already has substantial IO logic under `src/tools/`, including SQL helpers, tabular handling, PDF handling, filesystem tools, and artifact-related behavior.
-- The frontend is a Next workbench under `frontend/`, with an activity shell, explorer, source viewer, SQL/results surface, skill resource viewer, and AI SDK chat panel.
-- The currently strongest implemented loop appears to be: bootstrap workspace -> inspect sources/targets -> run SQL -> view/download results -> use chat or skills as contextual assistance.
+- [DONE] Python backend under `src/api/` exposes health, bootstrap, upload, chat, streaming chat, SQL run/targets/download, file explanation, and skill save/resource save routes.
+- [DONE] The user-facing orchestrator remains Python-first and LangGraph-shaped, with prep_csv, prep_pdf, query, validation, skill, SQL, tabular, PDF, filesystem, and artifact tools behind it.
+- [DONE] The tool surface already has substantial IO logic under `src/tools/`, including SQL helpers, tabular handling, PDF handling, filesystem tools, and artifact-related behavior.
+- [DONE] The frontend is a Next workbench under `frontend/`, with an activity shell, explorer, source viewer, SQL/results surface, skill resource viewer, and AI SDK chat panel.
+- [DONE] The currently strongest implemented loop is: bootstrap workspace -> inspect sources/targets -> run SQL -> view/download results -> use chat or skills as contextual assistance.
 
 Near-term work should make those pieces behave like one coherent data-exploration workbench instead of separate implemented islands. Deployment, auth, broad connectors, and runtime migration are explicitly not the next drivers.
+
+Current biggest next step: make CSV/XLSX upload and PDF-table extraction speak one shared `source -> target -> schema/profile` contract that the API, orchestrator, and frontend can all inspect. This comes before adding more source types, broader exports, or runtime migration.
 
 ## Component Map
 
@@ -57,11 +59,18 @@ Near-term contract decisions:
 - Prioritize the golden-flow nouns: `source`, `target`, `schema profile`, `generated SQL`, `result view`, `export artifact`, and `run evidence`.
 - Make the schema/file browser contract reliable first: file name, source type, parse status, row/column counts, column names/types, sample values, warnings, and available targets.
 - Treat a saved SQL view and its exported CSV as artifacts.
-- Store queryable durable outputs as SQLite views for now.
+- [DONE] Store queryable durable outputs as SQLite views for now.
 - Store CSV exports, validation summaries, run-note files, and other non-table evidence under `artifacts/`.
-- Keep workspace state local-first; do not spend near-term roadmap energy on auth, multi-user separation, or remote deployment.
+- [DONE] Keep workspace state local-first; do not spend near-term roadmap energy on auth, multi-user separation, or remote deployment.
 - Keep private local paths and internal implementation details out of browser-facing and model-facing payloads unless a trusted backend tool explicitly needs them.
+  - [DONE] SQL artifact and source payloads are filtered before reaching the browser-facing API.
 - Make lineage normal, not optional: source -> target -> generated SQL -> result view -> export artifact -> run evidence.
+
+Next contract focus:
+
+- Define one browser/model-safe schema profile payload for both extracted tables and saved views.
+- Include source display name, source type, parse status, target names, row/column counts, columns, sample rows, warnings, and lineage.
+- Keep raw absolute paths and private catalog tables behind backend tools.
 
 This component is the product grammar. Everything else should speak this grammar.
 
@@ -84,12 +93,13 @@ The agent engine owns the lifecycle of a user turn:
 
 Agent behavior principles:
 
-- Answer ordinary conversation directly when no tools are needed.
-- Keep predefined routes internal; the user should ask normally while the agent chooses workflow paths.
-- Use workbench tools when operational grounding improves the answer.
+- [DONE] Answer ordinary conversation directly when no tools are needed.
+- [DONE] Keep predefined routes internal; the user should ask normally while the agent chooses workflow paths.
+- [DONE] Use workbench tools when operational grounding improves the answer.
 - Keep context progressive instead of dumping the whole workspace into every prompt.
 - Keep assistant messages, tool events, and artifact updates distinct.
-- Make near-term agent-callable work concrete: inspect sources/targets, run or repair SQL, save a view, and export a saved-view CSV when real.
+- [DONE] Make near-term agent-callable work concrete for prep and query: inspect sources, extract CSV/XLSX/PDF tables, run or repair SQL, and save a view.
+  - Export exists as a backend/UI saved-view CSV download, but it is not yet an agent-recorded export artifact.
 - Avoid fake autonomy. If a tool or write path is not implemented, the agent should say so and suggest the closest real action.
 
 Near-term engine work:
@@ -108,14 +118,14 @@ Goal: put all operational IO logic behind reusable product tools that are indepe
 
 The tool layer owns real workbench operations:
 
-- workspace/bootstrap state;
-- source upload, discovery, inspection, and metadata;
-- tabular extraction and target listing;
-- SQL execution, repair context, saved views, and bounded previews;
+- [DONE] workspace/bootstrap state;
+- [DONE] source upload, discovery, inspection, and metadata;
+- [DONE] tabular extraction and target listing;
+- [DONE] SQL execution, repair context, saved views, and bounded previews;
 - artifact creation, lookup, export, and download metadata;
-- filesystem reads/writes that are safe for the backend to perform;
-- skill package browse/load/save;
-- skill resource reads/writes;
+- [DONE] filesystem reads/writes that are safe for the backend to perform;
+- [DONE] skill package browse/load/save;
+- [DONE] skill resource reads/writes;
 - script execution or verification when explicitly allowed;
 - validation checks and warning creation;
 - run-note and evidence-file creation.
@@ -141,14 +151,21 @@ Tool design principles:
 
 Near-term tool priorities:
 
-1. Upload and parse CSV/XLSX sources with dependable schema inference, previews, and clear parse errors.
+1. [DONE] Upload and parse CSV/XLSX sources with dependable schema inference, previews, and clear parse errors.
 2. Extract table targets from PDFs well enough to join the same schema/file browser and SQL flow.
+   - [DONE] Backend PDF inspect/extract tools exist.
+   - [DONE] `prep_pdf` exists beside `prep_csv` and loads recovered PDF tables into shared SQLite.
+   - Next: make PDF upload/extraction produce the same browser-visible source/target/schema records as CSV/XLSX.
 3. Inspect sources and targets through one structured schema/profile output.
-4. Generate SQL from a natural-language question using the current schema/profile context.
-5. Validate generated SQL against available tables/columns before execution and keep execution bounded/read-only by default.
-6. Run SQL and expose repair context on failure.
-7. Save a useful SQL result as a durable view artifact.
+   - [DONE] Individual source preview and SQL artifact describe/list routes exist.
+   - Next: unify them into one contract instead of separate source-preview and SQL-artifact shapes.
+4. [DONE] Generate SQL from a natural-language question using the current prepared-data context.
+5. [DONE] Keep SQL execution bounded/read-only, expose repair context on runtime failure, and validate the executed result before saving.
+6. [DONE] Run SQL and expose repair context on failure.
+7. [DONE] Save a useful SQL result as a durable view artifact.
 8. Export a saved view as CSV under `artifacts/`.
+   - [DONE] Saved SQLite views can be downloaded as CSV through the API/UI.
+   - Next: persist exported CSVs as artifact files with metadata instead of only streaming downloads.
 9. Create validation summary and run-note evidence for the completed flow.
 
 This layer should become the app's portable IO substrate. The agent engine decides *when* to use tools; the tool layer defines *what actually happens*.
@@ -166,12 +183,12 @@ A skill package is an operational package, not just a prompt:
 
 The product should let users and agents:
 
-- browse skills;
-- inspect `SKILL.md`;
-- inspect references and scripts;
+- [DONE] browse skills;
+- [DONE] inspect `SKILL.md`;
+- [DONE] inspect references and scripts;
 - understand which skill package influenced a run;
 - see which resources were loaded or touched;
-- edit/save existing `SKILL.md`, reference resources, and scripts when the user explicitly asks;
+- [DONE] edit/save existing `SKILL.md`, reference resources, and scripts when the user explicitly asks;
 - preview/diff edits before saving;
 - verify executable script changes;
 - report saved paths, modified state, reload behavior, and verification results.
@@ -191,8 +208,10 @@ Goal: make agent work inspectable to users and debuggable to developers.
 Observability owns four related layers:
 
 1. **User-visible activity:** what the user sees in the workbench while the agent works.
+   - [DONE] Chat streaming exposes compact backend tool traces and stage trace summaries.
 2. **Product run events:** durable state transitions such as source inspected, SQL run, artifact created, warning raised, approval requested, and run completed.
 3. **Tool-call evidence:** tool name, inputs safe to show, output summary, errors, warnings, changed objects, and artifacts.
+   - [DONE] Tool traces and stage traces exist for current chat turns.
 4. **Developer traces/logs:** enough internal detail to debug the system without leaking secrets or private local paths into browser/model payloads.
 
 Minimum product event stream:
@@ -237,15 +256,21 @@ Goal: make the browser workbench the visible control surface for the agent's wor
 
 The UI should expose the golden flow as visible state, with the schema/file browser as the first-class surface:
 
-- a source list for uploaded CSV, XLSX, and PDF-table inputs;
+- [DONE] a source list for uploaded CSV, XLSX, and uploaded PDF files;
 - parse status, row counts, column counts, warnings, and available targets per source;
 - column names, inferred types, sample values, and null/quality hints for each target;
 - an obvious path from selected source/target to asking a question;
 - generated SQL shown as an inspectable object before or beside the result;
-- SQL results in a result grid with export affordances;
-- saved view artifacts and saved-view CSV exports;
+- [DONE] SQL results in a result grid with export affordances;
+- [DONE] saved view artifacts and saved-view CSV downloads;
 - validation warnings and summaries attached to results/artifacts;
 - chat messages that reference visible schema, SQL, results, and artifacts instead of replacing them.
+
+Next UI focus:
+
+- Make the schema/file browser the primary data surface instead of only a navigation list.
+- Show the same target profile for CSV/XLSX/PDF-derived tables: source, target, row count, column count, column names/types, samples, warnings, and lineage.
+- Let the chat panel reference selected source/target context without making the user type route names.
 
 UI principles:
 
@@ -265,16 +290,18 @@ Goal: broaden usefulness only after the core loop and tool surface are coherent.
 
 Source expansion is narrowed for the next build cycle:
 
-1. **CSV/XLSX first:** dependable upload, parsing, schema inference, previews, and SQL target creation.
+1. **CSV/XLSX first:** [DONE] dependable upload, parsing, schema inference, previews, and SQL target creation.
 2. **PDF tables next:** extraction into reviewable table targets that can enter the same schema browser and SQL flow.
+   - [DONE] PDF inspect/extract tools and `prep_pdf` are implemented.
+   - Next: browser/API reviewability and source-coverage warnings.
 3. **Images, databases, APIs, folders, and batch connectors later:** defer until the CSV/XLSX/PDF-table loop is reliable.
 
 Artifact expansion should keep the same artifact model:
 
-- extracted table;
-- generated SQL;
-- SQL result view;
-- saved view;
+- [DONE] extracted table;
+- [DONE] generated SQL;
+- [DONE] SQL result view;
+- [DONE] saved view;
 - CSV export;
 - validation summary;
 - run note;
@@ -282,13 +309,13 @@ Artifact expansion should keep the same artifact model:
 
 Validation should start deterministic and tied to the data-exploration loop:
 
-- parse success/failure;
-- row counts;
-- column names and inferred types;
+- [DONE] parse success/failure;
+- [DONE] row counts;
+- [DONE] column names and inferred types;
 - missing values;
 - duplicated keys when a key is known or inferred;
-- query references to known tables/columns;
-- result row/column shape;
+- [DONE] query references to known tables/columns;
+- [DONE] result row/column shape;
 - source coverage for PDF-table extraction.
 
 Use model-backed review only after deterministic checks establish the basic shape. Upgrade warnings into blocking checks only when a workflow has clear risk rules.
@@ -332,12 +359,25 @@ Treat engine adapters and runtime migration as later implementation tracks, not 
 The next implementation sequence should follow the chosen golden flow rather than treating each component as a silo:
 
 1. **Ingest:** make CSV/XLSX upload and PDF-table extraction produce consistent source/target/schema records.
+   - [DONE] CSV/XLSX upload extracts into SQLite targets.
+   - [DONE] PDF extraction can produce SQLite targets through `prep_pdf`.
+   - Next: consistent source/target/schema records for both paths.
 2. **Browse:** make the frontend schema/file browser the primary place to inspect files, targets, columns, warnings, and samples.
+   - [DONE] Explorer groups exist for sources, extracted tables, queried views, and skills.
+   - Next: promote target schema/profile details into the primary browser surface.
 3. **Ask:** route natural-language data questions toward the right tool path, with tool-choice accuracy as the main agent quality bar.
+   - [DONE] Orchestrator has separate `prep_csv`, `prep_pdf`, and `query_stage` tools.
+   - Next: prove route choice across attached CSV/XLSX/PDF cases with focused backend tests.
 4. **Generate SQL:** create inspectable SQL from the selected/current schema context.
+   - [DONE] Query stage generates SQL and persists SQL artifacts.
 5. **Validate and run:** check generated SQL against available schema, run it bounded/read-only, and expose repair context on failure.
+   - [DONE] Query stage runs bounded SQL, repairs runtime failures, validates the executed result, and saves only after that loop.
+   - Next: add a stronger deterministic preflight for table/column references before first execution.
 6. **Inspect and export:** show results clearly, save useful views as artifacts, and export saved-view CSVs.
+   - [DONE] Saved views can be inspected and downloaded as CSV.
+   - Next: persist CSV exports as artifact records/files.
 7. **Record evidence:** attach validation summaries and run notes so the answer can be reviewed later.
+   - Next: add durable validation summary and run-note artifacts.
 
 ## Narrowed Direction So Far
 
