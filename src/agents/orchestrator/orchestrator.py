@@ -14,6 +14,7 @@ from langgraph.prebuilt import ToolNode
 
 from ...tools import create_skill_package, list_skills, load_skills, search_skills
 from ...tools.fs import allow_sql_or_skill_write, make_fs_tools
+from ...tools.fs.hashline import HashlineReferenceError
 from ..base import ApplicationAgent
 from ..prep_csv import PrepCsv
 from ..prep_pdf import PrepPdf
@@ -305,6 +306,26 @@ def build_model_node(*, llm: BaseChatModel, tools: list[BaseTool]):
     return model_node
 
 
+def tool_error_message(error: Exception) -> str:
+    """Return a recoverable tool-error message for the next agent turn."""
+    error_type = type(error).__name__
+    error_text = str(error).strip() or "No error details provided."
+    recovery = "Explain the blocker or choose a smaller next tool call. Do not repeat the same failing call unchanged."
+    if isinstance(error, HashlineReferenceError):
+        recovery = "Reread the target with fs_read_hashline, then retry the edit with current refs. Do not guess stale refs."
+    elif isinstance(error, FileNotFoundError):
+        recovery = "Check the path or list the nearest workspace directory, then retry with an existing file."
+    elif isinstance(error, ValueError):
+        recovery = "Check the path, arguments, and write scope before retrying. For edits, use permitted .sql files or skills/** resources."
+
+    return "\n".join(
+        [
+            f"Tool error: {error_type}: {error_text}",
+            f"Recovery: {recovery}",
+        ]
+    )
+
+
 def route_after_model(state: OrchestratorState | dict[str, Any]) -> str:
     """Route model output to tools, summarize, or end."""
     messages = _state_messages(state)
@@ -398,7 +419,7 @@ class Orchestrator(ApplicationAgent):
         )
         builder.add_node("skills", skills_node)
         builder.add_node("model", build_model_node(llm=self.llm, tools=tools))
-        builder.add_node("tools", ToolNode(tools))
+        builder.add_node("tools", ToolNode(tools, handle_tool_errors=tool_error_message))
         builder.add_node("summarize", lambda state: summarize_node(state, llm=self.summary_llm))
         builder.add_edge(START, "skills")
         builder.add_edge("skills", "model")
