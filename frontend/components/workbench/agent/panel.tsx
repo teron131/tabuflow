@@ -37,6 +37,7 @@ import { FaRobot } from "react-icons/fa";
 import type { UploadedWorkspaceFile } from "@/components/workbench/types";
 import type { SkillEntry, SourceFile, SqlArtifact } from "@/lib/api";
 import type { WorkbenchMessage } from "@/lib/chat-contracts";
+import { ChatMarkdown } from "./chat-markdown";
 import {
 	buildCommandIndex,
 	type CommandIndexItem,
@@ -820,7 +821,12 @@ function ChatMessage({ message }: { message: WorkbenchMessage }) {
 	const renderedParts = message.parts
 		.map((part) => {
 			if (part.type === "text" && part.text) {
-				return <p key={`${message.id}-text-${part.text}`}>{part.text}</p>;
+				return (
+					<ChatMarkdown
+						content={part.text}
+						key={`${message.id}-text-${part.text}`}
+					/>
+				);
 			}
 			if (isToolPart(part)) {
 				return (

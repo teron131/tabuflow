@@ -14,6 +14,27 @@ const DEMO_SKILL_FILES = [
 	"skills/placeholder-analysis/references/schema.md",
 	"skills/placeholder-analysis/references/summary-query.sql",
 ];
+const DEMO_MARKDOWN_FIXTURE = [
+	"### Markdown fixture",
+	"",
+	"This demo response includes **bold text**, *emphasis*, `inline_code`, and a [local docs link](/).",
+	"",
+	"- Bullet item with **strong emphasis**",
+	"- Bullet item with `inline code`",
+	"  - Nested bullet detail",
+	"",
+	"1. Ordered item one",
+	"2. Ordered item two",
+	"",
+	"> Quoted note for blockquote rendering.",
+	"",
+	"```sql",
+	"SELECT",
+	"  row_type,",
+	"  gross_profit_pct",
+	"FROM analysis_result;",
+	"```",
+].join("\n");
 
 type DemoStageToolBlueprint = {
 	name: string;
@@ -285,8 +306,11 @@ export function buildDemoTraceChunks(message: string): UIMessageChunk[] {
 		{
 			type: "text-delta",
 			id: finalTextId,
-			delta:
+			delta: [
 				"Demo run complete. The transport used prep_stage and query_stage wrapper events, while the UI rendered the nested stage_trace rows as top-level tool cards.",
+				"",
+				DEMO_MARKDOWN_FIXTURE,
+			].join("\n"),
 		},
 		{ type: "text-end", id: finalTextId },
 		{ type: "finish", finishReason: "stop" },
