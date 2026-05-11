@@ -36,8 +36,6 @@ from ..trace_utils import (
 from ..validation_stage import ValidationStage
 from .prompts import build_prep_csv_message, build_prep_pdf_message, build_sql_worker_context, build_user_request_message
 from .runtime import (
-    PREP_CSV_STAGE_NAME,
-    PREP_PDF_STAGE_NAME,
     QUERY_STAGE_NAME,
     VALIDATION_STAGE_NAME,
     build_sql_failure_result,
@@ -116,13 +114,8 @@ class PrepCsvResultMiddleware(
         state = normalize_orchestrator_state(state)
         prep_output = build_prep_csv_output(state)
         prep_artifact = prep_output.model_dump(mode="json")
-        stage_artifacts = {
-            **state.stage_artifacts,
-            PREP_CSV_STAGE_NAME: prep_artifact,
-        }
         return {
             "prep_output": prep_artifact,
-            "stage_artifacts": stage_artifacts,
             "database_path": prep_output.database_path,
             "extracted_sql_artifacts": prep_output.extracted_sql_artifacts,
             "preferred_sql_artifacts": preferred_sql_artifacts(prep_output.extracted_sql_artifacts),
@@ -162,7 +155,6 @@ def build_prep_csv_output(state: OrchestratorState | dict[str, Any]) -> PrepCsvO
         return PrepCsvOutput(
             status="prepared",
             database_path=database_path,
-            extraction_results=trial.extraction_results,
             extracted_sql_artifacts=extracted_sql_artifacts,
             prep_attempts=1,
             trace=append_stage_trace(
@@ -177,7 +169,6 @@ def build_prep_csv_output(state: OrchestratorState | dict[str, Any]) -> PrepCsvO
         last_error = decision.last_error or last_error or decision.summary
     return PrepCsvOutput(
         status="error",
-        extraction_results=trial.extraction_results,
         extracted_sql_artifacts=extracted_sql_artifacts,
         last_error=last_error or "prep_csv stage did not produce a usable extraction.",
         prep_attempts=1,
@@ -206,13 +197,8 @@ class PrepPdfResultMiddleware(
         state = normalize_orchestrator_state(state)
         prep_output = build_prep_pdf_output(state)
         prep_artifact = prep_output.model_dump(mode="json")
-        stage_artifacts = {
-            **state.stage_artifacts,
-            PREP_PDF_STAGE_NAME: prep_artifact,
-        }
         return {
             "prep_output": prep_artifact,
-            "stage_artifacts": stage_artifacts,
             "database_path": prep_output.database_path,
             "extracted_sql_artifacts": prep_output.extracted_sql_artifacts,
             "preferred_sql_artifacts": preferred_sql_artifacts(prep_output.extracted_sql_artifacts),
@@ -252,7 +238,6 @@ def build_prep_pdf_output(state: OrchestratorState | dict[str, Any]) -> PrepPdfO
         return PrepPdfOutput(
             status="prepared",
             database_path=database_path,
-            extraction_results=trial.extraction_results,
             extracted_sql_artifacts=extracted_sql_artifacts,
             prep_attempts=1,
             trace=append_stage_trace(
@@ -267,7 +252,6 @@ def build_prep_pdf_output(state: OrchestratorState | dict[str, Any]) -> PrepPdfO
         last_error = decision.last_error or last_error or decision.summary
     return PrepPdfOutput(
         status="error",
-        extraction_results=trial.extraction_results,
         extracted_sql_artifacts=extracted_sql_artifacts,
         last_error=last_error or "prep_pdf stage did not produce a usable extraction.",
         prep_attempts=1,
@@ -289,11 +273,8 @@ def workflow_trace_from_state(
 ) -> list[str]:
     """Merge parent and worker traces into one caller-facing workflow log."""
     trace: list[str] = []
-    if state.prep_output is None:
-        trace = append_trace_messages(trace, state.trace)
-    else:
-        prep_output = PrepCsvOutput.model_validate(state.prep_output)
-        trace = append_trace_messages(trace, prep_output.trace)
+    prep_trace = state.trace if state.prep_output is None else state.prep_output.get("trace", [])
+    trace = append_trace_messages(trace, prep_trace)
 
     if sql_output is None:
         sql_output = sql_output_from_state(state)
@@ -499,7 +480,6 @@ class OrchestratorNodes:
                 "trace": append_stage_trace(state.trace, VALIDATION_STAGE, "validate: could not find a SQL output"),
                 "messages": [stage_report_message(VALIDATION_STAGE_NAME, "Validation could not find a SQL output.")],
             }
-        sql_artifact = sql_output.model_dump(mode="json")
         validation_output = self.validation_stage.invoke(
             message=latest_user_message(state.messages),
             source_files=state.source_files,
@@ -511,16 +491,9 @@ class OrchestratorNodes:
             validation_attempts=state.validation_attempts,
             config=config,
         )
-        validation_artifact = validation_output.model_dump(mode="json")
         workflow_trace = workflow_trace_from_state(state, sql_output=sql_output)
-        stage_artifacts = {
-            **state.stage_artifacts,
-            QUERY_STAGE_NAME: sql_artifact,
-            VALIDATION_STAGE_NAME: validation_artifact,
-        }
         if validation_output.valid:
             return {
-                "stage_artifacts": stage_artifacts,
                 "validation_feedback": None,
                 "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, "validate: accepted the SQL result"),
                 "messages": [stage_report_message(VALIDATION_STAGE_NAME, validation_output.summary.strip() or "Validation accepted the SQL result.")],
@@ -537,7 +510,6 @@ class OrchestratorNodes:
         retry_update = reset_sql_attempt_update() if validation_output.retryable and next_validation_attempts <= state.max_validation_retries else {}
         return {
             **retry_update,
-            "stage_artifacts": stage_artifacts,
             "validation_feedback": validation_feedback,
             "validation_attempts": next_validation_attempts,
             "trace": append_stage_trace(workflow_trace, VALIDATION_STAGE, f"validate: requested another SQL attempt: {validation_feedback['summary']}"),
@@ -562,7 +534,6 @@ class OrchestratorNodes:
         return {
             "content": content,
             "artifact": artifact,
-            "stage_artifacts": state.stage_artifacts,
             "messages": [
                 stage_report_message(
                     "save_view",

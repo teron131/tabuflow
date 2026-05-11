@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -21,8 +21,7 @@ class PrepPdfOutput(BaseModel):
 
     status: Literal["pending", "prepared", "error"] = Field(default="pending", description="Terminal prep_pdf stage status.")
     database_path: str | None = Field(default=None, description="SQLite database path produced by successful extraction.")
-    extraction_results: list[dict[str, Any]] = Field(default_factory=list, description="Raw extraction tool results observed during prep_pdf.")
-    extracted_sql_artifacts: list[dict[str, Any]] = Field(default_factory=list, description="SQL-ready artifacts collected from extraction results.")
+    extracted_sql_artifacts: list[dict[str, object]] = Field(default_factory=list, description="SQL-ready artifacts collected from extraction results.")
     last_error: str | None = Field(default=None, description="Most relevant prep_pdf stage error, when one occurred.")
     prep_attempts: int = Field(default=0, description="Number of prep_pdf attempts used to reach this output.")
     trace: list[str] = Field(default_factory=list, description="Compact prep_pdf stage trace messages.")

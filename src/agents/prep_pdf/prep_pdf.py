@@ -137,7 +137,6 @@ def summarize_prep_trial(trial: PrepTrialResult) -> PrepTrialSummary:
 
 def _prepared_output(
     *,
-    trial: PrepTrialResult,
     summary: PrepTrialSummary,
     prep_attempt: int,
     trace: list[str],
@@ -148,7 +147,6 @@ def _prepared_output(
     return PrepPdfOutput(
         status="prepared",
         database_path=database_path,
-        extraction_results=trial.extraction_results,
         extracted_sql_artifacts=summary.extracted_sql_artifacts,
         prep_attempts=prep_attempt,
         trace=append_stage_trace(
@@ -171,7 +169,6 @@ def _stopped_output(
     stop_message = f"stopped after trial {prep_attempt} with status={decision.status if decision else 'error'}"
     return PrepPdfOutput(
         status="error",
-        extraction_results=trial.extraction_results,
         extracted_sql_artifacts=summary.extracted_sql_artifacts,
         last_error=(decision.last_error if decision else None) or summary.trial_error or (decision.summary if decision else None),
         prep_attempts=prep_attempt,
@@ -198,7 +195,6 @@ def _exhausted_output(
     )
     return PrepPdfOutput(
         status="error",
-        extraction_results=trial.extraction_results,
         extracted_sql_artifacts=collect_extracted_sql_artifacts(trial.extraction_results),
         last_error=final_error,
         prep_attempts=safe_max_prep_trials,
@@ -296,7 +292,6 @@ class PrepPdf(ApplicationAgent):
 
             if summary.extraction_ready:
                 return _prepared_output(
-                    trial=trial,
                     summary=summary,
                     prep_attempt=prep_attempt,
                     trace=trace,

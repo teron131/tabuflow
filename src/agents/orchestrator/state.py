@@ -58,7 +58,6 @@ class OrchestratorOutput(BaseModel):
 
     content: str = Field(default="", description="Final assistant-facing response content.")
     artifact: dict[str, Any] = Field(default_factory=dict, description="Compact terminal workflow artifact.")
-    stage_artifacts: dict[str, dict[str, Any]] = Field(default_factory=dict, description="Stage artifacts keyed by stage name.")
 
 
 class OrchestratorState(
