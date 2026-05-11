@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..prep_csv.payloads import compact_extracted_sql_artifacts
-
+MAX_EXTRACTED_SQL_ARTIFACT_PREVIEW = 8
 MAX_TRACE_PREVIEW = 8
 MAX_REPAIR_HINT_PREVIEW = 3
 MAX_VALIDATION_INSTRUCTION_PREVIEW = 4
@@ -85,6 +84,19 @@ def compact_validation_feedback(feedback: dict[str, Any] | None) -> dict[str, An
         "instructions": preview,
         "instruction_count": len(instructions),
         "instructions_truncated": truncated,
+    }
+
+
+def compact_extracted_sql_artifacts(sql_artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return a bounded preview of extracted SQL artifacts for result payloads."""
+    preview, truncated = _preview_list(
+        sql_artifacts,
+        max_items=MAX_EXTRACTED_SQL_ARTIFACT_PREVIEW,
+    )
+    return {
+        "count": len(sql_artifacts),
+        "truncated": truncated,
+        "items": preview,
     }
 
 

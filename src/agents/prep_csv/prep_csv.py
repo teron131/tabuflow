@@ -18,7 +18,7 @@ from langgraph.graph.state import CompiledStateGraph
 from ...tools.tabular import make_tabular_tools
 from ..base import ApplicationAgent
 from ..trace_utils import PREP_CSV_STAGE, append_stage_trace, append_trace
-from .payloads import collect_extracted_sql_artifacts
+from ..prep_payloads import collect_extracted_sql_artifacts
 from .prompts import PREP_CSV_STAGE_SYSTEM_PROMPT, build_prep_request, parse_tool_content
 from .state import PrepCsvDecision, PrepCsvOutput
 

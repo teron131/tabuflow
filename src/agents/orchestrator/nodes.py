@@ -10,12 +10,11 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from ...pipelines.namer import build_sql_artifact_namer
+from ..prep_payloads import collect_extracted_sql_artifacts
 from ..prep_csv import PrepCsv, PrepCsvOutput
-from ..prep_csv.payloads import collect_extracted_sql_artifacts
 from ..prep_csv.prep_csv import collect_prep_trial_result
 from ..prep_csv.state import PrepCsvDecision
 from ..prep_pdf import PrepPdf, PrepPdfOutput
-from ..prep_pdf.payloads import collect_extracted_sql_artifacts as collect_pdf_extracted_sql_artifacts
 from ..prep_pdf.prep_pdf import collect_prep_trial_result as collect_pdf_prep_trial_result
 from ..prep_pdf.state import PrepPdfDecision
 from ..query_stage import SQLRepairerFn, SQLWriterFn, build_sql_repairer, build_sql_writer
@@ -235,7 +234,7 @@ def build_prep_pdf_output(state: OrchestratorState | dict[str, Any]) -> PrepPdfO
     for message in trial.trace:
         trace = append_stage_trace(trace, PREP_PDF_STAGE, message)
 
-    extracted_sql_artifacts = collect_pdf_extracted_sql_artifacts(trial.extraction_results)
+    extracted_sql_artifacts = collect_extracted_sql_artifacts(trial.extraction_results)
     database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}
     trial_error = trial.last_error
     if trial_error is None:
