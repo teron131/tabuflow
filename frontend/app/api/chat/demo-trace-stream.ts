@@ -73,7 +73,7 @@ export function parseDemoTraceCommand(
 
 const DEMO_STAGE_TOOL_BLUEPRINTS: DemoStageToolBlueprint[] = [
 	{
-		name: "prep_stage",
+		name: "prep_csv",
 		input: (message) => ({
 			message,
 			source_files: ["data/uploads/source_table.csv"],
@@ -82,51 +82,51 @@ const DEMO_STAGE_TOOL_BLUEPRINTS: DemoStageToolBlueprint[] = [
 		summary: "prepared data/uploads/source_table.csv as prepared_table",
 		stageTrace: [
 			{
-				id: "prep-1",
+				id: "prep-csv-1",
 				name: "load_skills",
 				status: "completed",
 				summary: "loaded placeholder skill descriptions for tabular analysis",
 			},
 			{
-				id: "prep-2",
+				id: "prep-csv-2",
 				name: "fs_list_files",
 				status: "completed",
 				summary: "listed SQL and schema references for placeholder-analysis",
 			},
 			{
-				id: "prep-3",
+				id: "prep-csv-3",
 				name: "fs_read_text",
 				status: "completed",
 				summary: "read placeholder mapping and saved-view requirements",
 			},
 			{
-				id: "prep-4",
+				id: "prep-csv-4",
 				name: "fs_read_hashline",
 				status: "completed",
 				summary: "read hashline SQL reference for summary and entity rows",
 			},
 			{
-				id: "prep-5",
+				id: "prep-csv-5",
 				name: "load_skill_resources",
 				status: "completed",
 				summary: "loaded schema hints, output contract, and SQL examples",
 			},
 			{
-				id: "prep-6",
+				id: "prep-csv-6",
 				name: "profile_tabular",
 				status: "completed",
 				summary:
 					"profiled data/uploads/source_table.csv: 14,832 rows, 9 columns",
 			},
 			{
-				id: "prep-7",
+				id: "prep-csv-7",
 				name: "inspect_tabular",
 				status: "completed",
 				summary:
 					"found entity_name, metric_a_usd, metric_b_usd, and period columns",
 			},
 			{
-				id: "prep-8",
+				id: "prep-csv-8",
 				name: "extract_tabular",
 				status: "completed",
 				summary: "loaded SQL artifact prepared_table into data/demo.sqlite",
@@ -144,9 +144,9 @@ const DEMO_STAGE_TOOL_BLUEPRINTS: DemoStageToolBlueprint[] = [
 				"skill_context: fs_read_text: read placeholder mapping and saved-view requirements",
 				"skill_context: fs_read_hashline: read hashline SQL reference for summary and entity rows",
 				"skill_context: load_skill_resources: loaded schema hints, output contract, and SQL examples",
-				"prep: profile_tabular: profiled data/uploads/source_table.csv: 14,832 rows, 9 columns",
-				"prep: inspect_tabular: found entity_name, metric_a_usd, metric_b_usd, and period columns",
-				"prep: extract_tabular: loaded SQL artifact prepared_table into data/demo.sqlite",
+				"prep_csv: profile_tabular: profiled data/uploads/source_table.csv: 14,832 rows, 9 columns",
+				"prep_csv: inspect_tabular: found entity_name, metric_a_usd, metric_b_usd, and period columns",
+				"prep_csv: extract_tabular: loaded SQL artifact prepared_table into data/demo.sqlite",
 			],
 			skill_files: DEMO_SKILL_FILES,
 			prepared_state: DEMO_PREPARED_STATE,
@@ -307,7 +307,7 @@ export function buildDemoTraceChunks(message: string): UIMessageChunk[] {
 			type: "text-delta",
 			id: finalTextId,
 			delta: [
-				"Demo run complete. The transport used prep_stage and query_stage wrapper events, while the UI rendered the nested stage_trace rows as top-level tool cards.",
+				"Demo run complete. The transport used prep_csv and query_stage wrapper events, while the UI rendered the nested stage_trace rows as top-level tool cards.",
 				"",
 				DEMO_MARKDOWN_FIXTURE,
 			].join("\n"),

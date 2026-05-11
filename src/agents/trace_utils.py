@@ -3,7 +3,7 @@
 MAX_WORKFLOW_TRACE_MESSAGES = 24
 
 SKILL_CONTEXT_STAGE = "skill_context"
-PREP_STAGE = "prep"
+PREP_CSV_STAGE = "prep_csv"
 SQL_STAGE = "sql"
 VALIDATION_STAGE = "validation"
 SAVE_STAGE = "save"

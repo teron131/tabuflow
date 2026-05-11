@@ -25,7 +25,7 @@ Keep backend changes minimal and additive:
 - fail chat requests clearly when model credentials are unavailable,
 - serve the built frontend from FastAPI for a one-process preview path.
 
-Do not rewrite the orchestrator, prep stage, query stage, validation stage, tabular extraction, or SQL helper internals for this UI pass.
+Do not rewrite the orchestrator, prep_csv stage, query stage, validation stage, tabular extraction, or SQL helper internals for this UI pass.
 
 ### Frontend Scope
 
@@ -141,7 +141,7 @@ Frontend:
 
 Once the shell is solid, the next valuable backend-facing work is:
 
-- real upload-to-prep workflow,
+- real upload-to-prep_csv workflow,
 - saved run history,
 - persisted skills editor with validation,
 - prompt-to-SQL assist using the query stage,
@@ -152,9 +152,9 @@ Once the shell is solid, the next valuable backend-facing work is:
 
 The architecture is now a chat-facing orchestrator with explicit data stages:
 
-`orchestrator -> prep_stage -> query_stage -> save_view -> answer`
+`orchestrator -> prep_csv -> query_stage -> save_view -> answer`
 
-The orchestrator is the only assistant-speaking layer. For normal chat, it answers directly. For data work, it decides when to call stage tools. The fixed `data_workflow` graph remains available for deterministic prep/query/save execution, but the public graph is the user-facing orchestrator agent.
+The orchestrator is the only assistant-speaking layer. For normal chat, it answers directly. For data work, it decides when to call stage tools. The fixed `data_workflow` graph remains available for deterministic prep_csv/query/save execution, but the public graph is the user-facing orchestrator agent.
 
 Skill handling is orchestrator-owned in both paths. The public chat agent starts with a `skills` node that lists available skill descriptions, then may choose `search_skills` or `load_skills` tools. Tool-using chat turns pass through a simple `summarize` node before ending. The fixed `data_workflow` keeps the explicit `skill_context` node for deterministic worker context.
 
@@ -164,28 +164,28 @@ The near-term goal is to keep this shape small, typed, traceable, and easy to in
 
 1. The user-facing `orchestrator` receives chat messages.
 2. For ordinary messages such as "hello", it answers directly without tools.
-3. For data work, it calls `prep_stage` to prepare source files into a shared SQLite database and target metadata.
+3. For data work, it calls `prep_csv` to prepare source files into a shared SQLite database and target metadata.
 4. It calls `query_stage` with the prepared state to draft SQL, execute it, repair runtime errors, validate the result, and save a view.
 5. `answer` returns the final user-facing content and compact artifact.
 
 The fixed `data_workflow` graph runs the same stage sequence directly:
 
-`skill_context -> prep_stage -> query_stage -> answer`
+`skill_context -> prep_csv -> query_stage -> answer`
 
 ## Package Shape
 
 Current stage packages:
 
 - `src/agents/orchestrator/`: user-facing agent, data-workflow graph, stage tool wrappers, payload shaping, skill context, runtime helpers, shared state.
-- `src/agents/prep_stage/`: ReAct-style prep stage for inspect/profile/extract tabular data.
+- `src/agents/prep_csv/`: ReAct-style prep_csv stage for inspect/profile/extract tabular data.
 - `src/agents/query_stage/`: SQL drafting, execution, runtime repair, and query-stage state.
 - `src/agents/validation_stage/`: deterministic and model-backed validation for query results.
 
 LangGraph entrypoints in `langgraph.json`:
 
 - `orchestrator`: user-facing chat agent with stage tools.
-- `data_workflow`: fixed prep/query/save/answer workflow.
-- `prep`: visible prep ReAct graph.
+- `data_workflow`: fixed prep_csv/query/save/answer workflow.
+- `prep_csv`: visible prep_csv ReAct graph.
 - `query`: visible query-stage graph.
 
 ## State Model
@@ -196,7 +196,7 @@ Keep these public schemas:
 
 - `OrchestratorInput`: chat `messages`, source files, validation retry budget.
 - `OrchestratorOutput`: final content, result artifact, `stage_artifacts`.
-- `OrchestratorState`: the full graph state, including LangGraph `messages`, prep output bridge fields, prepared data, SQL/query fields, validation feedback, and runtime repair counters.
+- `OrchestratorState`: the full graph state, including LangGraph `messages`, prep_csv output bridge fields, prepared data, SQL/query fields, validation feedback, and runtime repair counters.
 
 Keep these reusable slices only because `QueryStageState` also uses them:
 
@@ -219,23 +219,23 @@ Avoid adding wrapper schemas that only group one or two orchestrator-only fields
 
 ## Stage Contracts
 
-### Prep Stage
+### Prep CSV Stage
 
 Primary files:
 
-- `src/agents/prep_stage/prep_stage.py`
-- `src/agents/prep_stage/prompts.py`
-- `src/agents/prep_stage/payloads.py`
-- `src/agents/prep_stage/state.py`
+- `src/agents/prep_csv/prep_csv.py`
+- `src/agents/prep_csv/prompts.py`
+- `src/agents/prep_csv/payloads.py`
+- `src/agents/prep_csv/state.py`
 
 Responsibilities:
 
 - inspect/profile/extract supplied source files with tabular tools
-- produce `PrepStageOutput`
+- produce `PrepCsvOutput`
 - expose extracted target metadata for query drafting
 - receive orchestrator-owned worker context and skill refs
 
-Prep does not search skills on its own.
+Prep CSV does not search skills on its own.
 
 ### Query Stage
 
@@ -292,7 +292,7 @@ The root traced function is now:
 Expected children include:
 
 - skill context
-- prep stage
+- prep_csv stage
 - query SQL draft/execute/repair nodes
 - validation attempts
 - save view
@@ -310,7 +310,7 @@ Primary checks:
 Smoke checks:
 
 - user-facing orchestrator with `hello` should answer directly and produce no tool messages
-- `data_workflow` should still run the fixed prep/query/save path
+- `data_workflow` should still run the fixed prep_csv/query/save path
 
 ## Remaining Work
 
@@ -320,7 +320,7 @@ Add tests for:
 
 - `build_worker_skill_payload` deterministic lexical behavior
 - `build_result_artifact` and `build_result_message`
-- prep failure path
+- prep_csv failure path
 - query runtime repair path
 - validation retry and validation blocked paths
 - save failure path

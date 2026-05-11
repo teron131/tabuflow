@@ -17,7 +17,7 @@ Engine choices, language choices, and provider-specific workflows matter only wh
 The repo already has a meaningful workbench skeleton rather than only a plan:
 
 - Python backend under `src/api/` exposes health, bootstrap, upload, chat, streaming chat, SQL run/targets/download, file explanation, and skill save/resource save routes.
-- The user-facing orchestrator remains Python-first and LangGraph-shaped, with prep, query, validation, skill, SQL, tabular, PDF, filesystem, and artifact tools behind it.
+- The user-facing orchestrator remains Python-first and LangGraph-shaped, with prep_csv, query, validation, skill, SQL, tabular, PDF, filesystem, and artifact tools behind it.
 - The tool surface already has substantial IO logic under `src/tools/`, including SQL helpers, tabular handling, PDF handling, filesystem tools, and artifact-related behavior.
 - The frontend is a Next workbench under `frontend/`, with an activity shell, explorer, source viewer, SQL/results surface, skill resource viewer, and AI SDK chat panel.
 - The currently strongest implemented loop appears to be: bootstrap workspace -> inspect sources/targets -> run SQL -> view/download results -> use chat or skills as contextual assistance.

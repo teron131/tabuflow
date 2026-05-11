@@ -5,7 +5,7 @@ from .orchestrator import (
     ORCHESTRATOR_SYSTEM_PROMPT,
     Orchestrator,
     build_orchestrator_input,
-    prep_recursion_limit,
+    prep_csv_recursion_limit,
 )
 from .payloads import build_result_artifact, build_result_message
 from .skill_context import format_skills_overview
@@ -34,5 +34,5 @@ __all__ = [
     "build_result_message",
     "format_skills_overview",
     "make_orchestrator_stages",
-    "prep_recursion_limit",
+    "prep_csv_recursion_limit",
 ]

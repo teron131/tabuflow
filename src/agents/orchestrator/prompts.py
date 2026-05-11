@@ -2,7 +2,7 @@
 
 from langchain_core.messages import HumanMessage
 
-from ..prep_stage.prompts import build_prep_request
+from ..prep_csv.prompts import build_prep_request
 from .skill_context import format_skill_references_for_sql, summarize_skill_refs
 
 
@@ -19,7 +19,7 @@ def build_user_request_message(
     )
 
 
-def build_prep_stage_message(
+def build_prep_csv_message(
     prompt: str,
     *,
     message: str,
@@ -27,7 +27,7 @@ def build_prep_stage_message(
     worker_instructions: str,
     skill_refs: list[dict],
 ) -> HumanMessage:
-    """Build the first prep ReAct message for an orchestrator run."""
+    """Build the first prep_csv ReAct message for an orchestrator run."""
     return HumanMessage(
         content=build_prep_request(
             prompt,
@@ -40,7 +40,7 @@ def build_prep_stage_message(
             previous_attempts=[],
             retry_instructions=[],
         ),
-        name="prep_stage",
+        name="prep_csv",
     )
 
 

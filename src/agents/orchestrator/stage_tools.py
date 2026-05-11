@@ -13,14 +13,14 @@ from langchain_core.tools import BaseTool, InjectedToolCallId, tool
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 
-from ..prep_stage import PrepStage
+from ..prep_csv import PrepCsv
 from ..query_stage import SQLRepairerFn, SQLWriterFn
 from ..validation_stage import ValidationStage
 from .nodes import OrchestratorNodes
 from .state import OrchestratorState
 
-PREP_RECURSION_LIMIT_PER_SOURCE_FILE = 30
-MIN_PREP_RECURSION_LIMIT = PREP_RECURSION_LIMIT_PER_SOURCE_FILE * 3
+PREP_CSV_RECURSION_LIMIT_PER_SOURCE_FILE = 30
+MIN_PREP_CSV_RECURSION_LIMIT = PREP_CSV_RECURSION_LIMIT_PER_SOURCE_FILE * 3
 TOOL_STATE_EXCLUDE = {"messages", "structured_response"}
 MAX_VISIBLE_TRACE_ITEMS = 80
 
@@ -72,7 +72,7 @@ def _tool_command(
 
 
 def _prep_visible_payload(state_payload: dict[str, Any]) -> dict[str, Any]:
-    """Return the compact prep result shown to the model."""
+    """Return the compact prep_csv result shown to the model."""
     extracted_sql_artifacts = state_payload.get("extracted_sql_artifacts") or []
     sql_artifact_names = [
         str(sql_artifact.get("typed_view_name") or sql_artifact.get("table_name"))
@@ -134,7 +134,7 @@ def make_orchestrator_stages(
     prompt: str = "",
     root_dir: str | Path | None = None,
     llm: BaseChatModel | None = None,
-    prep_stage: PrepStage | None = None,
+    prep_csv: PrepCsv | None = None,
     sql_writer: SQLWriterFn | None = None,
     sql_repairer: SQLRepairerFn | None = None,
     validation_stage: ValidationStage | None = None,
@@ -144,16 +144,16 @@ def make_orchestrator_stages(
         prompt=prompt,
         root_dir=root_dir,
         llm=llm,
-        prep_stage=prep_stage,
+        prep_csv=prep_csv,
         sql_writer=sql_writer,
         sql_repairer=sql_repairer,
         validation_stage=validation_stage,
     )
-    prep_graph = nodes.prep_stage_graph()
+    prep_csv_graph = nodes.prep_csv_graph()
     query_graph = nodes.query_stage_graph()
 
-    @tool("prep_stage")
-    def prep_stage(
+    @tool("prep_csv")
+    def prep_csv(
         message: str,
         tool_call_id: Annotated[str, InjectedToolCallId],
         orchestrator_state: Annotated[Any, InjectedState],
@@ -172,19 +172,19 @@ def make_orchestrator_stages(
             state,
             nodes.skill_context(state),
         )
-        result = prep_graph.invoke(
+        result = prep_csv_graph.invoke(
             state.model_dump(mode="python"),
             config=patch_config(
                 None,
                 recursion_limit=max(
-                    MIN_PREP_RECURSION_LIMIT,
-                    PREP_RECURSION_LIMIT_PER_SOURCE_FILE * len(safe_source_files),
+                    MIN_PREP_CSV_RECURSION_LIMIT,
+                    PREP_CSV_RECURSION_LIMIT_PER_SOURCE_FILE * len(safe_source_files),
                 ),
             ),
         )
         state_payload = _compact_state(result)
         return _tool_command(
-            tool_name="prep_stage",
+            tool_name="prep_csv",
             tool_call_id=tool_call_id,
             state_payload=state_payload,
             visible_payload=_prep_visible_payload(state_payload),
@@ -214,4 +214,4 @@ def make_orchestrator_stages(
             visible_payload=_query_visible_payload(state_payload),
         )
 
-    return [prep_stage, query_stage]
+    return [prep_csv, query_stage]

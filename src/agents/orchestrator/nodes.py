@@ -10,10 +10,10 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from ...pipelines.namer import build_sql_artifact_namer
-from ..prep_stage import PrepStage, PrepStageOutput
-from ..prep_stage.payloads import collect_extracted_sql_artifacts
-from ..prep_stage.prep_stage import collect_prep_trial_result
-from ..prep_stage.state import PrepStageDecision
+from ..prep_csv import PrepCsv, PrepCsvOutput
+from ..prep_csv.payloads import collect_extracted_sql_artifacts
+from ..prep_csv.prep_csv import collect_prep_trial_result
+from ..prep_csv.state import PrepCsvDecision
 from ..query_stage import SQLRepairerFn, SQLWriterFn, build_sql_repairer, build_sql_writer
 from ..query_stage.nodes import (
     QueryStageNodes,
@@ -23,16 +23,16 @@ from ..query_stage.nodes import (
     route_after_existing_sql_check,
 )
 from ..trace_utils import (
-    PREP_STAGE,
+    PREP_CSV_STAGE,
     SKILL_CONTEXT_STAGE,
     VALIDATION_STAGE,
     append_stage_trace,
     append_trace_messages,
 )
 from ..validation_stage import ValidationStage
-from .prompts import build_prep_stage_message, build_sql_worker_context, build_user_request_message
+from .prompts import build_prep_csv_message, build_sql_worker_context, build_user_request_message
 from .runtime import (
-    PREP_STAGE_NAME,
+    PREP_CSV_STAGE_NAME,
     QUERY_STAGE_NAME,
     VALIDATION_STAGE_NAME,
     build_sql_failure_result,
@@ -72,7 +72,7 @@ def build_skill_context_update(
                 message=message,
                 source_files=source_files,
             ),
-            build_prep_stage_message(
+            build_prep_csv_message(
                 prompt,
                 message=message,
                 source_files=source_files,
@@ -89,14 +89,14 @@ def build_skill_context_update(
     }
 
 
-class PrepResultMiddleware(
+class PrepCsvResultMiddleware(
     AgentMiddleware[
         OrchestratorState,
         None,
-        PrepStageDecision,
+        PrepCsvDecision,
     ]
 ):
-    """Collect the prep ReAct graph output into shared orchestrator fields."""
+    """Collect the prep_csv ReAct graph output into shared orchestrator fields."""
 
     state_schema = OrchestratorState
 
@@ -105,14 +105,14 @@ class PrepResultMiddleware(
         state: OrchestratorState | dict[str, Any],
         runtime: Any,
     ) -> dict[str, Any]:
-        """Store prep artifacts after the create_agent graph reaches its end."""
+        """Store prep_csv artifacts after the create_agent graph reaches its end."""
         _ = runtime
         state = normalize_orchestrator_state(state)
-        prep_output = build_prep_stage_output(state)
+        prep_output = build_prep_csv_output(state)
         prep_artifact = prep_output.model_dump(mode="json")
         stage_artifacts = {
             **state.stage_artifacts,
-            PREP_STAGE_NAME: prep_artifact,
+            PREP_CSV_STAGE_NAME: prep_artifact,
         }
         return {
             "prep_output": prep_artifact,
@@ -124,8 +124,8 @@ class PrepResultMiddleware(
         }
 
 
-def build_prep_stage_output(state: OrchestratorState | dict[str, Any]) -> PrepStageOutput:
-    """Collect the visible prep ReAct graph result into orchestrator state."""
+def build_prep_csv_output(state: OrchestratorState | dict[str, Any]) -> PrepCsvOutput:
+    """Collect the visible prep_csv ReAct graph result into orchestrator state."""
     state = normalize_orchestrator_state(state)
 
     trial = collect_prep_trial_result(
@@ -136,24 +136,24 @@ def build_prep_stage_output(state: OrchestratorState | dict[str, Any]) -> PrepSt
     )
     trace = state.trace
     for message in trial.trace:
-        trace = append_stage_trace(trace, PREP_STAGE, message)
+        trace = append_stage_trace(trace, PREP_CSV_STAGE, message)
 
     extracted_sql_artifacts = collect_extracted_sql_artifacts(trial.extraction_results)
     database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}
     trial_error = trial.last_error
     if trial_error is None:
         if not trial.extraction_results:
-            trial_error = "Prep agent finished without extracting any data."
+            trial_error = "prep_csv stage finished without extracting any data."
         elif len(database_paths) != 1:
             trial_error = "Expected one shared SQLite database path after extraction."
         elif not extracted_sql_artifacts:
-            trial_error = "Prep agent extracted data but did not produce usable SQL artifacts."
+            trial_error = "prep_csv stage extracted data but did not produce usable SQL artifacts."
 
     decision = trial.decision
     extraction_ready = trial_error is None and len(database_paths) == 1 and bool(extracted_sql_artifacts)
     if extraction_ready:
         database_path = next(iter(database_paths))
-        return PrepStageOutput(
+        return PrepCsvOutput(
             status="prepared",
             database_path=database_path,
             extraction_results=trial.extraction_results,
@@ -161,7 +161,7 @@ def build_prep_stage_output(state: OrchestratorState | dict[str, Any]) -> PrepSt
             prep_attempts=1,
             trace=append_stage_trace(
                 trace,
-                PREP_STAGE,
+                PREP_CSV_STAGE,
                 f"prepared {len(extracted_sql_artifacts)} SQL artifact(s) into {database_path}",
             ),
         )
@@ -169,13 +169,13 @@ def build_prep_stage_output(state: OrchestratorState | dict[str, Any]) -> PrepSt
     last_error = trial_error
     if decision is not None:
         last_error = decision.last_error or last_error or decision.summary
-    return PrepStageOutput(
+    return PrepCsvOutput(
         status="error",
         extraction_results=trial.extraction_results,
         extracted_sql_artifacts=extracted_sql_artifacts,
-        last_error=last_error or "Prep agent did not produce a usable extraction.",
+        last_error=last_error or "prep_csv stage did not produce a usable extraction.",
         prep_attempts=1,
-        trace=append_stage_trace(trace, PREP_STAGE, "ended without a usable extraction"),
+        trace=append_stage_trace(trace, PREP_CSV_STAGE, "ended without a usable extraction"),
     )
 
 
@@ -196,7 +196,7 @@ def workflow_trace_from_state(
     if state.prep_output is None:
         trace = append_trace_messages(trace, state.trace)
     else:
-        prep_output = PrepStageOutput.model_validate(state.prep_output)
+        prep_output = PrepCsvOutput.model_validate(state.prep_output)
         trace = append_trace_messages(trace, prep_output.trace)
 
     if sql_output is None:
@@ -215,7 +215,7 @@ class OrchestratorNodes:
         prompt: str,
         root_dir: str | Path | None,
         llm: Any | None,
-        prep_stage: PrepStage | None,
+        prep_csv: PrepCsv | None,
         sql_writer: SQLWriterFn | None,
         sql_repairer: SQLRepairerFn | None,
         validation_stage: ValidationStage | None,
@@ -223,7 +223,7 @@ class OrchestratorNodes:
         self.prompt = prompt
         self.root_dir = root_dir
         self.llm = llm
-        self._prep_stage = prep_stage
+        self._prep_csv = prep_csv
         if llm is None and (sql_writer is None or sql_repairer is None):
             raise ValueError("SQL stage model functions require the orchestrator's shared llm.")
         self.sql_writer = sql_writer or build_sql_writer(llm)
@@ -239,15 +239,15 @@ class OrchestratorNodes:
         self.validation_stage = validation_stage or (ValidationStage(llm=llm) if llm is not None else ValidationStage())
 
     @property
-    def prep_stage(self) -> PrepStage:
-        """Return the prep stage, building it only when the prep stage is used."""
-        if self._prep_stage is None:
-            self._prep_stage = PrepStage(
+    def prep_csv(self) -> PrepCsv:
+        """Return the prep_csv stage, building it only when the prep_csv stage is used."""
+        if self._prep_csv is None:
+            self._prep_csv = PrepCsv(
                 llm=self.llm,
                 prompt=self.prompt,
                 root_dir=self.root_dir,
             )
-        return self._prep_stage
+        return self._prep_csv
 
     def skill_context(
         self,
@@ -264,11 +264,11 @@ class OrchestratorNodes:
             config=config,
         )
 
-    def prep_stage_graph(self) -> CompiledStateGraph:
-        """Build the prep stage as the visible prep ReAct graph."""
-        return self.prep_stage.build_graph(
+    def prep_csv_graph(self) -> CompiledStateGraph:
+        """Build the prep_csv stage as the visible prep_csv ReAct graph."""
+        return self.prep_csv.build_graph(
             state_schema=OrchestratorState,
-            middleware=[PrepResultMiddleware()],
+            middleware=[PrepCsvResultMiddleware()],
         )
 
     def write_sql(self, state: OrchestratorState) -> dict[str, Any]:

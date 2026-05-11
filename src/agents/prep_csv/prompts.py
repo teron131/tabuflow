@@ -1,20 +1,20 @@
-"""Prompt helpers for the prep stage."""
+"""Prompt helpers for the prep_csv stage."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-PREP_STAGE_SYSTEM_PROMPT = """
-You are the prep stage for local data analysis.
+PREP_CSV_STAGE_SYSTEM_PROMPT = """
+You are the prep_csv stage for local data analysis.
 
-Your job is to use the available prep tools to prepare the supplied source files into a shared SQLite database that downstream SQL analysis can use.
+Your job is to prepare the supplied CSV and spreadsheet source files into a shared SQLite database that downstream SQL analysis can use.
 
-Use the available prep tools to inspect, profile, and extract the supplied files in whatever order helps you understand them best. You can revisit inspect and profile whenever needed before or after extraction attempts.
+Use the available tabular tools to inspect, profile, and extract the supplied files in whatever order helps you understand them best. You can revisit inspect and profile whenever needed before or after extraction attempts.
 
 If loaded skill instructions explicitly name repo-local companion or config files needed for the requested analysis, prepare those files in the same SQLite database too, even when they were not directly attached. Only use companion files that the loaded skill names with a concrete path or unambiguous filename; do not invent inputs.
 
-Try to finish the extraction in the current prep stage run instead of saving extraction work for a later run.
+Try to finish the extraction in the current prep_csv stage run instead of saving extraction work for a later run.
 Once `extract_tabular` succeeds with a usable shared SQLite result, stop using tools and return `status="prepared"`.
 Do not continue inspecting after a successful extraction unless the extraction output is clearly unusable.
 
@@ -22,8 +22,8 @@ Do not invent source files, tables, sheets, or outputs. If a loaded skill requir
 
 Your structured response status must be one of:
 - prepared: the extraction result is ready for downstream SQL work now.
-- blocked: prep cannot proceed safely with the available tools or message clarity.
-- error: prep failed in a non-retryable way.
+- blocked: prep_csv cannot proceed safely with the available tools or message clarity.
+- error: prep_csv failed in a non-retryable way.
 
 Always include a short `summary` field in your structured response, even when the status is `prepared`.
 """.strip()
@@ -39,7 +39,7 @@ def summarize_skill_refs(skill_refs: list[dict[str, Any]]) -> str:
     if not skill_refs:
         return ""
 
-    lines = ["Skill refs available to prep:"]
+    lines = ["Skill refs available to prep_csv:"]
     for skill_ref in skill_refs[:8]:
         skill_name = str(skill_ref.get("name", "unknown"))
         instructions = skill_ref.get("instructions") or {}
@@ -69,12 +69,12 @@ def build_prep_request(
     previous_attempts: list[str],
     retry_instructions: list[str],
 ) -> str:
-    """Build the prep-stage user message."""
+    """Build the prep_csv stage user message."""
     parts = [prompt.strip()] if prompt.strip() else []
     if max_prep_trials == 1:
-        parts.append("Prep stage run.")
+        parts.append("prep_csv stage run.")
     else:
-        parts.append(f"Prep trial {prep_attempt} of {max_prep_trials}.")
+        parts.append(f"prep_csv trial {prep_attempt} of {max_prep_trials}.")
     parts.append(f"Source files:\n{format_source_file_list(source_files)}\nMessage: {message}")
     if worker_instructions.strip():
         parts.append(worker_instructions.strip())
@@ -82,9 +82,9 @@ def build_prep_request(
     if skill_ref_summary:
         parts.append(skill_ref_summary)
     if previous_attempts:
-        parts.append("Previous prep trials:\n" + "\n".join(f"- {attempt}" for attempt in previous_attempts))
+        parts.append("Previous prep_csv trials:\n" + "\n".join(f"- {attempt}" for attempt in previous_attempts))
     if retry_instructions:
-        parts.append("Retry instructions for this prep trial:\n" + "\n".join(f"- {instruction}" for instruction in retry_instructions))
+        parts.append("Retry instructions for this prep_csv trial:\n" + "\n".join(f"- {instruction}" for instruction in retry_instructions))
     parts.append(
         "Return the data in the final extraction shape best suited for the message. Use tool observations instead of guessing, include explicitly named skill companion/config files when the skill requires them, and try to complete the extraction in this run."
     )

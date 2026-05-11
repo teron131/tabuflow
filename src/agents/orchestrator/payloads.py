@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..prep_stage.payloads import compact_extracted_sql_artifacts
+from ..prep_csv.payloads import compact_extracted_sql_artifacts
 
 MAX_TRACE_PREVIEW = 8
 MAX_REPAIR_HINT_PREVIEW = 3

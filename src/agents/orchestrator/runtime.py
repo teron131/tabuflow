@@ -11,14 +11,14 @@ from ..trace_utils import SAVE_STAGE, append_stage_trace
 from .payloads import build_result_artifact, build_result_message
 from .state import OrchestratorState, SQLArtifactState, latest_user_message
 
-PREP_STAGE_NAME = "prep_stage"
+PREP_CSV_STAGE_NAME = "prep_csv"
 QUERY_STAGE_NAME = "query_stage"
 VALIDATION_STAGE_NAME = "validation_stage"
 
 
 @dataclass
 class OrchestratorRun:
-    """Shared orchestrator run state used across prep, SQL, and save stages."""
+    """Shared orchestrator run state used across prep_csv, SQL, and save stages."""
 
     message: str
     source_files: list[str]

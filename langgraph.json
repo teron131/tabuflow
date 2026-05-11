@@ -2,7 +2,7 @@
 	"dependencies": ["."],
 	"graphs": {
 		"orchestrator": "./src/agents/orchestrator/app.py:graph",
-		"prep": "./src/agents/orchestrator/app.py:prep_graph",
+		"prep_csv": "./src/agents/orchestrator/app.py:prep_csv_graph",
 		"query": "./src/agents/orchestrator/app.py:query_graph"
 	},
 	"env": "./.env"

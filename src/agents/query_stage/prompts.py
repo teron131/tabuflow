@@ -15,10 +15,10 @@ MAX_AGENT_SKILL_REF_PREVIEW = 8
 SQL_WRITE_SYSTEM_PROMPT = """Write one read-only SQLite query for the SQL stage.
 
 Rules:
-- The orchestrator/prep stages already chose the message, database, and allowed SQL artifacts. Trust that context.
+- The orchestrator/prep_csv stages already chose the message, database, and allowed SQL artifacts. Trust that context.
 - Use only SELECT, WITH, or EXPLAIN.
 - Use only tables/views from `allowed_sql_artifacts` and `sql_artifact_context`.
-- `sql_artifact_context` is shared graph state from the orchestrator/prep stage; use its exact column names and quote identifiers that contain spaces, punctuation, or mixed case.
+- `sql_artifact_context` is shared graph state from the orchestrator/prep_csv stage; use its exact column names and quote identifiers that contain spaces, punctuation, or mixed case.
 - Do not invent normalized columns such as `account`, `account_id`, or `cost_usd` unless the sql_artifact schema already exposes them or you define them in an earlier CTE from exact source columns.
 - Treat loaded skill references inside `worker_context` as the source of truth for domain SQL. If a skill SQL reference uses placeholders, preserve its raw-column mapping pattern and replace only placeholders with discovered sql_artifact names/literals.
 - If a skill asks for one saved result view, write the full SELECT/WITH body that will become that view. Do not select from the future saved view name unless that name is already present in `allowed_sql_artifacts`.
