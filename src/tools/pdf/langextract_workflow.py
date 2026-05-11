@@ -300,6 +300,21 @@ def langextract_node(state: PdfLangExtractWorkflowState | dict[str, Any]) -> dic
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     text = extract_pdf_text(pdf_path)[: workflow_state.max_text_chars]
+    if not text.strip() or not workflow_state.examples:
+        return {
+            "pdf_path": str(pdf_path),
+            "source_lines": [],
+            "langextract_model": workflow_state.langextract_model or os.getenv("LANGEXTRACT_MODEL") or os.getenv("LLM_MODEL") or DEFAULT_PDF_LANGEXTRACT_MODEL,
+            "draft_payload": _draft_payload(
+                pdf_path=str(pdf_path),
+                text=text,
+                extractions=[],
+                table_headings=workflow_state.table_headings,
+            ),
+            "extraction_count": 0,
+            "draft_row_count": 0,
+        }
+
     config = langextract_model_config(workflow_state.langextract_model)
     result = lx.extract(
         text_or_documents=text,
@@ -499,12 +514,18 @@ def _fixed_payload_from_state(state: PdfLangExtractWorkflowState) -> tuple[dict[
 def fixer_node(state: PdfLangExtractWorkflowState | dict[str, Any]) -> dict[str, Any]:
     """Run the existing text fixer after LangExtract to repair JSON structure."""
     workflow_state = PdfLangExtractWorkflowState.model_validate(state)
+    ocr_context = _load_ocr_context(workflow_state)
     fixed_payload, fixer_model = _fixed_payload_from_state(workflow_state)
     import_payload = _normalize_payload_for_import(
         fixed_payload,
         source_path=workflow_state.pdf_path,
     )
-    import_payload = _filter_import_rows_by_ocr(import_payload, _load_ocr_context(workflow_state))
+    import_payload = _filter_import_rows_by_ocr(import_payload, ocr_context)
+    if not import_payload["tables"] and isinstance(ocr_context.get("payload"), dict):
+        import_payload = _normalize_payload_for_import(
+            ocr_context["payload"],
+            source_path=workflow_state.pdf_path,
+        )
 
     pdf_path = Path(workflow_state.pdf_path).expanduser().resolve()
     result_path = Path(workflow_state.output_dir).expanduser().resolve() / f"{pdf_path.stem}_langextract_result.json"
