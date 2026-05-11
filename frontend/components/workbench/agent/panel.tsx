@@ -201,13 +201,18 @@ function sourceFileReference(source: SourceFile) {
 function sourceFileMention(source: SourceFile): ComposerSourceMention {
 	const reference = sourceFileReference(source);
 	const artifactKind = artifactMentionKind(reference || source.name);
+	const targetCount = source.target_count ?? source.targets?.length ?? 0;
+	let detail = pathDirectory(reference);
+	if (targetCount > 0) {
+		detail = `${targetCount} extracted target${targetCount === 1 ? "" : "s"}`;
+	} else if (artifactKind) {
+		detail = artifactMentionDetail(reference || source.name);
+	}
 	return {
 		id: source.id || reference,
 		name: source.name,
 		reference,
-		detail: artifactKind
-			? artifactMentionDetail(reference || source.name)
-			: pathDirectory(reference),
+		detail,
 		kind: artifactKind ? "artifact" : "source",
 		token: source.name,
 	};

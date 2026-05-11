@@ -475,17 +475,29 @@ function buildGroups({
 		{
 			key: "files",
 			label: groupLabels.files,
-			rows: bootstrap.source_files.map((source) => ({
-				id: `source-${source.id}`,
-				label: source.name,
-				type: fileBadge(source.name, source.kind),
-				status: source.status,
-				detail: source.source_path || source.destination_path || "",
-				metadata: "",
-				iconType: sourceIconType(source),
-				isActive: isSourceView && selectedSource?.id === source.id,
-				onSelect: () => onSelectSource(source),
-			})),
+			rows: bootstrap.source_files.map((source) => {
+				const targetCount = source.target_count ?? source.targets?.length ?? 0;
+				return {
+					id: `source-${source.id}`,
+					label: source.name,
+					type: fileBadge(source.name, source.kind),
+					status: source.status,
+					detail:
+						targetCount > 0
+							? `${targetCount} target${targetCount === 1 ? "" : "s"}`
+							: source.source_path || source.destination_path || "",
+					metadata: [
+						source.source_path,
+						source.destination_path,
+						...(source.targets || []).map((target) => target.name),
+					]
+						.filter(Boolean)
+						.join(" "),
+					iconType: sourceIconType(source),
+					isActive: isSourceView && selectedSource?.id === source.id,
+					onSelect: () => onSelectSource(source),
+				};
+			}),
 		},
 		{
 			key: "sql",

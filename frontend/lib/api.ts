@@ -11,16 +11,22 @@ export type SqlArtifact = {
 	kind: string;
 	row_count: number | null;
 	column_count?: number;
+	column_preview?: SchemaColumn[];
+	columns_truncated?: boolean;
 	size_label?: string;
 	source_path_count: number;
 	source_file_names?: string[];
 	source_references?: SourceReference[];
 	source_sql_artifact_names?: string[];
+	schema_profile?: SchemaProfile;
 	summary: string;
 };
 
 export type SqlArtifactDetails = SqlArtifact & {
 	create_sql?: string;
+	columns?: SchemaColumn[];
+	sample_rows?: Array<Record<string, unknown>>;
+	text_value_hints?: Record<string, string[]>;
 };
 
 export type SourceReference = {
@@ -40,6 +46,40 @@ export type SourceFile = {
 	destination_path?: string;
 	sheet_name?: string;
 	table_name?: string;
+	target_count?: number;
+	targets?: SourceTargetProfile[];
+};
+
+export type SchemaColumn = {
+	name: string;
+	type?: string;
+	inferred_type?: string;
+	nullable?: boolean;
+	[key: string]: unknown;
+};
+
+export type SourceTargetProfile = {
+	name: string;
+	kind: string;
+	type: string;
+	row_count: number | null;
+	column_count?: number;
+	size_label?: string;
+	columns?: SchemaColumn[];
+	summary?: string;
+};
+
+export type SchemaProfile = {
+	target_name: string;
+	target_kind: string;
+	object_type: string;
+	row_count: number | null;
+	column_count?: number;
+	size_label?: string;
+	columns?: SchemaColumn[];
+	sample_rows?: Array<Record<string, unknown>>;
+	source_references?: SourceReference[];
+	warnings?: string[];
 };
 
 export type BootstrapPayload = {
@@ -158,6 +198,7 @@ export async function fetchJson<T>(
 	init?: RequestInit,
 ): Promise<T> {
 	const response = await fetch(url, {
+		cache: init?.cache || "no-store",
 		headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
 		...init,
 	});

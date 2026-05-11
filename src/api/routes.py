@@ -117,7 +117,37 @@ def _public_sql_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
     public_artifact = {key: value for key, value in artifact.items() if key not in SOURCE_MAPPING_PRIVATE_KEYS}
     public_artifact["source_references"] = source_references
     public_artifact["source_file_names"] = list(dict.fromkeys(reference["name"] for reference in source_references))
+    public_artifact["schema_profile"] = _sql_artifact_schema_profile(public_artifact)
     return public_artifact
+
+
+def _sql_artifact_schema_profile(artifact: dict[str, Any]) -> dict[str, Any]:
+    """Return a compact source/target schema profile for browser and model use."""
+    columns = artifact.get("columns")
+    if not isinstance(columns, list):
+        columns = artifact.get("column_preview") if isinstance(artifact.get("column_preview"), list) else []
+    sample_rows = artifact.get("sample_rows") if isinstance(artifact.get("sample_rows"), list) else []
+    source_references = artifact.get("source_references") if isinstance(artifact.get("source_references"), list) else []
+    warnings: list[str] = []
+    if artifact.get("columns_truncated"):
+        warnings.append("Column list is truncated in this summary.")
+    if artifact.get("source_paths_truncated"):
+        warnings.append("Source lineage is truncated in this summary.")
+    if artifact.get("status") == "error":
+        warnings.append(str(artifact.get("message") or "Schema profile could not be loaded."))
+
+    return {
+        "target_name": str(artifact.get("name") or artifact.get("sql_artifact_name") or ""),
+        "target_kind": str(artifact.get("kind") or ""),
+        "object_type": str(artifact.get("type") or ""),
+        "row_count": artifact.get("row_count"),
+        "column_count": artifact.get("column_count"),
+        "size_label": artifact.get("size_label"),
+        "columns": columns,
+        "sample_rows": sample_rows,
+        "source_references": source_references,
+        "warnings": warnings,
+    }
 
 
 def _public_source_references(source_mappings: Any) -> list[dict[str, str]]:
@@ -233,11 +263,62 @@ def _stream_view_csv(database_path: Path, view_name: str):
             yield _csv_buffer_value(buffer)
 
 
-def _source_files_payload(database_path: Path) -> list[dict[str, Any]]:
+def _source_files_payload(
+    database_path: Path,
+    *,
+    sql_artifacts: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """Return loaded and uploaded source files for the browser UI."""
     loaded_files = list_loaded_source_summaries(database_path)
     existing_paths = {str(source.get("source_path") or "") for source in loaded_files}
-    return [*loaded_files, *list_uploaded_source_summaries(existing_paths=existing_paths)]
+    files = [*loaded_files, *list_uploaded_source_summaries(existing_paths=existing_paths)]
+    targets_by_source = _target_profiles_by_source(sql_artifacts or [])
+    for source_file in files:
+        source_keys = [
+            key
+            for key in {
+                str(source_file.get("source_path") or "").strip(),
+                str(source_file.get("name") or "").strip(),
+            }
+            if key
+        ]
+        targets_by_name: dict[str, dict[str, Any]] = {}
+        for source_key in source_keys:
+            for target in targets_by_source.get(source_key, []):
+                targets_by_name[target["name"]] = target
+        source_file["targets"] = list(targets_by_name.values())
+        source_file["target_count"] = len(source_file["targets"])
+    return files
+
+
+def _target_profiles_by_source(sql_artifacts: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Index SQL target profiles by browser-safe source path and file name."""
+    targets: dict[str, list[dict[str, Any]]] = {}
+    for artifact in sql_artifacts:
+        if not isinstance(artifact, dict):
+            continue
+        target_name = str(artifact.get("name") or "").strip()
+        if not target_name:
+            continue
+        target = {
+            "name": target_name,
+            "kind": str(artifact.get("kind") or ""),
+            "type": str(artifact.get("type") or ""),
+            "row_count": artifact.get("row_count"),
+            "column_count": artifact.get("column_count"),
+            "size_label": artifact.get("size_label"),
+            "columns": artifact.get("column_preview") if isinstance(artifact.get("column_preview"), list) else [],
+            "summary": str(artifact.get("summary") or ""),
+        }
+        for source_reference in artifact.get("source_references") or []:
+            if not isinstance(source_reference, dict):
+                continue
+            for key in (source_reference.get("path"), source_reference.get("name")):
+                source_key = str(key or "").strip()
+                if not source_key:
+                    continue
+                targets.setdefault(source_key, []).append(target)
+    return targets
 
 
 def _resolve_source_preview_path(source_path: str) -> Path:
@@ -321,6 +402,8 @@ def _source_preview_payload(preview: dict[str, Any], *, max_rows: int) -> dict[s
 def _bootstrap_payload(database_path: Path) -> dict[str, Any]:
     """Build the initial workbench payload with a verified default result."""
     sql_artifact_payload = _public_sql_payload(list_sql_artifacts(database_path=database_path))
+    sql_artifacts = sql_artifact_payload.get("sql_artifacts")
+    public_sql_artifacts = sql_artifacts if isinstance(sql_artifacts, list) else []
     initial_result = _public_sql_payload(
         run_query(
             DEFAULT_SQL,
@@ -333,8 +416,8 @@ def _bootstrap_payload(database_path: Path) -> dict[str, Any]:
         "sample_sql": DEFAULT_SQL,
         "suggested_questions": SUGGESTED_QUESTIONS,
         "stage_cards": STAGE_CARDS,
-        "source_files": _source_files_payload(database_path),
-        "sql_artifacts": sql_artifact_payload.get("sql_artifacts", []),
+        "source_files": _source_files_payload(database_path, sql_artifacts=public_sql_artifacts),
+        "sql_artifacts": public_sql_artifacts,
         "sql_artifact_summary": sql_artifact_payload.get("summary", ""),
         "initial_result": initial_result,
     }

@@ -138,6 +138,9 @@ export function WorkspacePanel({
 		inspectorView === "results" ||
 		isCsvSkillResource(selectedSkillResource, inspectorView) ||
 		hasSummaryPane;
+	const selectedSchemaProfile = selectedSqlArtifact?.schema_profile;
+	const selectedSchemaColumns =
+		selectedSchemaProfile?.columns?.slice(0, 12) ?? [];
 	const renderSqlLine = useCallback(
 		(line: string) => renderHighlightedSql(line),
 		[],
@@ -369,6 +372,18 @@ export function WorkspacePanel({
 							)}
 							{inspectorView === "sqlArtifact" && (
 								<div className="data-preview-viewer">
+									{selectedSchemaProfile ? (
+										<section className="schema-profile-strip">
+											<strong>{selectedSchemaProfile.target_name}</strong>
+											<span>
+												{selectedSchemaProfile.size_label ||
+													`${selectedSchemaProfile.row_count ?? "?"} rows`}
+											</span>
+											<span>
+												{selectedSchemaProfile.column_count ?? 0} columns
+											</span>
+										</section>
+									) : null}
 									<div className="data-preview-grid">
 										{isPreviewingSqlArtifact ? (
 											<div className="loading-state">
@@ -392,6 +407,17 @@ export function WorkspacePanel({
 											</div>
 										)}
 									</div>
+									{selectedSchemaColumns.length ? (
+										<div className="column-chip-row">
+											{selectedSchemaColumns.map((column) => (
+												<span
+													key={`${selectedSqlArtifact?.name}-${column.name}`}
+												>
+													{column.name}
+												</span>
+											))}
+										</div>
+									) : null}
 								</div>
 							)}
 							{inspectorView === "skill" && (

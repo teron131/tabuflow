@@ -1,5 +1,7 @@
 const API_BASE = process.env.DATA_AGENTICS_API_URL || "http://localhost:8017";
 
+export const dynamic = "force-dynamic";
+
 type RouteContext = {
 	params: Promise<{ path?: string[] }>;
 };
@@ -38,6 +40,7 @@ async function proxy(request: Request, context: RouteContext) {
 		method,
 		headers: forwardedHeaders(request),
 		body,
+		cache: "no-store",
 	};
 	if (body) {
 		init.duplex = "half";

@@ -68,7 +68,8 @@ Near-term contract decisions:
 
 Next contract focus:
 
-- Define one browser/model-safe schema profile payload for both extracted tables and saved views.
+- [DONE] Define the first browser/model-safe schema profile payload for extracted tables and saved views.
+- [DONE] Link source records to extracted target profiles in bootstrap payloads.
 - Include source display name, source type, parse status, target names, row/column counts, columns, sample rows, warnings, and lineage.
 - Keep raw absolute paths and private catalog tables behind backend tools.
 
@@ -361,10 +362,12 @@ The next implementation sequence should follow the chosen golden flow rather tha
 1. **Ingest:** make CSV/XLSX upload and PDF-table extraction produce consistent source/target/schema records.
    - [DONE] CSV/XLSX upload extracts into SQLite targets.
    - [DONE] PDF extraction can produce SQLite targets through `prep_pdf`.
-   - Next: consistent source/target/schema records for both paths.
+   - [DONE] Bootstrap now links CSV/XLSX/PDF sources to compact target/schema records.
+   - Next: add source-coverage warnings and richer parse-quality fields.
 2. **Browse:** make the frontend schema/file browser the primary place to inspect files, targets, columns, warnings, and samples.
    - [DONE] Explorer groups exist for sources, extracted tables, queried views, and skills.
-   - Next: promote target schema/profile details into the primary browser surface.
+   - [DONE] Source and SQL artifact inspectors show target profiles, sizes, and column chips.
+   - Next: expose warnings and sample-value quality hints in the same surface.
 3. **Ask:** route natural-language data questions toward the right tool path, with tool-choice accuracy as the main agent quality bar.
    - [DONE] Orchestrator has separate `prep_csv`, `prep_pdf`, and `query_stage` tools.
    - Next: prove route choice across attached CSV/XLSX/PDF cases with focused backend tests.

@@ -984,7 +984,9 @@ def list_sql_artifacts(
             source_paths = cast(list[str], sql_artifact["source_paths"])
             source_mappings = cast(list[dict[str, Any]], sql_artifact["source_mappings"])
             source_path_preview, source_paths_truncated = _preview_list(source_paths, max_items=MAX_SOURCE_PATH_PREVIEW)
-            column_names = [cast(str, column["name"]) for column in cast(list[dict[str, Any]], sql_artifact["columns"])]
+            columns = cast(list[dict[str, Any]], sql_artifact["columns"])
+            column_names = [cast(str, column["name"]) for column in columns]
+            column_preview, columns_truncated = _preview_list(columns, max_items=MAX_COLUMN_PREVIEW)
             column_count = len(column_names)
             row_count = cast(int | None, sql_artifact["row_count"])
             items.append(
@@ -994,6 +996,8 @@ def list_sql_artifacts(
                     "kind": kind,
                     "row_count": row_count,
                     "column_count": column_count,
+                    "column_preview": column_preview,
+                    "columns_truncated": columns_truncated,
                     "size_label": _sql_artifact_size_label(row_count=row_count, column_count=column_count),
                     "source_mappings": source_mappings,
                     "source_path_count": len(source_paths),

@@ -297,16 +297,17 @@ export function Workbench() {
 							max_rows: previewRowLimit,
 						}),
 					}),
-					isView
-						? fetchSqlArtifactDetails(sqlArtifact.name).catch(() => null)
-						: Promise.resolve(null),
+					fetchSqlArtifactDetails(sqlArtifact.name).catch(() => null),
 				]);
 				if (sqlArtifactPreviewRequestId.current === requestId) {
+					setSelectedSqlArtifact(
+						details ? { ...sqlArtifact, ...details } : sqlArtifact,
+					);
 					setSqlArtifactPreviewResult(result);
 					setSqlArtifactSourceFileName(
 						firstSourceFileName(details) || firstSourceFileName(sqlArtifact),
 					);
-					if (details?.create_sql) {
+					if (isView && details?.create_sql) {
 						setSql(
 							queryFromCreateViewSql(details.create_sql, sqlArtifact.name),
 						);
