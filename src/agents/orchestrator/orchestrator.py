@@ -174,7 +174,10 @@ def _compact_text(text: str, *, max_chars: int) -> str:
     return f"{text[:max_chars].rstrip()}... [truncated {len(text) - max_chars} chars]"
 
 
-def _compact_tool_args(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
+def _compact_tool_args(
+    tool_name: str,
+    args: dict[str, Any],
+) -> dict[str, Any]:
     """Return tool-call args without large state payloads."""
     if tool_name in STAGE_TOOL_NAMES:
         compact_args = {key: value for key, value in args.items() if key in {"message", "source_files", "max_validation_retries"}}
@@ -271,7 +274,11 @@ def _orchestration_state_context(state: OrchestratorState | dict[str, Any]) -> s
     return "\n".join(lines)
 
 
-def _system_prompt_with_skills(skills_overview: str, *, state_context: str = "") -> str:
+def _system_prompt_with_skills(
+    skills_overview: str,
+    *,
+    state_context: str = "",
+) -> str:
     """Build the model system prompt with the listed skills overview."""
     parts = [ORCHESTRATOR_SYSTEM_PROMPT.strip()]
     if state_context.strip():
@@ -290,7 +297,11 @@ def _system_prompt_with_skills(skills_overview: str, *, state_context: str = "")
     return "\n\n".join(parts)
 
 
-def build_model_node(*, llm: BaseChatModel, tools: list[BaseTool]):
+def build_model_node(
+    *,
+    llm: BaseChatModel,
+    tools: list[BaseTool],
+):
     """Build the chat model node for the flat orchestrator graph."""
     model = llm.bind_tools(tools)
 
@@ -336,7 +347,11 @@ def route_after_model(state: OrchestratorState | dict[str, Any]) -> str:
     return "end"
 
 
-def summarize_node(state: OrchestratorState | dict[str, Any], *, llm: BaseChatModel) -> dict[str, Any]:
+def summarize_node(
+    state: OrchestratorState | dict[str, Any],
+    *,
+    llm: BaseChatModel,
+) -> dict[str, Any]:
     """Append a concise final answer after a tool-using chat turn."""
     messages = _state_messages(state)
     if not any(isinstance(message, ToolMessage) for message in messages):
