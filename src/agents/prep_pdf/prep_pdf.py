@@ -26,7 +26,7 @@ PREP_PDF_STAGE_RECURSION_LIMIT = 12
 
 
 @dataclass
-class PrepTrialResult:
+class PrepPdfTrialResult:
     """One prep_pdf trial result gathered from the tool-using agent loop."""
 
     decision: PrepPdfDecision | None
@@ -36,7 +36,7 @@ class PrepTrialResult:
 
 
 @dataclass
-class PrepTrialSummary:
+class PrepPdfTrialSummary:
     """Normalized readiness signals from one prep_pdf trial."""
 
     extracted_sql_artifacts: list[dict[str, Any]]
@@ -57,7 +57,7 @@ class PrepTrialSummary:
         return next(iter(self.database_paths))
 
 
-def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
+def collect_prep_pdf_trial_result(result: dict[str, Any]) -> PrepPdfTrialResult:
     """Collect structured decisions and tool artifacts from one prep_pdf stage run."""
     trace: list[str] = []
     extraction_results: list[dict[str, Any]] = []
@@ -104,7 +104,7 @@ def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
         if decision.summary:
             trace = append_trace(trace, f"summary: {decision.summary}")
 
-    return PrepTrialResult(
+    return PrepPdfTrialResult(
         decision=decision,
         extraction_results=extraction_results,
         last_error=last_error,
@@ -112,7 +112,7 @@ def collect_prep_trial_result(result: dict[str, Any]) -> PrepTrialResult:
     )
 
 
-def summarize_prep_trial(trial: PrepTrialResult) -> PrepTrialSummary:
+def summarize_prep_pdf_trial(trial: PrepPdfTrialResult) -> PrepPdfTrialSummary:
     """Return the readiness summary for one prep_pdf trial."""
     extracted_sql_artifacts = collect_extracted_sql_artifacts(trial.extraction_results)
     database_paths = {str(item.get("database_path")) for item in trial.extraction_results if item.get("database_path")}
@@ -127,7 +127,7 @@ def summarize_prep_trial(trial: PrepTrialResult) -> PrepTrialSummary:
 
     decision = trial.decision
     decision_summary = decision.summary if decision and decision.summary else trial_error or "prep_pdf trial finished without a usable extraction."
-    return PrepTrialSummary(
+    return PrepPdfTrialSummary(
         extracted_sql_artifacts=extracted_sql_artifacts,
         database_paths=database_paths,
         trial_error=trial_error,
@@ -137,7 +137,7 @@ def summarize_prep_trial(trial: PrepTrialResult) -> PrepTrialSummary:
 
 def _prepared_output(
     *,
-    summary: PrepTrialSummary,
+    summary: PrepPdfTrialSummary,
     prep_attempt: int,
     trace: list[str],
 ) -> PrepPdfOutput:
@@ -159,8 +159,8 @@ def _prepared_output(
 
 def _stopped_output(
     *,
-    trial: PrepTrialResult,
-    summary: PrepTrialSummary,
+    trial: PrepPdfTrialResult,
+    summary: PrepPdfTrialSummary,
     prep_attempt: int,
     trace: list[str],
 ) -> PrepPdfOutput:
@@ -182,7 +182,7 @@ def _stopped_output(
 
 def _exhausted_output(
     *,
-    trial: PrepTrialResult,
+    trial: PrepPdfTrialResult,
     safe_max_prep_trials: int,
     trace: list[str],
 ) -> PrepPdfOutput:
@@ -243,13 +243,13 @@ class PrepPdf(ApplicationAgent):
         request: str,
         *,
         config: RunnableConfig | None = None,
-    ) -> PrepTrialResult:
+    ) -> PrepPdfTrialResult:
         """Run one prep_pdf stage trial and collect the resulting tool outputs."""
         result = self.graph.invoke(
             {"messages": [HumanMessage(content=request)]},
             config=patch_config(config, recursion_limit=PREP_PDF_STAGE_RECURSION_LIMIT),
         )
-        return collect_prep_trial_result(result)
+        return collect_prep_pdf_trial_result(result)
 
     def invoke(
         self,
@@ -266,7 +266,7 @@ class PrepPdf(ApplicationAgent):
         trace: list[str] = []
         previous_attempts: list[str] = []
         retry_instructions: list[str] = []
-        last_trial: PrepTrialResult | None = None
+        last_trial: PrepPdfTrialResult | None = None
 
         for prep_attempt in range(1, safe_max_prep_trials + 1):
             request = build_prep_request(
@@ -287,7 +287,7 @@ class PrepPdf(ApplicationAgent):
                 trace = append_stage_trace(trace, PREP_PDF_STAGE, f"trial {prep_attempt} {message}")
 
             decision = trial.decision
-            summary = summarize_prep_trial(trial)
+            summary = summarize_prep_pdf_trial(trial)
             previous_attempts.append(f"trial {prep_attempt}: {summary.decision_summary}")
 
             if summary.extraction_ready:

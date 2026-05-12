@@ -12,7 +12,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 
-from ...tools import create_skill_package, list_skills, load_skills, search_skills
+from ...tools import create_skill_package, list_skills, load_skill, search_skills
 from ...tools.fs import allow_sql_or_skill_write, make_fs_tools
 from ...tools.fs.hashline import HashlineReferenceError
 from ..base import ApplicationAgent
@@ -59,7 +59,7 @@ Stopping and follow-up:
 
 Skills:
 - Workspace skills are app-managed reusable procedures and situational context, not a replacement for this system prompt.
-- Use search_skills or load_skills when a skill would help with the user's request; do not use skill tools for ordinary conversation.
+- Use search_skills or load_skill when a skill would help with the user's request; do not use skill tools for ordinary conversation.
 - Use create_skill_package when the user asks to create a new reusable skill package frame.
 
 Files and edits:
@@ -406,8 +406,8 @@ class Orchestrator(ApplicationAgent):
             prompt=self.prompt,
             root_dir=self.root_dir,
             llm=self.llm,
-            prep_csv=self.prep_csv,
-            prep_pdf=self.prep_pdf,
+            prep_csv_agent=self.prep_csv,
+            prep_pdf_agent=self.prep_pdf,
             sql_writer=self.sql_writer,
             sql_repairer=self.sql_repairer,
             validation_stage=self.validation_stage,
@@ -425,7 +425,7 @@ class Orchestrator(ApplicationAgent):
                 write_denied_message="Scoped writes are only allowed for .sql files or workspace skill instructions, references, and scripts.",
             ),
             create_skill_package,
-            load_skills,
+            load_skill,
             search_skills,
         ]
         builder = StateGraph(

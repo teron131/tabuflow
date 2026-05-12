@@ -550,11 +550,7 @@ function buildGroups({
 					type: "SKILL",
 					status: "",
 					detail: skill.description || skill.path || "",
-					metadata: [
-						skill.path,
-						skill.skills_path,
-						...children.map((child) => child.metadata),
-					]
+					metadata: [skill.path, ...children.map((child) => child.metadata)]
 						.filter(Boolean)
 						.join(" "),
 					iconType: "skillFolder",

@@ -222,13 +222,13 @@ def read_sql_file(
         )
 
 
-def list_sql_artifacts(
+def list_sql_files(
     *,
     root_dir: str | Path | None = None,
     sql_dir: str = DEFAULT_SQL_DIR,
     max_files: int = 100,
 ) -> dict[str, Any]:
-    """List SQL artifacts with their standard header metadata."""
+    """List saved SQL files with their standard artifact header metadata."""
     try:
         fs = _sandbox(root_dir)
         sql_root = fs.resolve(sql_dir)
@@ -278,14 +278,14 @@ def _sql_artifact_search_text(artifact: dict[str, Any]) -> str:
     )
 
 
-def search_sql_artifacts(
+def search_sql_files(
     query: str,
     *,
     root_dir: str | Path | None = None,
     top_k: int = 5,
 ) -> dict[str, Any]:
-    """Search SQL artifacts from their descriptions and standard headers."""
-    result = list_sql_artifacts(root_dir=root_dir)
+    """Search saved SQL files from their descriptions and standard headers."""
+    result = list_sql_files(root_dir=root_dir)
     if result.get("status") != "ok":
         return result
 

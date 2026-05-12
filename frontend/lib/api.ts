@@ -160,7 +160,6 @@ export type SkillEntry = {
 	name: string;
 	description?: string;
 	path?: string;
-	skills_path?: string;
 	modified_at?: string | null;
 	content?: string;
 	instructions?: {

@@ -248,7 +248,6 @@ function skillItem(skill: SkillEntry): CommandIndexItem {
 		aliases: [
 			skill.description || "",
 			skill.path || "",
-			skill.skills_path || "",
 			packageSummary,
 			...packagePaths,
 		].filter(Boolean),

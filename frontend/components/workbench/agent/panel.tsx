@@ -225,7 +225,6 @@ function skillFileMentions(skills: SkillEntry[]): ComposerSourceMention[] {
 			skill.instructions?.relative_path ||
 			skill.instructions?.path ||
 			skill.path ||
-			skill.skills_path ||
 			"";
 		if (instructionPath) {
 			mentions.push({

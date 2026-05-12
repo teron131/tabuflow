@@ -14,7 +14,7 @@ from ...file_management import (
     edit_sql_file,
     read_sql_file,
     read_sql_hashlines,
-    search_sql_artifacts,
+    search_sql_files,
     write_sql_file,
 )
 from ...pipelines.namer import ArtifactNamerFn
@@ -236,7 +236,7 @@ class QueryStageNodes:
 
     def check_existing_sql(self, state: QueryStageState) -> QueryStageUpdate:
         """Look at related SQL artifacts before the query stage writes a new SQL file."""
-        search_result = search_sql_artifacts(
+        search_result = search_sql_files(
             latest_user_message(state.messages),
             root_dir=self.root_dir,
             top_k=MAX_RELATED_SQL_ARTIFACTS,

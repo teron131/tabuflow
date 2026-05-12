@@ -83,7 +83,7 @@ const DEMO_STAGE_TOOL_BLUEPRINTS: DemoStageToolBlueprint[] = [
 		stageTrace: [
 			{
 				id: "prep-csv-1",
-				name: "load_skills",
+				name: "load_skill",
 				status: "completed",
 				summary: "loaded placeholder skill descriptions for tabular analysis",
 			},
@@ -139,7 +139,7 @@ const DEMO_STAGE_TOOL_BLUEPRINTS: DemoStageToolBlueprint[] = [
 			sql_artifact_count: 1,
 			preferred_sql_artifacts: ["prepared_table"],
 			trace: [
-				"skill_context: load_skills: loaded placeholder skill descriptions for tabular analysis",
+				"skill_context: load_skill: loaded placeholder skill descriptions for tabular analysis",
 				"skill_context: fs_list_files: listed SQL and schema references for placeholder-analysis",
 				"skill_context: fs_read_text: read placeholder mapping and saved-view requirements",
 				"skill_context: fs_read_hashline: read hashline SQL reference for summary and entity rows",

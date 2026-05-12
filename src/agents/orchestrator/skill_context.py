@@ -8,7 +8,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from ...config import SKILLS_DIR
-from ...tools import load_skills, search_skills
+from ...tools import load_skill, search_skills
 
 SKILLS_PATH = str(SKILLS_DIR)
 MAX_SKILL_REF_PREVIEW = 8
@@ -38,8 +38,8 @@ def format_skills_overview(result: dict[str, Any]) -> str:
         for skill in skills:
             skill_name = skill.get("name", "unknown")
             description = str(skill.get("description", "")).strip()
-            skill_path = skill.get("path", "")
-            lines.append(f"- {skill_name}: {description} ({skill_path})")
+            path = skill.get("path", "")
+            lines.append(f"- {skill_name}: {description} ({path})")
     else:
         lines.append("- none found")
 
@@ -70,10 +70,10 @@ def build_worker_skill_payload(
         if not skill_name:
             continue
 
-        load_result = load_skills.invoke(
+        load_result = load_skill.invoke(
             {
                 "path": path,
-                "skills": skill_name,
+                "skill": skill_name,
             },
             config=config,
         )

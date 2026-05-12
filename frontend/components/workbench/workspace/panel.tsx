@@ -69,8 +69,8 @@ type WorkspacePanelProps = {
 	sql: string;
 	sqlResult: SqlResult | null;
 	sqlArtifactPreviewResult: SqlResult | null;
-	sqlArtifactSourceFileName: string | null;
-	sqlArtifactSourceName: string | null;
+	sourceFileNameForSqlArtifact: string | null;
+	sourceSqlArtifactName: string | null;
 	onRevertSkill: () => void;
 	onRevertSkillResource: () => void;
 	onRunSql: () => void;
@@ -105,8 +105,8 @@ export function WorkspacePanel({
 	sql,
 	sqlResult,
 	sqlArtifactPreviewResult,
-	sqlArtifactSourceFileName,
-	sqlArtifactSourceName,
+	sourceFileNameForSqlArtifact,
+	sourceSqlArtifactName,
 	onRevertSkill,
 	onRevertSkillResource,
 	onRunSql,
@@ -169,8 +169,8 @@ export function WorkspacePanel({
 		sourcePreviewResult,
 		sqlResult,
 		sqlArtifactPreviewResult,
-		sqlArtifactSourceFileName,
-		sqlArtifactSourceName,
+		sourceFileNameForSqlArtifact,
+		sourceSqlArtifactName,
 	});
 	const InspectorIcon = inspector.icon;
 
@@ -509,8 +509,8 @@ function inspectorState({
 	sourcePreviewResult,
 	sqlResult,
 	sqlArtifactPreviewResult,
-	sqlArtifactSourceFileName,
-	sqlArtifactSourceName,
+	sourceFileNameForSqlArtifact,
+	sourceSqlArtifactName,
 }: {
 	bootstrap: BootstrapPayload;
 	inspectorView: InspectorView;
@@ -521,8 +521,8 @@ function inspectorState({
 	sourcePreviewResult: SqlResult | null;
 	sqlResult: SqlResult | null;
 	sqlArtifactPreviewResult: SqlResult | null;
-	sqlArtifactSourceFileName: string | null;
-	sqlArtifactSourceName: string | null;
+	sourceFileNameForSqlArtifact: string | null;
+	sourceSqlArtifactName: string | null;
 }): { title: ReactNode; detail: string; icon: LucideIcon } {
 	if (inspectorView === "results") {
 		return { title: "Results", detail: resultDetail(sqlResult), icon: Table2 };
@@ -531,8 +531,8 @@ function inspectorState({
 		return {
 			title: sqlArtifactTitle(
 				selectedSqlArtifact,
-				sqlArtifactSourceName,
-				sqlArtifactSourceFileName,
+				sourceSqlArtifactName,
+				sourceFileNameForSqlArtifact,
 			),
 			detail: sqlArtifactDetail(selectedSqlArtifact, sqlArtifactPreviewResult),
 			icon:

@@ -24,7 +24,7 @@ from ..config import (
     has_llm_environment,
 )
 from ..pipelines.explainer import MissingExplainerModelError, explain_file
-from ..tools import create_skill_package, list_skills, load_skills
+from ..tools import create_skill_package, list_skills, load_skill
 from ..tools.sql.query import describe_sql_artifact, list_sql_artifacts, run_query
 from ..tools.tabular.storage import quote_identifier
 from ..tools.tabular.tools import extract_tabular_file, inspect_tabular_file
@@ -478,14 +478,14 @@ def _store_upload(file: UploadFile) -> Path:
     return destination
 
 
-def _skill_modified_at(skills_file: Path) -> str:
+def _skill_modified_at(skill_file: Path) -> str:
     """Return one ISO timestamp from the skill file mtime."""
-    return datetime.fromtimestamp(skills_file.stat().st_mtime, tz=UTC).isoformat()
+    return datetime.fromtimestamp(skill_file.stat().st_mtime, tz=UTC).isoformat()
 
 
 def _writable_skill_path(skill_name: str) -> Path:
     """Resolve the workspace skill file path or raise an HTTP error."""
-    loaded_payload = load_skills.func(path=str(SKILLS_DIR), skills=skill_name)
+    loaded_payload = load_skill.func(path=str(SKILLS_DIR), skill=skill_name)
     loaded_skills = loaded_payload.get("skills", [])
     if not loaded_skills:
         raise HTTPException(
@@ -493,8 +493,9 @@ def _writable_skill_path(skill_name: str) -> Path:
             detail={"status": "error", "message": f"Skill not found: {skill_name}"},
         )
 
-    skills_path = loaded_skills[0].get("skills_path")
-    if not isinstance(skills_path, str):
+    instructions = loaded_skills[0].get("instructions", {})
+    instruction_path = instructions.get("path") if isinstance(instructions, dict) else None
+    if not isinstance(instruction_path, str):
         raise HTTPException(
             status_code=400,
             detail={
@@ -502,7 +503,7 @@ def _writable_skill_path(skill_name: str) -> Path:
                 "message": f"Skill has no writable path: {skill_name}",
             },
         )
-    return Path(skills_path)
+    return Path(instruction_path)
 
 
 def _writable_skill_resource_path(resource_path: str) -> Path:
@@ -511,7 +512,7 @@ def _writable_skill_resource_path(resource_path: str) -> Path:
     if not path.is_absolute():
         path = REPO_ROOT / path
     resolved_path = path.resolve()
-    skills_root = SKILLS_DIR.resolve()
+    skill_root = SKILLS_DIR.resolve()
     if not resolved_path.is_file():
         raise HTTPException(
             status_code=404,
@@ -521,7 +522,7 @@ def _writable_skill_resource_path(resource_path: str) -> Path:
             },
         )
     try:
-        resolved_path.relative_to(skills_root)
+        resolved_path.relative_to(skill_root)
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
@@ -737,22 +738,21 @@ def skills() -> dict[str, Any]:
         if not isinstance(skill_name, str):
             enriched_skills.append(skill)
             continue
-        loaded_payload = load_skills.func(path=str(SKILLS_DIR), skills=skill_name)
+        loaded_payload = load_skill.func(path=str(SKILLS_DIR), skill=skill_name)
         loaded_skills = loaded_payload.get("skills", [])
         if loaded_skills:
             loaded_skill = loaded_skills[0]
             instructions = loaded_skill.get("instructions", {})
-            skills_path = loaded_skill.get("skills_path")
             raw_content = instructions.get("content", "")
             modified_at = None
-            if isinstance(skills_path, str):
-                skills_file = Path(skills_path)
-                raw_content = skills_file.read_text(encoding="utf-8")
-                modified_at = _skill_modified_at(skills_file)
+            instruction_path = instructions.get("path") if isinstance(instructions, dict) else None
+            if isinstance(instruction_path, str):
+                skill_file = Path(instruction_path)
+                raw_content = skill_file.read_text(encoding="utf-8")
+                modified_at = _skill_modified_at(skill_file)
             enriched_skills.append(
                 {
                     **skill,
-                    "skills_path": skills_path,
                     "modified_at": modified_at,
                     "instructions": instructions,
                     "content": raw_content,
@@ -790,14 +790,13 @@ def create_skill(request: SkillCreateRequest) -> dict[str, Any]:
 @router.post("/skills/save")
 def save_skill(request: SkillSaveRequest) -> dict[str, Any]:
     """Persist skill editor content and return the updated file metadata."""
-    skills_file = _writable_skill_path(request.name)
-    skills_file.write_text(request.content, encoding="utf-8")
+    skill_file = _writable_skill_path(request.name)
+    skill_file.write_text(request.content, encoding="utf-8")
     return {
         "status": "saved",
         "name": request.name,
         "content": request.content,
-        "skills_path": str(skills_file),
-        "modified_at": _skill_modified_at(skills_file),
+        "modified_at": _skill_modified_at(skill_file),
         "summary": "Skill saved.",
     }
 

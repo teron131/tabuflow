@@ -12,10 +12,10 @@ from langgraph.graph.state import CompiledStateGraph
 from ...pipelines.namer import build_sql_artifact_namer
 from ..prep_payloads import collect_extracted_sql_artifacts
 from ..prep_csv import PrepCsv, PrepCsvOutput
-from ..prep_csv.prep_csv import collect_prep_trial_result
+from ..prep_csv.prep_csv import collect_prep_csv_trial_result
 from ..prep_csv.state import PrepCsvDecision
 from ..prep_pdf import PrepPdf, PrepPdfOutput
-from ..prep_pdf.prep_pdf import collect_prep_trial_result as collect_pdf_prep_trial_result
+from ..prep_pdf.prep_pdf import collect_prep_pdf_trial_result
 from ..prep_pdf.state import PrepPdfDecision
 from ..query_stage import SQLRepairerFn, SQLWriterFn, build_sql_repairer, build_sql_writer
 from ..query_stage.nodes import (
@@ -127,7 +127,7 @@ def build_prep_csv_output(state: OrchestratorState | dict[str, Any]) -> PrepCsvO
     """Collect the visible prep_csv ReAct graph result into orchestrator state."""
     state = normalize_orchestrator_state(state)
 
-    trial = collect_prep_trial_result(
+    trial = collect_prep_csv_trial_result(
         {
             "messages": state.messages,
             "structured_response": state.structured_response,
@@ -210,7 +210,7 @@ def build_prep_pdf_output(state: OrchestratorState | dict[str, Any]) -> PrepPdfO
     """Collect the visible prep_pdf ReAct graph result into orchestrator state."""
     state = normalize_orchestrator_state(state)
 
-    trial = collect_pdf_prep_trial_result(
+    trial = collect_prep_pdf_trial_result(
         {
             "messages": state.messages,
             "structured_response": state.structured_response,

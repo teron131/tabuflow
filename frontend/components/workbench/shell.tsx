@@ -92,12 +92,11 @@ export function Workbench() {
 		useState<SqlResult | null>(null);
 	const [selectedSqlArtifact, setSelectedSqlArtifact] =
 		useState<SqlArtifact | null>(null);
-	const [sqlArtifactSourceName, setSqlArtifactSourceName] = useState<
+	const [sourceSqlArtifactName, setSourceSqlArtifactName] = useState<
 		string | null
 	>(null);
-	const [sqlArtifactSourceFileName, setSqlArtifactSourceFileName] = useState<
-		string | null
-	>(null);
+	const [sourceFileNameForSqlArtifact, setSourceFileNameForSqlArtifact] =
+		useState<string | null>(null);
 	const [selectedSource, setSelectedSource] = useState<SourceFile | null>(null);
 	const [skills, setSkills] = useState<SkillEntry[]>([]);
 	const [selectedSkill, setSelectedSkill] = useState<SkillEntry | null>(null);
@@ -147,8 +146,8 @@ export function Workbench() {
 			setSqlResult(bootstrapPayload.initial_result || null);
 			setSourcePreviewResult(null);
 			setSqlArtifactPreviewResult(null);
-			setSqlArtifactSourceName(null);
-			setSqlArtifactSourceFileName(null);
+			setSourceSqlArtifactName(null);
+			setSourceFileNameForSqlArtifact(null);
 			setSelectedSkillResource(null);
 			setSelectedSource(bootstrapPayload.source_files[0] || null);
 			setSelectedSqlArtifact(
@@ -286,8 +285,8 @@ export function Workbench() {
 			setIsPreviewingSqlArtifact(true);
 			setSourcePreviewResult(null);
 			setSqlArtifactPreviewResult(null);
-			setSqlArtifactSourceName(null);
-			setSqlArtifactSourceFileName(firstSourceFileName(sqlArtifact));
+			setSourceSqlArtifactName(null);
+			setSourceFileNameForSqlArtifact(firstSourceFileName(sqlArtifact));
 			try {
 				const [result, details] = await Promise.all([
 					fetchJson<SqlResult>("/api/sql/run", {
@@ -304,14 +303,14 @@ export function Workbench() {
 						details ? { ...sqlArtifact, ...details } : sqlArtifact,
 					);
 					setSqlArtifactPreviewResult(result);
-					setSqlArtifactSourceFileName(
+					setSourceFileNameForSqlArtifact(
 						firstSourceFileName(details) || firstSourceFileName(sqlArtifact),
 					);
 					if (isView && details?.create_sql) {
 						setSql(
 							queryFromCreateViewSql(details.create_sql, sqlArtifact.name),
 						);
-						setSqlArtifactSourceName(
+						setSourceSqlArtifactName(
 							details.source_sql_artifact_names?.[0] || null,
 						);
 					}
@@ -322,8 +321,8 @@ export function Workbench() {
 						status: "error",
 						message: (error as Error).message,
 					});
-					setSqlArtifactSourceName(null);
-					setSqlArtifactSourceFileName(null);
+					setSourceSqlArtifactName(null);
+					setSourceFileNameForSqlArtifact(null);
 				}
 			} finally {
 				if (sqlArtifactPreviewRequestId.current === requestId) {
@@ -340,8 +339,8 @@ export function Workbench() {
 			sourcePreviewRequestId.current = requestId;
 			setSelectedSource(source);
 			setSelectedSkillResource(null);
-			setSqlArtifactSourceName(null);
-			setSqlArtifactSourceFileName(null);
+			setSourceSqlArtifactName(null);
+			setSourceFileNameForSqlArtifact(null);
 			setSqlArtifactPreviewResult(null);
 			markExplorerSelection("files");
 			setInspectorView("source");
@@ -394,8 +393,8 @@ export function Workbench() {
 			setSelectedSkill(skill);
 			setSelectedSkillResource(null);
 			setSourcePreviewResult(null);
-			setSqlArtifactSourceName(null);
-			setSqlArtifactSourceFileName(null);
+			setSourceSqlArtifactName(null);
+			setSourceFileNameForSqlArtifact(null);
 			setSkillEditorText(nextContent);
 			setSavedSkillText(nextContent);
 			markExplorerSelection("skills");
@@ -417,8 +416,8 @@ export function Workbench() {
 			}
 			setSelectedSkillResource(resource);
 			setSourcePreviewResult(null);
-			setSqlArtifactSourceName(null);
-			setSqlArtifactSourceFileName(null);
+			setSourceSqlArtifactName(null);
+			setSourceFileNameForSqlArtifact(null);
 			markExplorerSelection("skills");
 			setInspectorView("skillResource");
 			setSkillResourceEditorText(resource.content || "");
@@ -508,8 +507,8 @@ export function Workbench() {
 		setSqlResult(payload.initial_result || null);
 		setSourcePreviewResult(null);
 		setSqlArtifactPreviewResult(null);
-		setSqlArtifactSourceName(null);
-		setSqlArtifactSourceFileName(null);
+		setSourceSqlArtifactName(null);
+		setSourceFileNameForSqlArtifact(null);
 		setSelectedSkillResource(null);
 		setSelectedSource(payload.source_files[0] || null);
 		setSelectedSqlArtifact(preferredSqlArtifact(payload.sql_artifacts));
@@ -673,8 +672,8 @@ export function Workbench() {
 				selectedSource={selectedSource}
 				selectedSqlArtifact={selectedSqlArtifact}
 				sourcePreviewResult={sourcePreviewResult}
-				sqlArtifactSourceFileName={sqlArtifactSourceFileName}
-				sqlArtifactSourceName={sqlArtifactSourceName}
+				sourceFileNameForSqlArtifact={sourceFileNameForSqlArtifact}
+				sourceSqlArtifactName={sourceSqlArtifactName}
 				isSkillResourceSaved={
 					skillResourceEditorText === savedSkillResourceText
 				}
