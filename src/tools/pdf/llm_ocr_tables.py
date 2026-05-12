@@ -1099,7 +1099,7 @@ def _write_outputs(
     process_inputs=_trace_pdf_inputs,
     process_outputs=_trace_pdf_outputs,
 )
-def extract_pdf_tables_to_csv(
+def extract_pdf_tables(
     pdf_path: str | Path,
     *,
     output_dir: str | Path = "data/pdf_ocr",
@@ -1113,7 +1113,7 @@ def extract_pdf_tables_to_csv(
     write_markdown: bool = True,
     config: RunnableConfig | None = None,
 ) -> PdfTableOcrResult:
-    """Extract visually detected PDF tables with chunked LLM OCR, fixer cleanup, and CSV/Markdown output."""
+    """Extract visually detected PDF tables with chunked LLM OCR, fixer cleanup, and artifacts."""
     source_path = Path(pdf_path).expanduser().resolve()
     if not source_path.exists():
         raise FileNotFoundError(f"PDF not found: {source_path}")

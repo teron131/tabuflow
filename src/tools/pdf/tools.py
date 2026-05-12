@@ -14,7 +14,7 @@ from .llm_ocr_tables import (
     DEFAULT_DPI,
     DEFAULT_MAX_CONCURRENCY,
     DEFAULT_PAGES_PER_CHUNK,
-    extract_pdf_tables_to_csv,
+    extract_pdf_tables,
 )
 
 DEFAULT_PDF_INSPECT_OUTPUT_DIR = Path("data/pdf_inspect")
@@ -130,7 +130,7 @@ def extract_pdf_file(
         pdf_path = resolved_root_dir / pdf_path
     pdf_path = pdf_path.resolve()
 
-    ocr_result = extract_pdf_tables_to_csv(
+    ocr_result = extract_pdf_tables(
         pdf_path,
         output_dir=output_dir,
         model=model,
