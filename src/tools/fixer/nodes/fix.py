@@ -8,8 +8,9 @@ from typing import Any
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
 
-from src.clients.openai import ChatOpenAI
-from src.tools.fixer.prompts import (
+from ....clients.openai import ChatOpenAI
+from ...fs.hashline import HashlineEdit, HashlineEditResponse, HashlineReferenceError, edit_hashline
+from ..prompts import (
     CLEAN_TASK_LOG,
     DEFAULT_FIXER_SYSTEM_PROMPT,
     build_fixer_agent_prompt,
@@ -17,9 +18,7 @@ from src.tools.fixer.prompts import (
     build_hashline_repair_prompt,
     build_hashline_repair_system_prompt,
 )
-from src.tools.fixer.state import FixerState
-from src.tools.fs.hashline import HashlineEdit, HashlineEditResponse, HashlineReferenceError, edit_hashline
-
+from ..state import FixerState
 from .common import (
     EMPTY_EDIT_SENTINEL,
     _add_usage,

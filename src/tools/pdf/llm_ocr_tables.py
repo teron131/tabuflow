@@ -24,9 +24,9 @@ from openai import APIConnectionError, BadRequestError
 from pydantic import BaseModel, ConfigDict, Field
 import pymupdf
 
-from src.config import resolve_agent_model
-from src.clients.openai import ChatOpenAI
-from src.tools.fixer import fix_file
+from ...clients.openai import ChatOpenAI
+from ...config import resolve_agent_model
+from ..fixer import fix_file
 
 DEFAULT_PAGES_PER_CHUNK = 3
 DEFAULT_DPI = 192

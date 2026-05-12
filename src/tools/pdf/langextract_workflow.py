@@ -15,10 +15,10 @@ from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel, Field
 import pymupdf
 
-from src.config import DEFAULT_AGENT_MODEL, SKILLS_DIR, resolve_agent_model
-from src.tools.fixer import fix_text
-from src.tools.skills import load_skills
-from src.tools.tabular.storage import fingerprint, load_tables_into_sqlite
+from ...config import DEFAULT_AGENT_MODEL, SKILLS_DIR, resolve_agent_model
+from ..fixer import fix_text
+from ..skills import load_skills
+from ..tabular.storage import fingerprint, load_tables_into_sqlite
 
 DEFAULT_PDF_LANGEXTRACT_MODEL = DEFAULT_AGENT_MODEL
 DEFAULT_OUTPUT_DIR = Path("data/langextract")

@@ -6,10 +6,9 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from src.clients.openai import ChatOpenAI
-from src.tools.fixer.prompts import CLEAN_TASK_LOG, DEFAULT_FIXER_SYSTEM_PROMPT, build_fixer_progress_prompt, build_review_system_prompt
-from src.tools.fixer.state import FixerState
-
+from ....clients.openai import ChatOpenAI
+from ..prompts import CLEAN_TASK_LOG, DEFAULT_FIXER_SYSTEM_PROMPT, build_fixer_progress_prompt, build_review_system_prompt
+from ..state import FixerState
 from .common import (
     MAX_REPEAT_REMAINING_REVIEWS,
     _add_usage,

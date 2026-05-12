@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.tools.fixer.prompts import (
+from ..prompts import (
     ALLOWED_FIXER_ACTIONS,
     CLEAN_TASK_LOG,
     HIGH_PRIORITY_FIXER_ACTIONS,

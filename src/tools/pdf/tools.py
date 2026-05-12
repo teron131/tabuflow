@@ -9,13 +9,13 @@ from typing import Any
 from langchain.tools import tool
 import pymupdf
 
-from src.tools.pdf.llm_ocr_tables import (
+from ..tabular.storage import fingerprint, load_tables_into_sqlite, resolve_root_dir
+from .llm_ocr_tables import (
     DEFAULT_DPI,
     DEFAULT_MAX_CONCURRENCY,
     DEFAULT_PAGES_PER_CHUNK,
     extract_pdf_tables_to_csv,
 )
-from src.tools.tabular.storage import fingerprint, load_tables_into_sqlite, resolve_root_dir
 
 DEFAULT_PDF_INSPECT_OUTPUT_DIR = Path("data/pdf_inspect")
 DEFAULT_PDF_EXTRACT_OUTPUT_DIR = Path("data/pdf_ocr")

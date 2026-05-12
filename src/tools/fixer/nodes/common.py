@@ -9,8 +9,8 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from src.tools.fixer.state import FixerState
-from src.tools.fs.fs_tools import SandboxFS
+from ...fs.fs_tools import SandboxFS
+from ..state import FixerState
 
 logger = logging.getLogger(__name__)
 
