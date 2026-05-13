@@ -83,6 +83,7 @@ body::before {
 }
 
 button,
+input,
 textarea,
 select {
 	font: inherit;
@@ -745,6 +746,7 @@ h1 {
 }
 
 .setting-group header,
+.setting-field,
 .scale-control,
 .toggle-row,
 .stepper-row {
@@ -755,6 +757,7 @@ h1 {
 }
 
 .setting-group header span,
+.setting-field span,
 .scale-control span,
 .toggle-row span {
 	color: var(--muted);
@@ -767,6 +770,62 @@ h1 {
 	color: var(--accent-strong);
 	font-family: var(--font-mono);
 	font-size: var(--font-size-sm);
+}
+
+.setting-field {
+	align-items: stretch;
+	flex-direction: column;
+}
+
+.settings-text-input {
+	width: 100%;
+	min-width: 0;
+	padding: 7px 8px;
+	border: 1px solid var(--line-strong);
+	background: var(--panel);
+	color: var(--text);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	outline: none;
+}
+
+.settings-text-input:focus {
+	border-color: var(--accent);
+	background: var(--accent-wash);
+}
+
+.settings-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	min-height: 28px;
+}
+
+.settings-actions span {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--dim);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-2xs);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.settings-actions button {
+	padding: 5px 10px;
+	border: 1px solid var(--line-strong);
+	background: var(--accent-wash);
+	color: var(--accent-strong);
+	font-family: var(--font-mono);
+	font-size: var(--font-size-xs);
+	text-transform: uppercase;
+}
+
+.settings-actions button:hover,
+.settings-actions button:focus-visible {
+	border-color: var(--accent);
+	outline: none;
 }
 
 .scale-control {

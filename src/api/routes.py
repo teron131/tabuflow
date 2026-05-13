@@ -15,13 +15,15 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from ..config import (
-    DEFAULT_AGENT_MODEL,
     MISSING_LLM_CONFIG_MESSAGE,
     REPO_ROOT,
     SKILLS_DIR,
     UPLOADS_DIR,
     WORKBENCH_SOURCE_ROOT,
     has_llm_environment,
+    llm_settings_payload,
+    resolve_agent_model,
+    update_llm_settings,
 )
 from ..pipelines.explainer import MissingExplainerModelError, explain_file
 from ..tools import create_skill_package, list_skills, load_skill
@@ -40,6 +42,7 @@ from .constants import (
 from .schemas import (
     ChatRequest,
     FileExplanationRequest,
+    LlmSettings,
     SkillCreateRequest,
     SkillResourceSaveRequest,
     SkillSaveRequest,
@@ -545,10 +548,22 @@ def health() -> dict[str, Any]:
     return {
         "status": "ok",
         "app": "data-agentics",
-        "model": DEFAULT_AGENT_MODEL,
+        "model": resolve_agent_model(),
         "llm_configured": has_llm_environment(),
         "database_ready": database_ready,
     }
+
+
+@router.get("/settings/llm", response_model=LlmSettings)
+def llm_settings() -> LlmSettings:
+    """Return editable OpenAI-compatible LLM settings for the browser UI."""
+    return LlmSettings.model_validate(llm_settings_payload())
+
+
+@router.post("/settings/llm", response_model=LlmSettings)
+def save_llm_settings(request: LlmSettings) -> LlmSettings:
+    """Persist editable OpenAI-compatible LLM settings for the current app."""
+    return LlmSettings.model_validate(update_llm_settings(request.model_dump()))
 
 
 @router.get("/bootstrap")

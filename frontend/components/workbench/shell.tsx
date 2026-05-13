@@ -36,8 +36,10 @@ import { WorkspacePanel } from "@/components/workbench/workspace/panel";
 import {
 	type BootstrapPayload,
 	emptyBootstrap,
+	emptyLlmSettings,
 	fetchJson,
 	type HealthPayload,
+	type LlmSettingsPayload,
 	type SkillEntry,
 	type SkillResourceEntry,
 	type SkillResourcePayload,
@@ -83,6 +85,9 @@ export function Workbench() {
 	const [uiScale, setUiScale] = useState(workbenchScale.default);
 	const [themeMode, setThemeMode] = useState<ThemeMode>("light");
 	const [selectedModel, setSelectedModel] = useState("gpt-5.4-nano");
+	const [llmSettings, setLlmSettings] =
+		useState<LlmSettingsPayload>(emptyLlmSettings);
+	const [llmSaveStatus, setLlmSaveStatus] = useState("");
 	const [bootstrap, setBootstrap] = useState<BootstrapPayload>(emptyBootstrap);
 	const [sql, setSql] = useState(emptyBootstrap.sample_sql);
 	const [sqlResult, setSqlResult] = useState<SqlResult | null>(null);
@@ -119,12 +124,18 @@ export function Workbench() {
 	} = usePaneLayout({ centerRef, sql });
 
 	const hydrate = useCallback(async () => {
-		const [healthResult, skillsResult] = await Promise.allSettled([
-			fetchJson<HealthPayload>("/api/health"),
-			fetchJson<{ skills?: SkillEntry[] }>("/api/skills"),
-		]);
+		const [healthResult, llmSettingsResult, skillsResult] =
+			await Promise.allSettled([
+				fetchJson<HealthPayload>("/api/health"),
+				fetchJson<LlmSettingsPayload>("/api/settings/llm"),
+				fetchJson<{ skills?: SkillEntry[] }>("/api/skills"),
+			]);
 		if (healthResult.status === "fulfilled") {
 			setSelectedModel(healthResult.value.model);
+		}
+		if (llmSettingsResult.status === "fulfilled") {
+			setLlmSettings(llmSettingsResult.value);
+			setSelectedModel(llmSettingsResult.value.model);
 		}
 		if (
 			skillsResult.status === "fulfilled" &&
@@ -271,6 +282,24 @@ export function Workbench() {
 	const toggleThemeMode = useCallback(() => {
 		setThemeMode((mode) => (mode === "dark" ? "light" : "dark"));
 	}, []);
+
+	const saveLlmSettings = useCallback(async () => {
+		setLlmSaveStatus("Saving...");
+		try {
+			const savedSettings = await fetchJson<LlmSettingsPayload>(
+				"/api/settings/llm",
+				{
+					method: "POST",
+					body: JSON.stringify(llmSettings),
+				},
+			);
+			setLlmSettings(savedSettings);
+			setSelectedModel(savedSettings.model);
+			setLlmSaveStatus("Saved");
+		} catch (error) {
+			setLlmSaveStatus(`Save failed: ${(error as Error).message}`);
+		}
+	}, [llmSettings]);
 
 	const selectSqlArtifact = useCallback(
 		async (sqlArtifact: SqlArtifact) => {
@@ -622,8 +651,12 @@ export function Workbench() {
 			{sidePanel === "settings" ? (
 				<SettingsPanel
 					isCollapsed={isExplorerCollapsed}
+					llmSettings={llmSettings}
+					llmSaveStatus={llmSaveStatus}
 					rounding={rounding}
 					uiScale={uiScale}
+					onLlmSettingsChange={setLlmSettings}
+					onSaveLlmSettings={saveLlmSettings}
 					onRoundingChange={setRounding}
 					onUiScaleChange={setUiScale}
 					onToggle={toggleSidePanel}

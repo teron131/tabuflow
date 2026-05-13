@@ -9,6 +9,13 @@ export type HealthPayload = {
 	database_ready: boolean;
 };
 
+export type LlmSettingsPayload = {
+	model: string;
+	api_key: string;
+	base_url: string;
+	configured: boolean;
+};
+
 export type SqlArtifact = {
 	name: string;
 	type: string;
@@ -194,6 +201,13 @@ export const emptyBootstrap: BootstrapPayload = {
 	source_files: [],
 	sql_artifacts: [],
 	sql_artifact_summary: "",
+};
+
+export const emptyLlmSettings: LlmSettingsPayload = {
+	model: "gpt-5.4-nano",
+	api_key: "",
+	base_url: "",
+	configured: false,
 };
 
 export async function fetchJson<T>(

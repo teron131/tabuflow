@@ -1,13 +1,18 @@
 import { Minus, PanelLeft, Plus } from "lucide-react";
 import { memo } from "react";
+import type { LlmSettingsPayload } from "@/lib/api";
 import { roundingDigits } from "./constants";
 import type { RoundingSettings } from "./types";
 import { clampWorkbenchScale, workbenchScale } from "./ui-scale";
 
 type SettingsPanelProps = {
 	isCollapsed: boolean;
+	llmSettings: LlmSettingsPayload;
+	llmSaveStatus: string;
 	rounding: RoundingSettings;
 	uiScale: number;
+	onLlmSettingsChange: (settings: LlmSettingsPayload) => void;
+	onSaveLlmSettings: () => void;
 	onRoundingChange: (rounding: RoundingSettings) => void;
 	onUiScaleChange: (scale: number) => void;
 	onToggle: () => void;
@@ -15,8 +20,12 @@ type SettingsPanelProps = {
 
 export const SettingsPanel = memo(function SettingsPanel({
 	isCollapsed,
+	llmSettings,
+	llmSaveStatus,
 	rounding,
 	uiScale,
+	onLlmSettingsChange,
+	onSaveLlmSettings,
 	onRoundingChange,
 	onUiScaleChange,
 	onToggle,
@@ -31,6 +40,21 @@ export const SettingsPanel = memo(function SettingsPanel({
 			...rounding,
 			digits: clampRoundingDigits(digits),
 		});
+	const setLlmSetting = (
+		field: keyof Pick<LlmSettingsPayload, "api_key" | "base_url" | "model">,
+		value: string,
+	) => {
+		const nextSettings = {
+			...llmSettings,
+			[field]: value,
+		};
+		onLlmSettingsChange({
+			...nextSettings,
+			configured: Boolean(
+				nextSettings.api_key.trim() && nextSettings.base_url.trim(),
+			),
+		});
+	};
 
 	return (
 		<aside className={isCollapsed ? "explorer collapsed" : "explorer"}>
@@ -47,6 +71,52 @@ export const SettingsPanel = memo(function SettingsPanel({
 				</button>
 			</header>
 			<div className="settings-panel">
+				<section className="setting-group">
+					<header>
+						<span>LLM</span>
+						<strong>{llmSettings.configured ? "Configured" : "Missing"}</strong>
+					</header>
+					<label className="setting-field">
+						<span>Base URL</span>
+						<input
+							aria-label="LLM base URL"
+							className="settings-text-input"
+							type="url"
+							value={llmSettings.base_url}
+							placeholder="https://api.openai.com/v1"
+							onChange={(event) =>
+								setLlmSetting("base_url", event.target.value)
+							}
+						/>
+					</label>
+					<label className="setting-field">
+						<span>API key</span>
+						<input
+							aria-label="LLM API key"
+							className="settings-text-input"
+							type="password"
+							value={llmSettings.api_key}
+							placeholder="sk-..."
+							onChange={(event) => setLlmSetting("api_key", event.target.value)}
+						/>
+					</label>
+					<label className="setting-field">
+						<span>Model</span>
+						<input
+							aria-label="LLM model"
+							className="settings-text-input"
+							type="text"
+							value={llmSettings.model}
+							onChange={(event) => setLlmSetting("model", event.target.value)}
+						/>
+					</label>
+					<div className="settings-actions">
+						<span>{llmSaveStatus}</span>
+						<button type="button" onClick={onSaveLlmSettings}>
+							Save
+						</button>
+					</div>
+				</section>
 				<section className="setting-group">
 					<header>
 						<span>Interface</span>

@@ -45,6 +45,15 @@ class FileExplanationRequest(BaseModel):
     model: str | None = None
 
 
+class LlmSettings(BaseModel):
+    """Browser-editable OpenAI-compatible LLM settings."""
+
+    model: str = Field(min_length=1)
+    api_key: str = ""
+    base_url: str = ""
+    configured: bool = False
+
+
 class SkillSaveRequest(BaseModel):
     """Request body for saving skill editor content."""
 
