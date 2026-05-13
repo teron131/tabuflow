@@ -1,4 +1,7 @@
+import { createLogger } from "@/lib/logger";
+
 const API_BASE = process.env.DATA_AGENTICS_API_URL || "http://localhost:8017";
+const logger = createLogger("api.proxy");
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +49,15 @@ async function proxy(request: Request, context: RouteContext) {
 		init.duplex = "half";
 	}
 
-	return fetch(target, init);
+	return fetch(target, init).catch((error: unknown) => {
+		logger.error("Proxy request failed", {
+			method,
+			path,
+			target: target.toString(),
+			error,
+		});
+		throw error;
+	});
 }
 
 export const GET = proxy;

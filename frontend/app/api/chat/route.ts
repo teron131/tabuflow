@@ -5,6 +5,7 @@ import {
 	type UIMessageChunk,
 } from "ai";
 import type { BackendChatResponse } from "@/lib/chat-contracts";
+import { createLogger } from "@/lib/logger";
 import {
 	buildDemoTraceChunks,
 	parseDemoTraceCommand,
@@ -12,6 +13,7 @@ import {
 
 const API_BASE = process.env.DATA_AGENTICS_API_URL || "http://localhost:8017";
 const BACKEND_CHAT_TOOL_NAME = "backendChat";
+const logger = createLogger("api.chat");
 
 type BackendChatRequest = {
 	message: string;
@@ -262,10 +264,27 @@ export async function POST(request: Request) {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(backendRequest),
+	}).catch((error: unknown) => {
+		logger.error("Backend chat request failed", { error });
+		return null;
 	});
+
+	if (!backendResponse) {
+		const payload = errorPayload("Python workbench could not be reached.");
+		return backendErrorResponse({
+			content: detailMessage(payload, 502),
+			request: backendRequest,
+			payload,
+		});
+	}
 
 	if (!backendResponse.ok) {
 		const payload = await readPayload(backendResponse);
+		logger.warn("Backend chat returned an error", {
+			status: backendResponse.status,
+			statusText: backendResponse.statusText,
+			message: detailMessage(payload, backendResponse.status),
+		});
 		return backendErrorResponse({
 			content: detailMessage(payload, backendResponse.status),
 			request: backendRequest,

@@ -1,3 +1,7 @@
+import { createLogger } from "./logger";
+
+const logger = createLogger("api");
+
 export type HealthPayload = {
 	status: string;
 	model: string;
@@ -200,9 +204,18 @@ export async function fetchJson<T>(
 		cache: init?.cache || "no-store",
 		headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
 		...init,
+	}).catch((error: unknown) => {
+		logger.error("Request failed", { url, error });
+		throw error;
 	});
 	if (!response.ok) {
 		const text = await response.text();
+		logger.warn("Request returned an error", {
+			url,
+			method: init?.method || "GET",
+			status: response.status,
+			statusText: response.statusText,
+		});
 		throw new Error(text || `${response.status} ${response.statusText}`);
 	}
 	return response.json() as Promise<T>;
@@ -214,12 +227,25 @@ export async function uploadWorkspaceFile(file: File): Promise<UploadPayload> {
 	const response = await fetch("/api/files/upload", {
 		method: "POST",
 		body: formData,
+	}).catch((error: unknown) => {
+		logger.error("Upload request failed", {
+			name: file.name,
+			size: file.size,
+			error,
+		});
+		throw error;
 	});
 	const payload = (await response.json().catch(() => ({
 		status: "error",
 		detail: { message: "Upload returned a non-JSON response." },
 	}))) as UploadPayload;
 	if (!response.ok) {
+		logger.warn("Upload returned an error", {
+			name: file.name,
+			size: file.size,
+			status: response.status,
+			statusText: response.statusText,
+		});
 		throw new Error(
 			payload.detail?.message || `${response.status} ${response.statusText}`,
 		);
