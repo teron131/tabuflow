@@ -123,19 +123,20 @@ export function Workbench() {
 		startVerticalResize,
 	} = usePaneLayout({ centerRef, sql });
 
+	const loadLlmSettings = useCallback(async () => {
+		const settings = await fetchJson<LlmSettingsPayload>("/api/settings/llm");
+		setLlmSettings(settings);
+		setSelectedModel(settings.model);
+	}, []);
+
 	const hydrate = useCallback(async () => {
-		const [healthResult, llmSettingsResult, skillsResult] =
-			await Promise.allSettled([
-				fetchJson<HealthPayload>("/api/health"),
-				fetchJson<LlmSettingsPayload>("/api/settings/llm"),
-				fetchJson<{ skills?: SkillEntry[] }>("/api/skills"),
-			]);
+		const [healthResult, , skillsResult] = await Promise.allSettled([
+			fetchJson<HealthPayload>("/api/health"),
+			loadLlmSettings(),
+			fetchJson<{ skills?: SkillEntry[] }>("/api/skills"),
+		]);
 		if (healthResult.status === "fulfilled") {
 			setSelectedModel(healthResult.value.model);
-		}
-		if (llmSettingsResult.status === "fulfilled") {
-			setLlmSettings(llmSettingsResult.value);
-			setSelectedModel(llmSettingsResult.value.model);
 		}
 		if (
 			skillsResult.status === "fulfilled" &&
@@ -172,7 +173,7 @@ export function Workbench() {
 				message: `Workbench API failed: ${(error as Error).message}`,
 			});
 		}
-	}, []);
+	}, [loadLlmSettings]);
 
 	const refreshExplorerData = useCallback(async () => {
 		try {
@@ -267,9 +268,10 @@ export function Workbench() {
 			setIsExplorerCollapsed(true);
 			return;
 		}
+		void loadLlmSettings();
 		setSidePanel("settings");
 		setIsExplorerCollapsed(false);
-	}, [isExplorerCollapsed, setIsExplorerCollapsed, sidePanel]);
+	}, [isExplorerCollapsed, loadLlmSettings, setIsExplorerCollapsed, sidePanel]);
 
 	const toggleSidePanel = useCallback(() => {
 		setIsExplorerCollapsed((collapsed) => !collapsed);

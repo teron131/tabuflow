@@ -81,6 +81,13 @@ def get_agent_settings() -> AgentSettings:
     return AgentSettings()
 
 
+def reload_agent_settings() -> AgentSettings:
+    """Reload repo env values and return fresh agent settings."""
+    load_dotenv(ENV_FILE, override=True)
+    get_agent_settings.cache_clear()
+    return get_agent_settings()
+
+
 def resolve_agent_model(model: str | None = None) -> str:
     """Resolve the model name shared by application-owned agents."""
     return get_agent_settings().resolve_model(model)
@@ -142,7 +149,7 @@ def apply_env_updates(updates: Mapping[str, str | None]) -> None:
 
 def llm_settings_payload() -> dict[str, Any]:
     """Return the browser-editable OpenAI-compatible LLM settings."""
-    return get_agent_settings().llm_payload()
+    return reload_agent_settings().llm_payload()
 
 
 def update_llm_settings(payload: Mapping[str, Any]) -> dict[str, Any]:
