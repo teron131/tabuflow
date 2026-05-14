@@ -8,8 +8,6 @@ skills/*
 backup/
 examples/
 .playwright-cli/
-artifacts/graphs/ui-playwright-*.png
-artifacts/graphs/ui-reference-pass*.png
 
 
 # Byte-compiled / optimized / DLL files
