@@ -13,6 +13,8 @@ Available domain skills:
   reconciliation results and IBS charge-item upload rows.
 - `aws-invoice-pdf-tables`: AWS invoice PDF table cleanup into SQLite-ready
   visual tables.
+- `skill-evolution-loop`: create or improve skills from real artifacts,
+  reference outputs, isolated pressure tests, and user corrections.
 
 Practical process:
 
