@@ -93,8 +93,7 @@ This pushes the general-case logic into reusable tools and leaves the model resp
 
 ### Practical conclusion
 
-Use shell commands as optional operator/debug helpers.
-Use Python libraries as the main implementation path for any generic CSV/PDF ingestion and in-memory SQL workflow.
+Use shell commands as optional operator/debug helpers. Use Python libraries as the main implementation path for any generic CSV/PDF ingestion and in-memory SQL workflow.
 
 ## Observation: Extraction Layer vs Read Layer
 
@@ -115,8 +114,7 @@ The tabular tool should be treated as an extraction layer, not a full-fidelity r
 
 ### Design implication
 
-The extraction layer does not need to preserve every visual nuance or spreadsheet trick.
-It should focus on:
+The extraction layer does not need to preserve every visual nuance or spreadsheet trick. It should focus on:
 
 - stable table extraction,
 - minimal semantic invention,
@@ -155,8 +153,7 @@ Wide accountant spreadsheets often have sparse rows that still belong to the sam
 
 ### Problem with row-density continuation
 
-A row can be sparse in isolation but still clearly belong to the surrounding table box.
-Using a hard row-level non-empty threshold caused valid rows to be dropped in wide monthly matrices.
+A row can be sparse in isolation but still clearly belong to the surrounding table box. Using a hard row-level non-empty threshold caused valid rows to be dropped in wide monthly matrices.
 
 ### Better mental model
 
@@ -291,18 +288,13 @@ This gives the agent a tighter recovery path when the model hallucinates a schem
 
 - The shared tabular cache now lives at `data/tabular.sqlite`.
 - The raw extracted table content is stored in SQLite tables such as `content_<hash-prefix>`.
-- Internal mapping tables track content identity and source linkage:
-  - `_tabular_contents`
-  - `_tabular_sources`
-- `extract_tabular` computes:
-  - a `fast_fingerprint` for cheap routing/cache hints
-  - a `content_id` for exact table-content identity
+- Internal mapping tables track content identity and source linkage: - `_tabular_contents` - `_tabular_sources`
+- `extract_tabular` computes: - a `fast_fingerprint` for cheap routing/cache hints - a `content_id` for exact table-content identity
 - extracted tables are loaded into a shared SQLite cache that can be queried by a separate SQL tool layer.
 
 ### Why SQLite replaced DuckDB
 
-DuckDB was fine for SQL execution, but local editor/database-extension ergonomics were worse than expected.
-For this stage, SQLite gives a simpler local browsing experience while still being perfectly adequate for:
+DuckDB was fine for SQL execution, but local editor/database-extension ergonomics were worse than expected. For this stage, SQLite gives a simpler local browsing experience while still being perfectly adequate for:
 
 - raw extracted tables,
 - helper views,
@@ -404,9 +396,7 @@ That is a better match for billing data, where auditability matters more than co
 
 ## Observation: The Important Difference Is Grounding Strategy, Not SQL Generation
 
-After reading the docs and source more closely, the meaningful difference between LangChain and LlamaIndex is not "both can do NL to SQL."
-Both can.
-The more important question is how they ground the model before SQL generation.
+After reading the docs and source more closely, the meaningful difference between LangChain and LlamaIndex is not "both can do NL to SQL." Both can. The more important question is how they ground the model before SQL generation.
 
 ### LangChain: tool loop around a shared schema dump
 
@@ -427,23 +417,20 @@ The key implementation details:
 - `run_no_throw()` and `get_table_info_no_throw()` return formatted error strings instead of raising, which keeps the agent loop simple.
 - `QuerySQLCheckerTool` is a narrow LLM pass for common SQL mistakes such as `NOT IN` with `NULL`, wrong join columns, quoting mistakes, and type mismatches.
 
-What is actually special here is not some deep SQL reasoning layer.
-It is a robust agent tool loop:
+What is actually special here is not some deep SQL reasoning layer. It is a robust agent tool loop:
 
 1. discover tables,
 2. inspect schema plus samples,
 3. optionally check the query,
 4. execute and retry on error.
 
-This is good when the schema is small enough that a shared schema dump is acceptable.
-It is less interesting when the main problem is selecting the right subset of schema or surfacing the right values.
+This is good when the schema is small enough that a shared schema dump is acceptable. It is less interesting when the main problem is selecting the right subset of schema or surfacing the right values.
 
 ### LlamaIndex: retrieve schema and values before asking for SQL
 
 LlamaIndex is more notable in how it narrows context.
 
-The important piece is `NLSQLRetriever`, not just the query-engine wrapper.
-Its design allows the system to retrieve the most relevant context per question before generating SQL.
+The important piece is `NLSQLRetriever`, not just the query-engine wrapper. Its design allows the system to retrieve the most relevant context per question before generating SQL.
 
 The key implementation details:
 
@@ -455,9 +442,7 @@ The key implementation details:
 - `sql_only` supports a debugging posture where the model emits SQL without execution,
 - parser modes include a `PGVECTOR` path that replaces `[query_vector]` placeholders with a real embedding.
 
-This is the genuinely interesting part.
-LlamaIndex is not just "generate SQL from schema."
-It is closer to:
+This is the genuinely interesting part. LlamaIndex is not just "generate SQL from schema." It is closer to:
 
 1. retrieve the right table schema for this question,
 2. retrieve example rows or values that disambiguate business language,
@@ -523,11 +508,7 @@ The shared SQLite cache at `data/tabular.sqlite` already contains:
 
 - raw content tables such as `content_23ac1d333f4101ab`
 - linkage tables `_tabular_contents` and `_tabular_sources`
-- stable GCP helper views such as:
-  - `gcp_raw_cost_item`
-  - `gcp_cost_item_typed_view`
-  - `gcp_account_payload_view`
-  - `gcp_summary_payload_view`
+- stable GCP helper views such as: - `gcp_raw_cost_item` - `gcp_cost_item_typed_view` - `gcp_account_payload_view` - `gcp_summary_payload_view`
 
 ### Queries tried
 
@@ -615,13 +596,11 @@ The query layer is already useful with explicit SQL, but the success pattern is 
 3. run SQL,
 4. recover from column-name mismatches quickly.
 
-The main friction is not SQL execution itself.
-It is schema navigation.
+The main friction is not SQL execution itself. It is schema navigation.
 
 ### Design implication
 
-If the SQL query tool remains a raw SQL executor, it should be paired with an easy schema-discovery path.
-At minimum, the surrounding workflow needs:
+If the SQL query tool remains a raw SQL executor, it should be paired with an easy schema-discovery path. At minimum, the surrounding workflow needs:
 
 - a reliable way to list available tables/views,
 - a reliable way to inspect the schema of one chosen table/view,
@@ -667,8 +646,7 @@ This keeps the split cleaner:
 
 ### Why these first
 
-The earlier experiments showed that the main pain point was not SQL execution.
-It was:
+The earlier experiments showed that the main pain point was not SQL execution. It was:
 
 1. finding the right stable view/table name,
 2. seeing the actual available columns,
@@ -724,9 +702,7 @@ This means the most useful LangChain ideas for this repo are:
 - the inspect and run steps should fail as data, not as exceptions,
 - the query surface should be able to hide irrelevant targets.
 
-The LLM query checker is the least compelling part to copy directly.
-It helps generic agents, but it adds another model call while still depending on the model to spot SQL mistakes.
-For this repo, a deterministic repair path around SQLite errors and schema inspection likely gives better value first.
+The LLM query checker is the least compelling part to copy directly. It helps generic agents, but it adds another model call while still depending on the model to spot SQL mistakes. For this repo, a deterministic repair path around SQLite errors and schema inspection likely gives better value first.
 
 ### LlamaIndex: the useful part is query-time grounding
 
@@ -747,36 +723,25 @@ The practical meaning is:
 - retrieve relevant distinct text-column values for categorical filters and fuzzy names,
 - optionally stop at SQL generation without executing it.
 
-That is more important than the top-level query-engine wrapper itself.
-For messy billing exports, picking the right target and the right values is often harder than writing the final SQL.
+That is more important than the top-level query-engine wrapper itself. For messy billing exports, picking the right target and the right values is often harder than writing the final SQL.
 
 ### Improvement implications for our local SQL layer
 
 Based on those upstream patterns, the next improvements with the best cost/value ratio look like:
 
-1. Add sample-row context to `sql_describe`
-   - not full tables, just a few rows and maybe distinct examples for text-heavy columns.
+1. Add sample-row context to `sql_describe` - not full tables, just a few rows and maybe distinct examples for text-heavy columns.
 
-2. Add optional custom target context
-   - business descriptions, join hints, metric units, and "prefer this curated view for X" notes.
+2. Add optional custom target context - business descriptions, join hints, metric units, and "prefer this curated view for X" notes.
 
-3. Add a target-suggestion helper
-   - input: natural-language question
-   - output: likely tables/views plus why
-   - this is the lightest version of LlamaIndex's table retriever idea.
+3. Add a target-suggestion helper - input: natural-language question - output: likely tables/views plus why - this is the lightest version of LlamaIndex's table retriever idea.
 
-4. Add lightweight value-grounding helpers
-   - for example: suggest matching account IDs, customer names, project names, SKUs, or regions from actual column values.
+4. Add lightweight value-grounding helpers - for example: suggest matching account IDs, customer names, project names, SKUs, or regions from actual column values.
 
-5. Add `sql_plan` or `sql_only` mode
-   - return candidate SQL without executing it.
-   - useful for inspection, review, and safer multi-step agent loops.
+5. Add `sql_plan` or `sql_only` mode - return candidate SQL without executing it. - useful for inspection, review, and safer multi-step agent loops.
 
-6. Add deterministic query-repair helpers
-   - on missing table/column errors, suggest nearby targets/columns from the schema instead of relying on an LLM checker.
+6. Add deterministic query-repair helpers - on missing table/column errors, suggest nearby targets/columns from the schema instead of relying on an LLM checker.
 
-7. Add target allowlists / preferred surfaces
-   - bias toward curated summary views and keep raw `content_*` tables de-emphasized.
+7. Add target allowlists / preferred surfaces - bias toward curated summary views and keep raw `content_*` tables de-emphasized.
 
 ### What still does not look worth copying yet
 
@@ -793,13 +758,9 @@ For this repo, the upstream lesson is still:
 
 ## Historical State: GCP CSV To One Result View
 
-Superseded on `2026-05-20`. The current agent-facing GCP contract is the
-outcome-first skill in `skills/gcp-cost-pipeline/` and `.agents/skills/gcp-cost-pipeline/`.
-It targets one monthly cost table input, an aggregated reconciliation output,
-and IBS charge-item upload rows.
+Superseded on `2026-05-20`. The current agent-facing GCP contract is the outcome-first skill in `skills/gcp-cost-pipeline/` and `.agents/skills/gcp-cost-pipeline/`. It targets one monthly cost table input, an aggregated reconciliation output, and IBS charge-item upload rows.
 
-Older notes in this section used a single saved SQLite view as the main artifact.
-Do not use that older saved-view path as the current GCP target.
+Older notes in this section used a single saved SQLite view as the main artifact. Do not use that older saved-view path as the current GCP target.
 
 ### Workbench UI Boundary
 
