@@ -1,19 +1,43 @@
 ---
 name: aws-invoice-pdf-tables
-description: Use when converting AWS invoice PDF table extraction into SQLite-ready tables. Treat OCR/visual table fragments as authoritative for final table boundaries, hierarchy, and row order; use LangExtract text only to enrich or validate semantics.
+description: Use when extracting AWS invoice PDF billing tables into tabular data, especially when the final accounting output is unclear but coherent label/amount rows, hierarchy, totals, and OCR handoff decisions are needed.
 ---
 
 # AWS Invoice PDF Tables
 
-Use this after OCR or LangExtract has produced table-like fragments from an AWS invoice PDF.
+Use this for the minimum useful AWS invoice PDF step: recover coherent billing tables as tabular data. The final accounting result may be unknown; usable tables are still enough to move the workflow forward.
 
-The visual/OCR table structure is the primary source of truth. Preserve visual table boundaries, visual table titles, row order, parent/child hierarchy, and totals unless the caller explicitly asks for logical regrouping.
+If the invoice folder includes email files, read `references/aws-email-reporting-context.md` for how to use those emails as supporting references. Do not turn emails into CSV/table outputs unless the caller explicitly asks for email reconciliation data.
 
-LangExtract text spans can help recover labels, amounts, account numbers, dates, and other semantic fields, but they must not override OCR/visual evidence for table boundaries or hierarchy.
+The first pass should try direct PDF text extraction. Most AWS invoices are text PDFs where label/amount rows can be recovered without OCR. Use OCR or visual table extraction when pages have no text, direct extraction returns too few rows, or visual structure is needed to resolve ambiguous boundaries.
+
+Preserve table boundaries, titles, row order, parent/child hierarchy, and totals unless the caller explicitly asks for logical regrouping.
+
+## First-Pass Text Extraction
+
+Use `scripts/extract_aws_pdf_text_tables.py` for text-based AWS invoice PDFs. It extracts label/amount rows into CSV and JSON with these columns:
+
+- `page`
+- `section`
+- `label`
+- `amount`
+- `row_role`
+- `parent_label`
+- `account_number`
+- `invoice_number`
+- `invoice_date`
+
+Run shape:
+
+```bash
+python scripts/extract_aws_pdf_text_tables.py <invoice.pdf> --output-dir <output-dir>
+```
+
+The script can accept multiple PDF paths. It reports per-PDF row counts and pages that need OCR. Treat `pages_needing_ocr` as the handoff point to OCR or visual extraction, not as a failure.
 
 ## Final Tables
 
-Default final output: one SQLite-ready table per meaningful visual invoice table, using the visual table title as the source table name. Common visual tables include:
+Default final output: SQLite-ready tables from meaningful invoice tables. Common AWS invoice sections include:
 
 - `Summary`
 - `Detail for Consolidated Bill`
@@ -38,17 +62,21 @@ Set `parent_label` for child rows to the nearest preceding parent row in the sam
 
 ## Workflow
 
-1. Use OCR/visual table output as the authoritative table-boundary evidence.
-2. Use LangExtract output as a semantic baseline for labels, amounts, dates, and account/invoice facts.
-3. Reconcile the two in the fixer:
-   - OCR/visual wins for table names, table boundaries, row order, indentation, parent/child hierarchy, and totals.
-   - LangExtract can fill or validate text values when OCR text is ambiguous.
-4. Produce a single final SQLite-ready payload with `path`, `format`, and `tables`.
-5. Keep provenance metadata out of importable table columns. If metadata is needed internally, keep it in graph state rather than final rows.
-6. Validate before writing SQLite:
-   - output visual table count should match meaningful OCR table count,
-   - output row count should stay close to OCR table rows,
-   - no invoice header facts should leak into final table rows unless they appear inside OCR table rows.
+1. Inspect the PDF text and page count.
+2. If emails are present, inspect them as supporting references and keep notes separate from PDF table outputs.
+3. Run direct text extraction for AWS invoice-style text PDFs.
+4. Review row counts, page summaries, section names, and a sample of extracted rows.
+5. Escalate pages to OCR/visual extraction only when direct text extraction is empty, obviously incomplete, or visually ambiguous.
+6. If OCR/visual output is used, visual evidence wins for table names, table boundaries, row order, indentation, parent/child hierarchy, and totals.
+7. Produce SQLite-ready tabular data with stable columns.
+8. Keep provenance metadata out of importable table columns. If metadata is needed internally, keep it in sidecar JSON or graph state.
+9. Validate:
+   - row count is plausible for the PDF page count and invoice type,
+   - summary/detail rows are not collapsed into one total,
+   - invoice header facts do not leak into table rows unless they appear inside a table,
+   - zero-amount tax rows are preserved,
+   - scanned pages are reported as needing OCR,
+   - email-reported account IDs, periods, and amounts are treated as reference hints, not as replacements for PDF table rows or default CSV outputs.
 
 Do not create one final table per page, OCR chunk, or service unless that is the actual visual table structure.
 

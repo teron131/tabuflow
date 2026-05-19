@@ -1,10 +1,8 @@
 # GCP Cost Output Contract
 
-Use this reference when a task needs the GCP cost-table field mapping,
-formulas, or output shape.
+Use this reference when a task needs the GCP cost-table field mapping, formulas, or output shape.
 
-The source input is one monthly GCP cost table, conceptually `cost_table.xlsx`.
-CSV copies of the same export can be used for local validation.
+The source input is one monthly GCP cost table, conceptually `cost_table.xlsx`. CSV copies of the same export can be used for local validation.
 
 ## Raw Column Mapping
 
@@ -29,8 +27,7 @@ Normalize the raw GCP headers into semantic fields at ingestion:
 - `Unrounded Cost ($) -> unrounded_cost_usd`
 - `Cost ($) -> rounded_cost_usd`
 
-Use the raw names only at this boundary. Downstream logic should use semantic
-fields.
+Use the raw names only at this boundary. Downstream logic should use semantic fields.
 
 ## Invoice Metadata
 
@@ -45,29 +42,23 @@ When present in rows above the real header, recover:
 - `currency_exchange_rate`
 - `total_amount_due`
 
-Keep invoice metadata available for validation and remarks. Do not confuse GCP's
-generic `currency_exchange_rate` with the HKD-per-USD business rate unless the
-source explicitly says it is that rate.
+Keep invoice metadata available for validation and remarks. Do not confuse GCP's generic `currency_exchange_rate` with the HKD-per-USD business rate unless the source explicitly says it is that rate.
 
 ## Account Formulas
 
 For each billing account:
 
 - `gcp_total_cost`: sum of `unrounded_cost_usd` where `credit_type` is blank.
-- `gcp_net_cost`: sum of all `unrounded_cost_usd`, including discounts and
-  credits.
-- `reseller_margin_usd`: sum of `unrounded_cost_usd` where normalized
-  `credit_type = RESELLER_MARGIN`.
+- `gcp_net_cost`: sum of all `unrounded_cost_usd`, including discounts and credits.
+- `reseller_margin_usd`: sum of `unrounded_cost_usd` where normalized `credit_type = RESELLER_MARGIN`.
 - `customer_charge_prediscount`: `gcp_net_cost - reseller_margin_usd`.
 - `customer_charge`: `customer_charge_prediscount * (1 - special_discount_pct)`.
 - `customer_charge_hkd`: `customer_charge * hkd_exchange_rate`.
 - `gross_profit`: `customer_charge - gcp_net_cost`.
-- `gross_profit_pct`: `gross_profit / customer_charge` when
-  `customer_charge != 0`.
+- `gross_profit_pct`: `gross_profit / customer_charge` when `customer_charge != 0`.
 - `item_count`: raw cost row count for the account after excluding footer rows.
 
-Normalize `credit_type` with trim and uppercase before comparing. Exclude footer
-rows whose `cost_type` is `Rounding error` or `Total`.
+Normalize `credit_type` with trim and uppercase before comparing. Exclude footer rows whose `cost_type` is `Rounding error` or `Total`.
 
 ## Aggregated Result Output
 
@@ -94,15 +85,11 @@ Expected fields:
 - `gross_profit_pct`
 - `item_count`
 
-Reference workbooks can be used for shape and reconciliation intent, not for raw
-output field names.
+Reference workbooks can be used for shape and reconciliation intent, not for raw output field names.
 
 ## IBS Charge-Item Output
 
-The IBS output should produce rows shaped like the `Bill Item` sheet in the IBS
-upload template.
-This file is fixed enough that the skill should babysit it closely rather than
-leave agents to infer formatting.
+The IBS output should produce rows shaped like the `Bill Item` sheet in the IBS upload template. This file is fixed enough that the skill should babysit it closely rather than leave agents to infer formatting.
 
 Expected fields visible in the reference:
 
@@ -129,8 +116,7 @@ Semantics:
 - `ccc` defaults to `CAM8`.
 - `bill_methd` defaults to `O`.
 - `uploaded` defaults to `N`.
-- `start_bill` and `end_bill` use the billing month in numeric-looking
-  `YYYYMMDD` form.
+- `start_bill` and `end_bill` use the billing month in numeric-looking `YYYYMMDD` form.
 - `bill_date` uses the upload bill date in numeric-looking `YYYYMMDD` form.
 - `remark1` commonly carries `GCP Usage Consumption`.
 - `remark2` commonly carries the USD service charge.
@@ -143,16 +129,12 @@ Semantics:
   - `chrg_code = Total Amt`,
   - `chrg_amt = sum of rounded bill-item amounts`.
 
-IBS-only customer fields are allowed to come from maintained mapping/defaults
-inside the implementation used by the run. Accounts without maintained mapping
-should be reported as skipped for IBS, not as a failure of the raw cost-table
-analysis.
+IBS-only customer fields are allowed to come from maintained mapping/defaults inside the implementation used by the run. Accounts without maintained mapping should be reported as skipped for IBS, not as a failure of the raw cost-table analysis.
 
 ## Stability Rules
 
 - Do not hardcode generated table names, content hashes, or billing months.
 - Do not use raw workbook labels as final semantic names.
 - Keep formulas in an inspectable tabular transformation.
-- Do not require example workbooks, PDFs, emails, or config CSVs as default user
-  inputs for this skill.
+- Do not require example workbooks, PDFs, emails, or config CSVs as default user inputs for this skill.
 - Validate totals against the raw cost table before treating outputs as done.
