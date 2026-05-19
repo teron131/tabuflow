@@ -13,9 +13,9 @@ business outputs:
 - an aggregated GCP result for review and reconciliation,
 - an IBS charge-item upload output.
 
-The example workbooks under `examples/gcp/` are references for expected shape,
-naming intent, rates, and the historical manual process. They are not additional
-runtime inputs unless the user explicitly changes the target.
+Reference workbooks can be used to understand expected shape, naming intent,
+rates, and the historical manual process. They are not additional runtime inputs
+unless the user explicitly changes the target.
 
 ## Input
 
@@ -23,8 +23,8 @@ Primary input:
 
 - `cost_table.xlsx`: the monthly raw GCP cost table export.
 
-The current example fixture is `examples/gcp/cost_table.csv`, but the intended
-production input is the same cost-table content in Excel form.
+CSV copies of the same export are acceptable as local fixtures, but the
+production input is the cost-table content in Excel form.
 
 Treat the raw cost table as the only required source input for this skill. If an
 output needs customer metadata that is not present in the cost table, that
@@ -71,18 +71,33 @@ Output 1: aggregated GCP result.
 - Expected metrics: usage before reseller margin, net GCP cost, discount,
   customer charge or revenue, HKD revenue, gross profit, gross profit percent,
   and row/item count.
-- Reference examples: `examples/gcp/aggregated_cost_table.xlsx` and
-  `examples/gcp/aggregated_cost_table2.xlsx`.
+- Reference workbooks may be used for shape and reconciliation intent.
 
 Output 2: IBS charge-item upload.
 
 - Purpose: produce the charge rows needed by the IBS upload template.
-- Reference example: `examples/gcp/IBS_ChargeItemUploadTemplate_Cloud_GCP_20260312.xls`.
+- Use the IBS upload template as the reference for the charge-item output shape
+  when it is available.
 - Core output sheet: `Bill Item`.
-- Important columns visible in the reference: `bill_acct`, `contct_id`,
-  `chrg_code`, `chrg_amt`, `start_bill`, `end_bill`, `remark1`, `remark2`,
-  `remark3`, `remark4`, `bill_date`, `ccc`, `bill_methd`, and `uploaded`.
+- Target fidelity: almost 1-to-1 with the fixed IBS template. Preserve the
+  column order, constants, date format, and total row unless the user explicitly
+  asks for a different export shape.
+- Important columns visible in the reference: an unlabeled customer-name column,
+  `bill_acct`, `contct_id`, `chrg_code`, `chrg_amt`, `start_bill`, `end_bill`,
+  `remark1`, `remark2`, `remark3`, `remark4`, `bill_date`, `ccc`,
+  `bill_methd`, and `uploaded`.
 - `chrg_amt` is the HKD customer charge for the account.
+- IBS-only fields should be filled from maintained mapping/defaults when they
+  are not present in the raw cost table. Use maintained customer mapping and
+  template constants rather than stopping on missing raw columns.
+- Maintain customer mapping as part of the implementation/configuration used by
+  the run; do not ask the user for an extra spreadsheet as a normal workflow
+  input.
+- Fixed template constants: `chrg_code = DY80`, `ccc = CAM8`,
+  `bill_methd = O`, and `uploaded = N`.
+- `start_bill`, `end_bill`, and `bill_date` should be numeric-looking
+  `YYYYMMDD` values like the reference workbook.
+- Include the IBS total row with `Total Rec` and `Total Amt`.
 - Remarks carry human-facing context such as `GCP Usage Consumption`, USD
   service charge, discount, exchange rate, billing account ID, or project name.
 
@@ -117,6 +132,9 @@ Output 2: IBS charge-item upload.
    - The aggregated result should expose summary, category, and account/customer
      rows with semantic columns.
    - The IBS result should expose `Bill Item` rows in the upload-template shape.
+   - Produce a reviewable aggregated file and a template-like IBS upload
+     workbook or CSV. The exact implementation is up to the agent, but the
+     output contract is not.
 
 6. Validate before treating the output as done.
    - Aggregated totals should reconcile to the raw cost table after footer rows
@@ -125,6 +143,8 @@ Output 2: IBS charge-item upload.
      generic GCP invoice `currency_exchange_rate` as the HKD rate unless that is
      explicitly known for the source.
    - IBS row counts and amounts should match the accounts that should be billed.
+   - IBS output should have the exact template header order, one total row, and
+     template constants populated on every bill-item row.
 
 ## Rules
 
@@ -135,8 +155,11 @@ Output 2: IBS charge-item upload.
 - Keep formulas in an inspectable tabular/query layer, not hidden in workbook
   cells.
 - Keep local file paths out of user-facing output columns.
-- If an IBS-required field such as `bill_acct` or `contct_id` cannot be derived
-  from the raw cost table or maintained mapping, report the mapping gap clearly.
+- If an IBS row cannot be produced because no maintained customer mapping
+  exists, skip that IBS row and report the skipped account. Do not treat
+  template constants such as `DY80`, `CAM8`, `O`, or `N` as blockers.
+- Prefer a recognizable IBS upload artifact over a perfectly generalized billing
+  engine. Template defaults are fine when the output is validated.
 
 ## Prompt Frame
 

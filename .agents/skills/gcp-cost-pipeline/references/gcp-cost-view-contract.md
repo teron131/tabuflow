@@ -3,8 +3,8 @@
 Use this reference when a task needs the GCP cost-table field mapping,
 formulas, or output shape.
 
-The source input is one monthly GCP cost table, conceptually
-`cost_table.xlsx`. The current example fixture is `examples/gcp/cost_table.csv`.
+The source input is one monthly GCP cost table, conceptually `cost_table.xlsx`.
+CSV copies of the same export can be used for local validation.
 
 ## Raw Column Mapping
 
@@ -94,21 +94,19 @@ Expected fields:
 - `gross_profit_pct`
 - `item_count`
 
-Reference examples:
-
-- `examples/gcp/aggregated_cost_table.xlsx`
-- `examples/gcp/aggregated_cost_table2.xlsx`
-
-Use these workbooks for shape and reconciliation intent, not for raw output
-field names.
+Reference workbooks can be used for shape and reconciliation intent, not for raw
+output field names.
 
 ## IBS Charge-Item Output
 
-The IBS output should produce rows shaped like the `Bill Item` sheet in
-`examples/gcp/IBS_ChargeItemUploadTemplate_Cloud_GCP_20260312.xls`.
+The IBS output should produce rows shaped like the `Bill Item` sheet in the IBS
+upload template.
+This file is fixed enough that the skill should babysit it closely rather than
+leave agents to infer formatting.
 
 Expected fields visible in the reference:
 
+- unlabeled customer-name column
 - `bill_acct`
 - `contct_id`
 - `chrg_code`
@@ -127,13 +125,28 @@ Expected fields visible in the reference:
 Semantics:
 
 - `chrg_amt` is the HKD customer charge.
+- `chrg_code` defaults to `DY80` for this GCP IBS upload.
+- `ccc` defaults to `CAM8`.
+- `bill_methd` defaults to `O`.
+- `uploaded` defaults to `N`.
+- `start_bill` and `end_bill` use the billing month in numeric-looking
+  `YYYYMMDD` form.
+- `bill_date` uses the upload bill date in numeric-looking `YYYYMMDD` form.
 - `remark1` commonly carries `GCP Usage Consumption`.
 - `remark2` commonly carries the USD service charge.
 - `remark3` can carry a discount or billing-account context.
 - `remark4` can carry the HKD exchange-rate context.
+- The last row should be a template-style total row:
+  - first column blank,
+  - `bill_acct = Total Rec`,
+  - `contct_id = number of bill-item rows`,
+  - `chrg_code = Total Amt`,
+  - `chrg_amt = sum of rounded bill-item amounts`.
 
-If `bill_acct`, `contct_id`, or other IBS-only customer fields cannot be derived
-from the raw cost table or maintained mapping, report that mapping gap directly.
+IBS-only customer fields are allowed to come from maintained mapping/defaults
+inside the implementation used by the run. Accounts without maintained mapping
+should be reported as skipped for IBS, not as a failure of the raw cost-table
+analysis.
 
 ## Stability Rules
 
