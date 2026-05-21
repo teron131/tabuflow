@@ -45,7 +45,7 @@ uv run tabuflow pdf inspect <invoice.pdf>
 uv run python .agents/skills/aws-invoice-pdf-tables/scripts/extract_aws_pdf_text_tables.py <invoice.pdf> --output-dir artifacts/aws_text
 ```
 
-The script reports `extracted_amount_row_count`, `text_line_count`, per-page `extracted_amount_row_count`, and `pages_needing_ocr`. These are direct PDF text-layer counts, not visually verified table-row counts. Treat `pages_needing_ocr` as the handoff point to OCR or visual extraction, not as a failure. Keep this as an AWS skill helper rather than a generic Tabuflow PDF CLI method.
+The script reports `llm_required: false`, `visual_table_verified: false`, `text_layer_page_count`, `ocr_page_count`, `extracted_amount_row_count`, `text_line_count`, per-page `extracted_amount_row_count`, and `pages_needing_ocr`. These are direct PDF text-layer counts, not visually verified table-row counts. Treat `pages_needing_ocr` as the handoff point to OCR or visual extraction, not as a failure. Keep this as an AWS skill helper rather than a generic Tabuflow PDF CLI method.
 
 ## Final Tables
 

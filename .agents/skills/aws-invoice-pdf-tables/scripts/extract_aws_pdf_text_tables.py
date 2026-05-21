@@ -159,6 +159,7 @@ def extract_pdf(path: Path) -> dict[str, Any]:
     all_rows: list[dict[str, str]] = []
     page_summaries = []
     total_text_line_count = 0
+    text_layer_page_count = 0
     first_page_lines = clean_lines(document[0].get_text("text")) if document.page_count else []
     metadata = invoice_metadata(first_page_lines)
 
@@ -166,6 +167,8 @@ def extract_pdf(path: Path) -> dict[str, Any]:
         text = page.get_text("text")
         lines = clean_lines(text)
         total_text_line_count += len(lines)
+        if text.strip():
+            text_layer_page_count += 1
         rows = extract_rows_from_lines(lines, page_number=page_idx, metadata=metadata)
         all_rows.extend(rows)
         page_summaries.append(
@@ -183,6 +186,9 @@ def extract_pdf(path: Path) -> dict[str, Any]:
         "page_count": document.page_count,
         "metadata": metadata,
         "extraction_route": "direct_pdf_text_label_amount_pairs",
+        "llm_required": False,
+        "visual_table_verified": False,
+        "text_layer_page_count": text_layer_page_count,
         "text_line_count": total_text_line_count,
         "extracted_amount_row_count": len(all_rows),
         "columns": [
@@ -234,6 +240,10 @@ def main() -> int:
                 "path": str(pdf_path),
                 "page_count": result["page_count"],
                 "extraction_route": result["extraction_route"],
+                "llm_required": result["llm_required"],
+                "visual_table_verified": result["visual_table_verified"],
+                "text_layer_page_count": result["text_layer_page_count"],
+                "ocr_page_count": sum(1 for page in result["page_summaries"] if page["needs_ocr"]),
                 "text_line_count": result["text_line_count"],
                 "extracted_amount_row_count": result["extracted_amount_row_count"],
                 "pages_needing_ocr": [page["page"] for page in result["page_summaries"] if page["needs_ocr"]],

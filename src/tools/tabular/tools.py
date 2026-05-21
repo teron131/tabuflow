@@ -182,6 +182,21 @@ def extract_tabular_file(
         metadata_rows=metadata_rows,
         sheet=sheet,
     )
+    if not recovered["tables"]:
+        return {
+            "path": recovered["path"],
+            "format": recovered["format"],
+            "sheet_name": recovered.get("sheet_name"),
+            "status": "empty",
+            "artifact_backend": "sqlite",
+            "database_path": "",
+            "fingerprint": profile["fingerprint"],
+            "recovered_table_count": 0,
+            "recovered_metadata_block_count": len(recovered["metadata"]),
+            "tables": [],
+            "message": "Tabular extraction completed but did not recover importable tables.",
+        }
+
     loaded = load_tables_into_sqlite(
         recovered,
         root_dir=root_dir,
