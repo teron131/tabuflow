@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, cast
 
 from openpyxl import load_workbook
+from openpyxl.worksheet.merge import MergedCellRange
+import xlrd
 
 MAX_SAMPLE_ROWS = 8
 MAX_METADATA_ROWS = 20
@@ -254,6 +256,16 @@ def _load_csv_rows(
     return rows, {key: value for key, value in format_info.items() if key != "format"}
 
 
+def _merged_cell_bounds(merged_range: MergedCellRange) -> tuple[int, int, int, int]:
+    """Return one openpyxl merged range as min_col, min_row, max_col, max_row."""
+    return (
+        merged_range.min_col,
+        merged_range.min_row,
+        merged_range.max_col,
+        merged_range.max_row,
+    )
+
+
 def _load_xlsx_rows(
     path: Path,
     *,
@@ -272,7 +284,7 @@ def _load_xlsx_rows(
         worksheet = workbook[sheet_name]
         rows = [[_normalize_cell(cell) for cell in row] for row in worksheet.iter_rows(values_only=True)]
         for merged_range in worksheet.merged_cells.ranges:
-            min_col, min_row, max_col, max_row = merged_range.bounds
+            min_col, min_row, max_col, max_row = _merged_cell_bounds(merged_range)
             value = rows[min_row - 1][min_col - 1]
             for row_index in range(min_row - 1, max_row):
                 for column_index in range(min_col - 1, max_col):
@@ -280,6 +292,47 @@ def _load_xlsx_rows(
         return rows, {"sheet_name": worksheet.title, "sheet_names": sheet_names}
     finally:
         workbook.close()
+
+
+def _normalize_xls_cell(
+    workbook: xlrd.Book,
+    cell: xlrd.sheet.Cell,
+) -> str:
+    """Convert one xlrd cell into the same string shape used by XLSX loading."""
+    if cell.ctype == xlrd.XL_CELL_EMPTY:
+        return ""
+    if cell.ctype == xlrd.XL_CELL_DATE:
+        return xlrd.xldate.xldate_as_datetime(cell.value, workbook.datemode).isoformat()
+    if cell.ctype == xlrd.XL_CELL_NUMBER and float(cell.value).is_integer():
+        return str(int(cell.value))
+    return _normalize_cell(cell.value)
+
+
+def _load_xls_rows(
+    path: Path,
+    *,
+    sheet: str | None = None,
+) -> tuple[
+    list[list[str]],
+    dict[str, Any],
+]:
+    """Load legacy XLS worksheet rows and propagate merged-cell values."""
+    workbook = xlrd.open_workbook(path, formatting_info=True, on_demand=True)
+    try:
+        sheet_names = workbook.sheet_names()
+        sheet_name = sheet or sheet_names[0]
+        if sheet_name not in sheet_names:
+            raise ValueError(f"Unknown worksheet '{sheet_name}' in {path.name}")
+        worksheet = workbook.sheet_by_name(sheet_name)
+        rows = [[_normalize_xls_cell(workbook, cell) for cell in worksheet.row(row_idx)] for row_idx in range(worksheet.nrows)]
+        for row_start, row_end, column_start, column_end in worksheet.merged_cells:
+            value = rows[row_start][column_start]
+            for row_idx in range(row_start, row_end):
+                for column_idx in range(column_start, column_end):
+                    rows[row_idx][column_idx] = value
+        return rows, {"sheet_name": sheet_name, "sheet_names": sheet_names}
+    finally:
+        workbook.release_resources()
 
 
 def load_rows(
@@ -298,4 +351,7 @@ def load_rows(
     if suffix == ".xlsx":
         rows, format_info = _load_xlsx_rows(path, sheet=sheet)
         return rows, {"format": "xlsx", **format_info}
+    if suffix == ".xls":
+        rows, format_info = _load_xls_rows(path, sheet=sheet)
+        return rows, {"format": "xls", **format_info}
     raise ValueError(f"Unsupported tabular file type: {path.suffix}")

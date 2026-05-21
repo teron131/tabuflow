@@ -208,9 +208,11 @@ def _matches_table_span(
 ) -> bool:
     """Check whether a row fits an established table span."""
     active_columns = [column for column in _active_columns(row) if column_start <= column <= column_end]
-    if len(active_columns) < minimum_cells:
+    has_anchor = anchor_column in active_columns
+    has_total_label = any(row[column].strip().lower().startswith("total ") for column in active_columns)
+    if len(active_columns) < minimum_cells and not (has_total_label and len(active_columns) >= 2):
         return False
-    if anchor_column not in active_columns:
+    if not has_anchor and not has_total_label:
         return False
     return bool(required_columns.intersection(active_columns))
 

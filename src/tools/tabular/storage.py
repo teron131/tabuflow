@@ -14,8 +14,6 @@ import sqlite3
 import time
 from typing import Any, cast
 
-from ..artifacts.naming import name_sql_artifact
-
 SQLITE_FILENAME = "tabular.sqlite"
 SQLITE_CONTENTS_TABLE = "_tabular_contents"
 SQLITE_SOURCES_TABLE = "_tabular_sources"
@@ -349,6 +347,8 @@ def _content_table_name(
     source_table_name: str,
 ) -> str:
     """Build the physical SQLite table name with the shared artifact namer."""
+    from ..artifacts.naming import name_sql_artifact
+
     description_parts = [
         *columns[:8],
         Path(source_path).stem,

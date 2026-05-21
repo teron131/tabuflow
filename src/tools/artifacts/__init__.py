@@ -8,6 +8,7 @@ from .catalog import (
     artifacts_from_source,
     describe_sql_artifact,
     list_sql_artifacts,
+    suggest_sql_artifacts,
 )
 from .catalog_metadata import CatalogMetadataError, classify_sql_artifact
 from .database import (
@@ -41,6 +42,7 @@ __all__ = [
     "run_query",
     "save_artifact_view",
     "save_view",
+    "suggest_sql_artifacts",
     "suggest_sql_error_repair",
     "suggest_sql_error_repair_from_schema",
 ]

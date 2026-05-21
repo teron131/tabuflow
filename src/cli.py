@@ -16,6 +16,7 @@ from .tools.artifacts import (
     list_sql_artifacts,
     query_artifacts,
     save_artifact_view,
+    suggest_sql_artifacts,
 )
 from .tools.mail import inspect_email_file
 from .tools.pdf import (
@@ -189,6 +190,18 @@ def add_artifact_commands(subparsers: Any) -> None:
             args.path,
             include_internal=args.include_internal,
             source_format=args.source_format,
+        )
+    )
+
+    suggest = artifact_subparsers.add_parser("suggest", help="Suggest queryable artifacts for a natural-language question.")
+    suggest.add_argument("question")
+    suggest.add_argument("--max-results", type=int, default=5)
+    suggest.add_argument("--include-internal", action="store_true")
+    suggest.set_defaults(
+        handler=lambda args: suggest_sql_artifacts(
+            args.question,
+            include_internal=args.include_internal,
+            max_results=args.max_results,
         )
     )
 
