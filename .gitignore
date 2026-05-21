@@ -2,7 +2,6 @@
 uv.lock
 artifacts/*
 data/*
-skills/*
 *.sqlite
 
 *test*
