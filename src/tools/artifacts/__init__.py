@@ -2,9 +2,33 @@
 
 from __future__ import annotations
 
-from typing import Any
+from .catalog import (
+    DEFAULT_CLI_ARTIFACT_LIST_LIMIT,
+    SQL_ARTIFACT_LIST_DETAILS,
+    artifacts_from_source,
+    describe_artifact,
+    describe_sql_artifact,
+    list_artifacts,
+    list_sql_artifacts,
+)
+from .catalog_metadata import CatalogMetadataError, classify_sql_artifact
+from .database import (
+    query_artifacts,
+    resolve_db_path,
+    run_query,
+    save_artifact_view,
+    save_view,
+)
+from .naming import ArtifactNamerFn, build_sql_artifact_namer, name_sql_artifact
+from .repair import (
+    inspect_sql_artifact_schema,
+    suggest_sql_error_repair,
+    suggest_sql_error_repair_from_schema,
+)
 
 __all__ = [
+    "DEFAULT_CLI_ARTIFACT_LIST_LIMIT",
+    "SQL_ARTIFACT_LIST_DETAILS",
     "ArtifactNamerFn",
     "CatalogMetadataError",
     "artifacts_from_source",
@@ -24,38 +48,3 @@ __all__ = [
     "suggest_sql_error_repair",
     "suggest_sql_error_repair_from_schema",
 ]
-
-_EXPORT_MODULES = {
-    "ArtifactNamerFn": ".naming",
-    "artifacts_from_source": ".catalog",
-    "CatalogMetadataError": ".catalog",
-    "build_sql_artifact_namer": ".naming",
-    "classify_sql_artifact": ".catalog",
-    "describe_artifact": ".catalog",
-    "describe_sql_artifact": ".catalog",
-    "inspect_sql_artifact_schema": ".repair",
-    "list_artifacts": ".catalog",
-    "list_sql_artifacts": ".catalog",
-    "name_sql_artifact": ".naming",
-    "query_artifacts": ".database",
-    "resolve_db_path": ".database",
-    "run_query": ".database",
-    "save_artifact_view": ".database",
-    "save_view": ".database",
-    "suggest_sql_error_repair": ".repair",
-    "suggest_sql_error_repair_from_schema": ".repair",
-}
-
-
-def __getattr__(name: str) -> Any:
-    """Load artifact helpers lazily so submodules can import each other safely."""
-    module_name = _EXPORT_MODULES.get(name)
-    if module_name is None:
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-    from importlib import import_module
-
-    module = import_module(module_name, __name__)
-    value = getattr(module, name)
-    globals()[name] = value
-    return value

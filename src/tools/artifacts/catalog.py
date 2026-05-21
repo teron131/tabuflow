@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from contextlib import closing
-from functools import lru_cache
-import json
 from pathlib import Path
 import re
 import sqlite3
 from typing import Any, cast
 
-from ..tabular.storage import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, quote_identifier
+from ..tabular.storage import quote_identifier
+from .catalog_metadata import (
+    CatalogMetadataError,
+    database_catalog,
+    path_match_reason,
+    source_paths_from_mappings,
+)
 from .database import (
     error_result,
     jsonable_value,
@@ -24,24 +28,15 @@ from .database import (
 MAX_DESCRIBE_SAMPLE_ROWS = 5
 MAX_TEXT_VALUE_HINTS = 5
 MAX_SUGGESTED_SQL_ARTIFACTS = 5
+DEFAULT_CLI_ARTIFACT_LIST_LIMIT = 20
+SQL_ARTIFACT_LIST_DETAILS = {"compact", "full"}
 MAX_SOURCE_PATH_PREVIEW = 3
 MAX_COLUMN_PREVIEW = 8
 MAX_REASON_PREVIEW = 3
 MAX_SOURCE_MATCH_PREVIEW = 12
 _TEXT_TYPE_MARKERS = ("CHAR", "CLOB", "TEXT", "VARCHAR")
 _TEXT_HINT_NAME_MARKERS = ("category", "code", "description", "group", "id", "identifier", "key", "kind", "label", "name", "segment", "status", "type")
-_SQL_ARTIFACT_MASTER_SQL = """
-SELECT name, type, sql
-FROM sqlite_master
-WHERE type IN ('table', 'view')
-  AND name NOT LIKE 'sqlite_%'
-ORDER BY type, name
-"""
 _SUGGESTION_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "how", "in", "is", "me", "of", "on", "show", "the", "to", "what", "which", "with"}
-
-
-class CatalogMetadataError(RuntimeError):
-    """Raised when a queryable catalog sql_artifact is missing required lineage."""
 
 
 def _preview_list(
@@ -85,32 +80,6 @@ def _sql_artifact_size_label(
     return f"{row_label} x {column_count}"
 
 
-def _sql_artifact_row_count(connection: sqlite3.Connection, sql_artifact_name: str) -> int | None:
-    """Return a SQLite sql_artifact row count when catalog metadata is unavailable."""
-    try:
-        row = connection.execute(f"SELECT COUNT(*) FROM {quote_identifier(sql_artifact_name)}").fetchone()
-    except (sqlite3.Error, sqlite3.Warning):
-        return None
-    if row is None:
-        return None
-    return cast(int, row[0])
-
-
-def _sqlite_object_names(connection: sqlite3.Connection) -> set[str]:
-    """Return all user-visible table and view names in a SQLite database."""
-    return {
-        cast(str, row[0])
-        for row in connection.execute(
-            """
-            SELECT name
-            FROM sqlite_master
-            WHERE type IN ('table', 'view')
-              AND name NOT LIKE 'sqlite_%'
-            """
-        ).fetchall()
-    }
-
-
 def _sample_rows(
     connection: sqlite3.Connection,
     *,
@@ -132,310 +101,6 @@ def _sample_rows(
     for row in cursor.fetchall():
         preview_rows.append({column_name: jsonable_value(value) for column_name, value in zip_exact(column_names, row)})
     return preview_rows
-
-
-def _fetch_catalog_metadata(
-    connection: sqlite3.Connection,
-) -> tuple[
-    dict[str, dict[str, Any]],
-    dict[str, list[dict[str, Any]]],
-]:
-    """Load shared tabular catalog metadata for list, describe, and suggest helpers."""
-    content_query = f"SELECT content_id, table_name, source_format, row_count, column_schema_json FROM {SQLITE_CONTENTS_TABLE}"
-    content_rows = {
-        cast(str, row[1]): {
-            "content_id": cast(str, row[0]),
-            "table_name": cast(str, row[1]),
-            "source_format": cast(str, row[2]),
-            "row_count": cast(int, row[3]),
-            "content_schema": json.loads(cast(str, row[4])),
-        }
-        for row in connection.execute(content_query).fetchall()
-    }
-    source_rows: dict[str, list[dict[str, Any]]] = {}
-    source_query = f"""
-    SELECT content_id, source_path, source_format, source_sheet_name, source_table_name, fingerprint
-    FROM {SQLITE_SOURCES_TABLE}
-    ORDER BY source_path, source_table_name
-    """
-    for row in connection.execute(source_query).fetchall():
-        content_id = cast(str, row[0])
-        source_rows.setdefault(content_id, []).append(
-            {
-                "source_path": cast(str, row[1]),
-                "source_format": cast(str, row[2]),
-                "source_sheet_name": cast(str, row[3]),
-                "source_table_name": cast(str, row[4]),
-                "fingerprint": cast(str, row[5]),
-            }
-        )
-    return content_rows, source_rows
-
-
-def _catalog_state(
-    connection: sqlite3.Connection,
-) -> tuple[
-    bool,
-    dict[str, dict[str, Any]],
-    dict[str, list[dict[str, Any]]],
-]:
-    """Return whether the tabular catalog exists plus its cached metadata."""
-    if not _has_catalog(connection):
-        return False, {}, {}
-    content_rows, source_rows = _fetch_catalog_metadata(connection)
-    return True, content_rows, source_rows
-
-
-def _has_catalog(connection: sqlite3.Connection) -> bool:
-    """Return whether the shared tabular catalog exists in this database."""
-    object_names = _sqlite_object_names(connection)
-    return SQLITE_CONTENTS_TABLE in object_names and SQLITE_SOURCES_TABLE in object_names
-
-
-def classify_sql_artifact(
-    name: str,
-    content_table_names: set[str] | None = None,
-) -> str:
-    """Classify a SQLite sql_artifact using current naming conventions."""
-    if name in (SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE):
-        return "internal_catalog"
-    content_tables = content_table_names or set()
-    if name in content_tables:
-        return "raw_content_table"
-    if name.endswith("_typed") and name.removesuffix("_typed") in content_tables:
-        return "typed_content_view"
-    return "view_or_table"
-
-
-def _base_table_name(name: str, kind: str) -> str:
-    """Map a view name back to its catalog table name."""
-    if kind == "typed_content_view":
-        return name.removesuffix("_typed")
-    return name
-
-
-def _sql_artifact_source_paths(
-    *,
-    name: str,
-    kind: str,
-    content_rows: dict[str, dict[str, Any]],
-    source_rows: dict[str, list[dict[str, Any]]],
-) -> tuple[
-    dict[str, Any] | None,
-    list[dict[str, Any]],
-    list[str],
-]:
-    """Return catalog metadata, source mappings, and source paths for one sql_artifact."""
-    content_metadata = content_rows.get(_base_table_name(name, kind))
-    if content_metadata is None:
-        return None, [], []
-    source_mappings = _dedupe_source_mappings(source_rows.get(cast(str, content_metadata["content_id"]), []))
-    if not source_mappings:
-        raise CatalogMetadataError(f"Source metadata is missing for queryable sql_artifact `{content_metadata['table_name']}`.")
-    source_paths = _source_paths_from_mappings(source_mappings)
-    return content_metadata, source_mappings, source_paths
-
-
-def _source_paths_from_mappings(source_mappings: list[dict[str, Any]]) -> list[str]:
-    """Return non-empty source paths while preserving first-seen order."""
-    return list(dict.fromkeys(source_path for mapping in source_mappings if (source_path := str(mapping.get("source_path") or "").strip())))
-
-
-def _path_match_reason(source_path: str, requested_source: str) -> str | None:
-    """Return why a stored source path matches the requested source path."""
-    source_text = source_path.strip()
-    requested_text = requested_source.strip()
-    if not source_text or not requested_text:
-        return None
-    if source_text == requested_text:
-        return "exact"
-
-    requested_path = Path(requested_text).expanduser()
-    source_path_obj = Path(source_text).expanduser()
-    requested_resolved = str(requested_path.resolve()) if requested_path.exists() else ""
-    source_resolved = str(source_path_obj.resolve()) if source_path_obj.exists() else ""
-    if requested_resolved and source_resolved and requested_resolved == source_resolved:
-        return "resolved"
-    if requested_resolved and source_text == requested_resolved:
-        return "resolved_requested"
-    if source_resolved and source_resolved == requested_text:
-        return "resolved_source"
-
-    normalized_source = source_text.replace("\\", "/")
-    normalized_requested = requested_text.replace("\\", "/")
-    if normalized_source.endswith(normalized_requested) or normalized_requested.endswith(normalized_source):
-        return "suffix"
-    if Path(normalized_source).name == Path(normalized_requested).name:
-        return "filename"
-    return None
-
-
-SQL_ARTIFACT_REFERENCE_PATTERN = re.compile(
-    r'\b(?:FROM|JOIN)\s+(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*))',
-    re.IGNORECASE,
-)
-
-
-def _referenced_sql_artifact_names(
-    create_sql: str | None,
-    *,
-    available_sql_artifacts: set[str],
-    current_sql_artifact: str,
-) -> list[str]:
-    """Return known SQLite SQL artifacts referenced by a stored SQL artifact."""
-    if not create_sql:
-        return []
-    references: list[str] = []
-    for match in SQL_ARTIFACT_REFERENCE_PATTERN.finditer(create_sql):
-        reference = next((value for value in match.groups() if value), "")
-        if reference and reference != current_sql_artifact and reference in available_sql_artifacts:
-            references.append(reference)
-    return list(dict.fromkeys(references))
-
-
-def _dedupe_source_mappings(source_mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Deduplicate source mappings while preserving first-seen order."""
-    seen: set[tuple[str, str, str]] = set()
-    deduped: list[dict[str, Any]] = []
-    for mapping in source_mappings:
-        source_path = str(mapping.get("source_path") or "").strip()
-        if not source_path:
-            continue
-        key = (
-            source_path,
-            str(mapping.get("source_sheet_name") or ""),
-            str(mapping.get("source_table_name") or ""),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(mapping)
-    return deduped
-
-
-def _lineage_source_mappings(
-    sql_artifact_info: dict[str, Any],
-    sql_artifacts_by_name: dict[str, dict[str, Any]],
-    *,
-    visited: set[str] | None = None,
-) -> list[dict[str, Any]]:
-    """Return direct source mappings or inherit mappings from upstream SQL artifacts."""
-    direct_mappings = _dedupe_source_mappings(cast(list[dict[str, Any]], sql_artifact_info["source_mappings"]))
-    if direct_mappings:
-        return direct_mappings
-
-    visited_sql_artifacts = set() if visited is None else visited
-    sql_artifact_name = cast(str, sql_artifact_info["name"])
-    if sql_artifact_name in visited_sql_artifacts:
-        return []
-    visited_sql_artifacts.add(sql_artifact_name)
-
-    source_mappings: list[dict[str, Any]] = []
-    for referenced_name in cast(list[str], sql_artifact_info.get("source_sql_artifact_names", [])):
-        referenced_sql_artifact = sql_artifacts_by_name.get(referenced_name)
-        if referenced_sql_artifact is None:
-            continue
-        source_mappings.extend(
-            _lineage_source_mappings(
-                referenced_sql_artifact,
-                sql_artifacts_by_name,
-                visited=visited_sql_artifacts,
-            )
-        )
-    return _dedupe_source_mappings(source_mappings)
-
-
-def _database_cache_key(
-    database_path: Path,
-) -> tuple[
-    str,
-    int,
-    int,
-]:
-    """Return a cache key that invalidates when the SQLite file changes."""
-    resolved_path = database_path.resolve()
-    stat_result = resolved_path.stat()
-    return str(resolved_path), stat_result.st_mtime_ns, stat_result.st_size
-
-
-@lru_cache(maxsize=8)
-def _cached_database_catalog(
-    resolved_path: str,
-    mtime_ns: int,
-    size_bytes: int,
-) -> dict[str, Any]:
-    """Load one cached SQLite catalog snapshot."""
-    del mtime_ns, size_bytes
-    database_path = Path(resolved_path)
-    with closing(open_read_only_connection(database_path)) as connection:
-        has_catalog, content_rows, source_rows = _catalog_state(connection)
-        content_table_names = set(content_rows)
-        sql_artifacts = []
-        sql_artifacts_by_name: dict[str, dict[str, Any]] = {}
-        for master_row in connection.execute(_SQL_ARTIFACT_MASTER_SQL).fetchall():
-            name = cast(str, master_row[0])
-            sql_artifact_type = cast(str, master_row[1])
-            create_sql = cast(Any, master_row[2])
-            kind = classify_sql_artifact(name, content_table_names=content_table_names)
-            columns = [
-                {
-                    "name": cast(str, row[1]),
-                    "type": cast(str, row[2]),
-                    "not_null": bool(row[3]),
-                    "default_value": row[4],
-                    "primary_key_position": cast(int, row[5]),
-                }
-                for row in connection.execute(f"PRAGMA table_info({quote_identifier(name)})").fetchall()
-            ]
-            content_metadata, source_mappings, source_paths = _sql_artifact_source_paths(
-                name=name,
-                kind=kind,
-                content_rows=content_rows,
-                source_rows=source_rows,
-            )
-            row_count = None if content_metadata is None else content_metadata["row_count"]
-            if row_count is None:
-                row_count = _sql_artifact_row_count(connection, name)
-            sql_artifact_info = {
-                "name": name,
-                "type": sql_artifact_type,
-                "kind": kind,
-                "create_sql": create_sql,
-                "columns": columns,
-                "content_id": None if content_metadata is None else content_metadata["content_id"],
-                "content_schema": None if content_metadata is None else content_metadata["content_schema"],
-                "row_count": row_count,
-                "source_mappings": source_mappings,
-                "source_paths": source_paths,
-                "source_sql_artifact_names": [],
-            }
-            sql_artifacts.append(sql_artifact_info)
-            sql_artifacts_by_name[name] = sql_artifact_info
-        available_sql_artifacts = set(sql_artifacts_by_name)
-        for sql_artifact_info in sql_artifacts:
-            source_sql_artifact_names = _referenced_sql_artifact_names(
-                cast(str | None, sql_artifact_info["create_sql"]),
-                available_sql_artifacts=available_sql_artifacts,
-                current_sql_artifact=cast(str, sql_artifact_info["name"]),
-            )
-            sql_artifact_info["source_sql_artifact_names"] = source_sql_artifact_names
-        for sql_artifact_info in sql_artifacts:
-            lineage_source_mappings = _lineage_source_mappings(
-                sql_artifact_info,
-                sql_artifacts_by_name,
-            )
-            sql_artifact_info["source_mappings"] = lineage_source_mappings
-            sql_artifact_info["source_paths"] = _source_paths_from_mappings(lineage_source_mappings)
-        return {
-            "has_catalog": has_catalog,
-            "sql_artifacts": sql_artifacts,
-            "sql_artifacts_by_name": sql_artifacts_by_name,
-        }
-
-
-def _database_catalog(database_path: Path) -> dict[str, Any]:
-    """Return the cached database catalog for one SQLite file."""
-    return _cached_database_catalog(*_database_cache_key(database_path))
 
 
 def _looks_like_text_column(column_name: str, declared_type: str) -> bool:
@@ -567,20 +232,42 @@ def _kind_bias(kind: str) -> int:
     return 0
 
 
+def _compact_sql_artifact(sql_artifact: dict[str, Any]) -> dict[str, Any]:
+    """Return the compact artifact listing shape."""
+    return {
+        "name": sql_artifact["name"],
+        "type": sql_artifact["type"],
+        "kind": sql_artifact["kind"],
+        "row_count": sql_artifact["row_count"],
+        "column_count": sql_artifact["column_count"],
+        "size_label": sql_artifact["size_label"],
+        "source_path_count": sql_artifact["source_path_count"],
+        "source_path_preview": sql_artifact["source_path_preview"],
+        "source_paths_truncated": sql_artifact["source_paths_truncated"],
+        "source_sql_artifact_names": sql_artifact["source_sql_artifact_names"],
+        "summary": sql_artifact["summary"],
+    }
+
+
 def list_sql_artifacts(
     *,
     root_dir: str | Path | None = None,
     database_path: str | Path | None = None,
     include_internal: bool = False,
+    max_items: int | None = None,
+    detail: str = "full",
 ) -> dict[str, Any]:
     """List queryable SQLite tables and views."""
     requested_path = requested_database_path(root_dir=root_dir, database_path=database_path)
     try:
+        if detail not in SQL_ARTIFACT_LIST_DETAILS:
+            raise ValueError(f"Artifact list detail must be one of: {', '.join(sorted(SQL_ARTIFACT_LIST_DETAILS))}.")
+
         resolved_path = resolve_db_path(
             root_dir=root_dir,
             database_path=database_path,
         )
-        catalog = _database_catalog(resolved_path)
+        catalog = database_catalog(resolved_path)
         items = []
         for sql_artifact in cast(list[dict[str, Any]], catalog["sql_artifacts"]):
             kind = cast(str, sql_artifact["kind"])
@@ -621,13 +308,27 @@ def list_sql_artifacts(
                 }
             )
 
+        total_count = len(items)
+        if max_items is not None:
+            items = items[: max(0, max_items)]
+        truncated = len(items) < total_count
+        listed_count = len(items)
+        if detail == "compact":
+            items = [_compact_sql_artifact(item) for item in items]
+        summary = f"Listed {listed_count} queryable artifact(s)."
+        if truncated:
+            summary = f"Listed {listed_count} of {total_count} queryable artifact(s)."
+
         return {
             "database_path": str(resolved_path),
             "status": "ok",
             "has_tabular_catalog": catalog["has_catalog"],
-            "sql_artifact_count": len(items),
+            "sql_artifact_count": listed_count,
+            "sql_artifact_total_count": total_count,
+            "sql_artifacts_truncated": truncated,
+            "detail": detail,
             "sql_artifacts": items,
-            "summary": f"Listed {len(items)} queryable artifact(s).",
+            "summary": summary,
         }
     except ValueError as exc:
         return error_result(
@@ -664,7 +365,7 @@ def describe_sql_artifact(
             root_dir=root_dir,
             database_path=database_path,
         )
-        catalog = _database_catalog(resolved_path)
+        catalog = database_catalog(resolved_path)
         sql_artifact_info = cast(dict[str, Any] | None, catalog["sql_artifacts_by_name"].get(sql_artifact_name))
         if sql_artifact_info is None:
             return error_result(
@@ -773,7 +474,7 @@ def suggest_sql_artifacts(
             root_dir=root_dir,
             database_path=database_path,
         )
-        catalog = _database_catalog(resolved_path)
+        catalog = database_catalog(resolved_path)
         suggestions = []
         for sql_artifact in cast(list[dict[str, Any]], catalog["sql_artifacts"]):
             name = cast(str, sql_artifact["name"])
@@ -894,7 +595,7 @@ def artifacts_from_source(
             root_dir=root_dir,
             database_path=database_path,
         )
-        catalog = _database_catalog(resolved_path)
+        catalog = database_catalog(resolved_path)
         matches = []
         for sql_artifact in cast(list[dict[str, Any]], catalog["sql_artifacts"]):
             kind = cast(str, sql_artifact["kind"])
@@ -906,7 +607,7 @@ def artifacts_from_source(
                 if requested_source_format and str(mapping.get("source_format") or "") != requested_source_format:
                     continue
                 stored_source_path = str(mapping.get("source_path") or "")
-                match_reason = _path_match_reason(stored_source_path, requested_source)
+                match_reason = path_match_reason(stored_source_path, requested_source)
                 if match_reason is None:
                     continue
                 matched_mappings.append({**mapping, "match_reason": match_reason})
@@ -935,7 +636,7 @@ def artifacts_from_source(
                         kind=kind,
                         row_count=row_count,
                         column_names=column_names,
-                        source_paths=_source_paths_from_mappings(matched_mappings),
+                        source_paths=source_paths_from_mappings(matched_mappings),
                     ),
                 }
             )
@@ -984,12 +685,16 @@ def list_artifacts(
     root_dir: str | Path | None = None,
     database_path: str | Path | None = None,
     include_internal: bool = False,
+    max_items: int | None = None,
+    detail: str = "full",
 ) -> dict[str, Any]:
     """List queryable artifacts in the SQLite cache."""
     return list_sql_artifacts(
         root_dir=root_dir,
         database_path=database_path,
         include_internal=include_internal,
+        max_items=max_items,
+        detail=detail,
     )
 
 

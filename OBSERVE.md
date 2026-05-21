@@ -77,6 +77,7 @@ Inputs used:
 Useful outcomes from the trial:
 
 - Keep `tabuflow artifacts from-source <path>` plus `--source-format`. Repeated extraction runs create many artifacts, and a coding agent needs a direct way to rediscover outputs for one input without reading the whole catalog.
+- Keep `tabuflow artifacts list` compact and bounded by default. Full schema/lineage belongs behind `--detail full`, `--all`, or `describe <artifact>`.
 - Keep structured SQL repair hints for unquoted hyphenated artifact names. Generated artifact names are useful but not always valid unquoted SQLite identifiers.
 - Keep `tabuflow email inspect` as a reference-only preset. `.eml` and `.msg` files often carry useful domain context, but the generic tool should only parse structure such as headers, body preview, and attachments. Skill-specific guidance or the coding agent should interpret approvals, periods, accounts, and amounts when needed.
 - Remove the generic invoice-text PDF preset. AWS invoice text extraction is useful, but it is a domain shortcut and should stay in the AWS skill helper rather than the core PDF CLI.

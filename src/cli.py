@@ -8,7 +8,15 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from .tools.artifacts import artifacts_from_source, describe_artifact, list_artifacts, query_artifacts, save_artifact_view
+from .tools.artifacts import (
+    DEFAULT_CLI_ARTIFACT_LIST_LIMIT,
+    SQL_ARTIFACT_LIST_DETAILS,
+    artifacts_from_source,
+    describe_artifact,
+    list_artifacts,
+    query_artifacts,
+    save_artifact_view,
+)
 from .tools.mail import inspect_email_file
 from .tools.pdf import (
     DEFAULT_DPI,
@@ -161,9 +169,14 @@ def add_artifact_commands(subparsers: Any) -> None:
 
     list_command = artifact_subparsers.add_parser("list", help="List queryable prepared artifacts.")
     list_command.add_argument("--include-internal", action="store_true")
+    list_command.add_argument("--max-items", type=int, default=DEFAULT_CLI_ARTIFACT_LIST_LIMIT)
+    list_command.add_argument("--detail", choices=sorted(SQL_ARTIFACT_LIST_DETAILS), default="compact")
+    list_command.add_argument("--all", action="store_true", help="Return the full artifact catalog.")
     list_command.set_defaults(
         handler=lambda args: list_artifacts(
             include_internal=args.include_internal,
+            max_items=None if args.all else args.max_items,
+            detail=args.detail,
         )
     )
 

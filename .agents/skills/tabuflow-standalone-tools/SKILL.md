@@ -102,6 +102,8 @@ tabuflow artifacts query @query.sql
 tabuflow artifacts save-view saved_view_name @query.sql
 ```
 
+`artifacts list` returns a compact, bounded index by default. Use `--max-items`, `--all`, or `--detail full` when the compact index is not enough; use `describe` for a focused schema/sample payload before writing SQL.
+
 Write non-trivial SQL in an ordinary `.sql` file and pass it with `@query.sql`. This keeps SQL reviewable by any coding agent and avoids hiding logic inside chat history.
 
 Use `from-source` after extraction to find the reusable artifacts produced by a specific input. For PDFs that have repeated model-backed runs, filter with `--source-format pdf_ocr` before choosing which artifact to query.

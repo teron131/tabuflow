@@ -122,6 +122,8 @@ tabuflow artifacts query @query.sql
 tabuflow artifacts save-view saved_view_name @query.sql
 ```
 
+`artifacts list` is compact and bounded by default. Use `--detail full`, `--max-items`, or `--all` when needed.
+
 Generated artifact names often contain hyphens, so quote them in SQL: `select * from "service-usage-1cca2e" limit 20`.
 
 The CLI deliberately does not expose storage root or database path knobs to the agent. The runtime resolves those from the local workspace/tool configuration. Agents can choose source paths and SQL text, but should not be able to redirect Tabuflow's artifact store.
