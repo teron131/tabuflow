@@ -7,7 +7,7 @@ description: Use when a coding agent needs to inspect, extract, or query messy C
 
 Use this skill when you are an Any Coding Agent such as OpenCode, Pi, Codex, or another agent with normal shell/read/edit abilities, and you need Tabuflow's robust data-file presets without entering Tabuflow's custom agent graph.
 
-The useful boundary is simple: use Tabuflow for messy data preparation and artifact queries; use your native coding-agent tools for ordinary file reading, editing, shell commands, reports, and SQL draft files.
+The useful boundary is simple: use Tabuflow for best-fit presets around messy data preparation and artifact queries; use your native coding-agent tools for ordinary file reading, editing, shell commands, reports, SQL draft files, and one-off brute-force exploration. Do not hardcode generated names, row counts, months, or vendor-specific layouts as if they were stable contracts.
 
 ## Goal
 
@@ -15,6 +15,7 @@ Turn messy local business files into inspectable SQLite-backed artifacts that ca
 
 - inspect CSV/XLSX/PDF sources before assuming their structure,
 - extract tables into Tabuflow's configured artifact store,
+- inspect EML/MSG files as reference context,
 - list and describe prepared artifacts,
 - run bounded read-only SQL against artifacts,
 - save useful query results as named views when the result is worth keeping.
@@ -61,21 +62,32 @@ Do not assume row 1 is the header. Watch for metadata rows, repeated headers, bl
 
 ## PDF Workflow
 
-1. Inspect pages first, optionally asking for page images when layout matters.
+1. Use the deterministic inspection route first. It returns extracted page text and, when requested, rendered page images without requiring an LLM setup.
 
 ```bash
 tabuflow pdf inspect path/to/file.pdf
 tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3 --include-images
 ```
 
-2. Extract tables after selecting a reasonable page scope.
+2. Use the full model-backed visual extraction route when the inspected text/images show useful tables and visual layout is needed to preserve table boundaries.
 
 ```bash
 tabuflow pdf extract path/to/file.pdf
 tabuflow pdf extract path/to/file.pdf --max-chunks 2
 ```
 
-PDF extraction may use a model when configured, but do not make the rest of the workflow depend on a custom Tabuflow agent. If extraction is incomplete, report the ambiguous pages or layout gaps instead of pretending the artifact is complete.
+`pdf inspect` is the non-LLM route. `pdf extract` is the LLM route and may run OCR plus table cleanup when configured, but it still does not require the custom Tabuflow agent. If extraction is incomplete, report the ambiguous pages or layout gaps instead of pretending the artifact is complete.
+
+## Email Reference Workflow
+
+Use this when adjacent email files may explain source grouping, attachments, or workflow context. It does not create billing-table artifacts.
+
+```bash
+tabuflow email inspect path/to/message.eml
+tabuflow email inspect path/to/message.msg
+```
+
+Treat `reference_only: true` as a boundary. The generic payload gives message metadata, body preview, body length, and attachment names. Use your normal coding-agent reasoning or a domain skill to interpret the body; do not replace PDF/XLSX billing rows with email text unless the user explicitly asks for email reconciliation data.
 
 ## Artifact Query Workflow
 
@@ -83,6 +95,7 @@ After extraction, use artifacts as the stable query boundary.
 
 ```bash
 tabuflow artifacts list
+tabuflow artifacts from-source path/to/file.xlsx
 tabuflow artifacts describe artifact_name
 tabuflow artifacts query "select * from artifact_name limit 20"
 tabuflow artifacts query @query.sql
@@ -90,6 +103,14 @@ tabuflow artifacts save-view saved_view_name @query.sql
 ```
 
 Write non-trivial SQL in an ordinary `.sql` file and pass it with `@query.sql`. This keeps SQL reviewable by any coding agent and avoids hiding logic inside chat history.
+
+Use `from-source` after extraction to find the reusable artifacts produced by a specific input. For PDFs that have repeated model-backed runs, filter with `--source-format pdf_ocr` before choosing which artifact to query.
+
+Generated artifact names often contain hyphens. Quote them as SQLite identifiers in SQL, for example:
+
+```sql
+select * from "service-usage-1cca2e" limit 20;
+```
 
 ## Python API Option
 

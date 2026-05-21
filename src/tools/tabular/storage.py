@@ -354,7 +354,7 @@ def _content_table_name(
         Path(source_path).stem,
         source_table_name,
     ]
-    return name_sql_artifact(" ".join(description_parts), content_id)
+    return name_sql_artifact(" ".join(description_parts), identifier=content_id)
 
 
 def _content_schema_json(columns: list[str], db_columns: list[str]) -> str:

@@ -19,6 +19,7 @@ READ_ONLY_SQL_PREFIXES = ("SELECT", "WITH", "EXPLAIN")
 VIEW_SQL_PREFIXES = ("SELECT", "WITH")
 LEADING_SQL_COMMENT = re.compile(r"\A(?:\s+|--[^\n]*(?:\n|\Z)|/\*.*?\*/)*", re.DOTALL)
 VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$")
+UNQUOTED_HYPHENATED_REFERENCE = re.compile(r"\b(?:FROM|JOIN)\s+([A-Za-z_][\w$]*(?:-[A-Za-z0-9_]+)+)\b", re.IGNORECASE)
 
 
 def jsonable_value(value: object) -> object:
@@ -147,6 +148,41 @@ def normalized_sql(sql: str) -> str:
     return sql.strip().rstrip(";").strip()
 
 
+def sql_error_repair_hints(
+    *,
+    sql: str,
+    error_message: str,
+    root_dir: str | Path | None = None,
+    database_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Return deterministic repair hints for a failed artifact query."""
+    hints: list[dict[str, Any]] = []
+    referenced_hyphenated_names = list(dict.fromkeys(UNQUOTED_HYPHENATED_REFERENCE.findall(sql)))
+    if referenced_hyphenated_names:
+        hints.append(
+            {
+                "kind": "quote_sql_artifact",
+                "identifier": referenced_hyphenated_names[0],
+                "candidates": [{"name": name, "quoted": quote_identifier(name)} for name in referenced_hyphenated_names],
+                "message": "Quote SQL artifact names that contain hyphens, for example FROM " + quote_identifier(referenced_hyphenated_names[0]) + ".",
+            }
+        )
+
+    try:
+        from .repair import suggest_sql_error_repair
+
+        hints.extend(
+            suggest_sql_error_repair(
+                error_message,
+                root_dir=root_dir,
+                database_path=database_path,
+            )
+        )
+    except (sqlite3.Error, ValueError, RuntimeError):
+        pass
+    return hints
+
+
 def run_query(
     sql: str,
     *,
@@ -228,6 +264,12 @@ def run_query(
             error_type="sql_execution_error",
             message=str(exc),
             max_rows=safe_max_rows,
+            repair_hints=sql_error_repair_hints(
+                sql=query_sql,
+                error_message=str(exc),
+                root_dir=root_dir,
+                database_path=database_path,
+            ),
         )
 
 

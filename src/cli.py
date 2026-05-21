@@ -8,7 +8,8 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from .tools.artifacts import describe_artifact, list_artifacts, query_artifacts, save_artifact_view
+from .tools.artifacts import artifacts_from_source, describe_artifact, list_artifacts, query_artifacts, save_artifact_view
+from .tools.mail import inspect_email_file
 from .tools.pdf import (
     DEFAULT_DPI,
     DEFAULT_INSPECT_PAGE_LIMIT,
@@ -106,7 +107,7 @@ def add_pdf_commands(subparsers: Any) -> None:
         )
     )
 
-    extract = pdf_subparsers.add_parser("extract", help="Extract visual tables into the shared SQLite cache.")
+    extract = pdf_subparsers.add_parser("extract", help="Extract PDF tables into the shared SQLite cache.")
     extract.add_argument("path")
     extract.add_argument("--model", default=None)
     extract.add_argument("--pages-per-chunk", type=int, default=DEFAULT_PAGES_PER_CHUNK)
@@ -166,6 +167,18 @@ def add_artifact_commands(subparsers: Any) -> None:
         )
     )
 
+    from_source = artifact_subparsers.add_parser("from-source", help="List artifacts created from one source file.")
+    from_source.add_argument("path")
+    from_source.add_argument("--source-format", default=None)
+    from_source.add_argument("--include-internal", action="store_true")
+    from_source.set_defaults(
+        handler=lambda args: artifacts_from_source(
+            args.path,
+            include_internal=args.include_internal,
+            source_format=args.source_format,
+        )
+    )
+
     describe = artifact_subparsers.add_parser("describe", help="Describe one queryable artifact.")
     describe.add_argument("name")
     describe.add_argument("--sample-rows", type=int, default=3)
@@ -179,15 +192,32 @@ def add_artifact_commands(subparsers: Any) -> None:
     )
 
 
+def add_email_commands(subparsers: Any) -> None:
+    """Add email reference inspection commands."""
+    email = subparsers.add_parser("email", help="Inspect EML/MSG reference emails.")
+    email_subparsers = email.add_subparsers(dest="email_command", required=True)
+
+    inspect = email_subparsers.add_parser("inspect", help="Inspect an email as reference context.")
+    inspect.add_argument("path")
+    inspect.add_argument("--max-body-chars", type=int, default=2000)
+    inspect.set_defaults(
+        handler=lambda args: inspect_email_file(
+            args.path,
+            max_body_chars=args.max_body_chars,
+        )
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build the Tabuflow command parser."""
     parser = argparse.ArgumentParser(
         prog="tabuflow",
-        description="Inspect tabular/PDF sources and query prepared artifacts.",
+        description="Inspect tabular/PDF/email sources and query prepared artifacts.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     add_tabular_commands(subparsers)
     add_pdf_commands(subparsers)
+    add_email_commands(subparsers)
     add_artifact_commands(subparsers)
     return parser
 

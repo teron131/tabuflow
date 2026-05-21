@@ -58,8 +58,37 @@ The tools should be able to run without an LLM setup where possible. LLM-depende
 Current examples:
 
 - artifact naming can use an LLM-backed namer when configured, but should have a deterministic fallback,
-- PDF handling may eventually benefit from an LLM-assisted inspection/OCR/table path, but the baseline tool should still expose extracted text/images and deterministic extraction outputs,
+- PDF handling has two routes: deterministic page text/images through `pdf inspect`, and full LLM OCR/table extraction through `pdf extract`,
 - custom validation/retry behavior belongs in the agent layer, not in a supposedly standalone artifact query function.
+
+### Standalone CLI Trial: What Was Added And Why
+
+Date: `2026-05-21`.
+
+Goal: prove that Any Coding Agent can use Tabuflow's standalone CLI and repo skills on real GCP XLSX, AWS PDF, and email-reference files without depending on the custom LangGraph agent.
+
+Inputs used:
+
+- `examples/gcp/HKT IAD/HKT IAD_Cost Report_202602.xlsx`
+- `examples/aws/BTU/Invoice_2520626377.pdf`
+- `examples/aws/BTU/RE_ [For your approval] AWS usage(AWS ID_ 366070365056 ) - 202602.eml`
+- `examples/aws/BTU/Re_ AWS_GCP_Azure_Alibaba Cloud Usage Internal Cost Transfer - Feb 2026.msg`
+
+Useful outcomes from the trial:
+
+- Keep `tabuflow artifacts from-source <path>` plus `--source-format`. Repeated extraction runs create many artifacts, and a coding agent needs a direct way to rediscover outputs for one input without reading the whole catalog.
+- Keep structured SQL repair hints for unquoted hyphenated artifact names. Generated artifact names are useful but not always valid unquoted SQLite identifiers.
+- Keep `tabuflow email inspect` as a reference-only preset. `.eml` and `.msg` files often carry useful domain context, but the generic tool should only parse structure such as headers, body preview, and attachments. Skill-specific guidance or the coding agent should interpret approvals, periods, accounts, and amounts when needed.
+- Remove the generic invoice-text PDF preset. AWS invoice text extraction is useful, but it is a domain shortcut and should stay in the AWS skill helper rather than the core PDF CLI.
+- Keep lazy artifact exports because standalone imports should not create circular import pressure between PDF tools and artifact helpers.
+- Keep the skill/docs direction: use `uv run tabuflow`, prefer presets when they fit, fall back to normal coding-agent shell/read/edit work when they do not, rediscover artifacts with `from-source`, and quote generated SQL identifiers.
+
+Current cautions:
+
+- Presets are best-effort shortcuts, not a replacement for the coding agent's ability to inspect files, write scripts, and brute-force a weird case.
+- Avoid hardcoding generated artifact names, content hashes, invoice months, row counts, model aliases, or one vendor's layout as a general contract.
+- Emails are reference evidence only, not normalized billing data.
+- Hyphenated artifact names must be double-quoted in SQL.
 
 ### Superseded older notes
 

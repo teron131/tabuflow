@@ -27,6 +27,7 @@ MAX_SUGGESTED_SQL_ARTIFACTS = 5
 MAX_SOURCE_PATH_PREVIEW = 3
 MAX_COLUMN_PREVIEW = 8
 MAX_REASON_PREVIEW = 3
+MAX_SOURCE_MATCH_PREVIEW = 12
 _TEXT_TYPE_MARKERS = ("CHAR", "CLOB", "TEXT", "VARCHAR")
 _TEXT_HINT_NAME_MARKERS = ("category", "code", "description", "group", "id", "identifier", "key", "kind", "label", "name", "segment", "status", "type")
 _SQL_ARTIFACT_MASTER_SQL = """
@@ -238,6 +239,35 @@ def _sql_artifact_source_paths(
 def _source_paths_from_mappings(source_mappings: list[dict[str, Any]]) -> list[str]:
     """Return non-empty source paths while preserving first-seen order."""
     return list(dict.fromkeys(source_path for mapping in source_mappings if (source_path := str(mapping.get("source_path") or "").strip())))
+
+
+def _path_match_reason(source_path: str, requested_source: str) -> str | None:
+    """Return why a stored source path matches the requested source path."""
+    source_text = source_path.strip()
+    requested_text = requested_source.strip()
+    if not source_text or not requested_text:
+        return None
+    if source_text == requested_text:
+        return "exact"
+
+    requested_path = Path(requested_text).expanduser()
+    source_path_obj = Path(source_text).expanduser()
+    requested_resolved = str(requested_path.resolve()) if requested_path.exists() else ""
+    source_resolved = str(source_path_obj.resolve()) if source_path_obj.exists() else ""
+    if requested_resolved and source_resolved and requested_resolved == source_resolved:
+        return "resolved"
+    if requested_resolved and source_text == requested_resolved:
+        return "resolved_requested"
+    if source_resolved and source_resolved == requested_text:
+        return "resolved_source"
+
+    normalized_source = source_text.replace("\\", "/")
+    normalized_requested = requested_text.replace("\\", "/")
+    if normalized_source.endswith(normalized_requested) or normalized_requested.endswith(normalized_source):
+        return "suffix"
+    if Path(normalized_source).name == Path(normalized_requested).name:
+        return "filename"
+    return None
 
 
 SQL_ARTIFACT_REFERENCE_PATTERN = re.compile(
@@ -836,6 +866,116 @@ def suggest_sql_artifacts(
             message=str(exc),
             question=question,
             max_results=safe_max_results,
+        )
+
+
+def artifacts_from_source(
+    source_path: str,
+    *,
+    root_dir: str | Path | None = None,
+    database_path: str | Path | None = None,
+    include_internal: bool = False,
+    source_format: str | None = None,
+) -> dict[str, Any]:
+    """List queryable artifacts produced from one source path."""
+    requested_path = requested_database_path(root_dir=root_dir, database_path=database_path)
+    requested_source = source_path.strip()
+    requested_source_format = "" if source_format is None else source_format.strip()
+    try:
+        if not requested_source:
+            return error_result(
+                database_path=requested_path,
+                error_type="empty_source_path",
+                message="Source path must not be empty.",
+                source_path=source_path,
+            )
+
+        resolved_path = resolve_db_path(
+            root_dir=root_dir,
+            database_path=database_path,
+        )
+        catalog = _database_catalog(resolved_path)
+        matches = []
+        for sql_artifact in cast(list[dict[str, Any]], catalog["sql_artifacts"]):
+            kind = cast(str, sql_artifact["kind"])
+            if not include_internal and kind == "internal_catalog":
+                continue
+
+            matched_mappings = []
+            for mapping in cast(list[dict[str, Any]], sql_artifact["source_mappings"]):
+                if requested_source_format and str(mapping.get("source_format") or "") != requested_source_format:
+                    continue
+                stored_source_path = str(mapping.get("source_path") or "")
+                match_reason = _path_match_reason(stored_source_path, requested_source)
+                if match_reason is None:
+                    continue
+                matched_mappings.append({**mapping, "match_reason": match_reason})
+            if not matched_mappings:
+                continue
+
+            columns = cast(list[dict[str, Any]], sql_artifact["columns"])
+            column_names = [cast(str, column["name"]) for column in columns]
+            column_preview, columns_truncated = _preview_list(column_names, max_items=MAX_COLUMN_PREVIEW)
+            row_count = cast(int | None, sql_artifact["row_count"])
+            matches.append(
+                {
+                    "name": sql_artifact["name"],
+                    "type": sql_artifact["type"],
+                    "kind": kind,
+                    "row_count": row_count,
+                    "column_count": len(column_names),
+                    "column_preview": column_preview,
+                    "columns_truncated": columns_truncated,
+                    "size_label": _sql_artifact_size_label(row_count=row_count, column_count=len(column_names)),
+                    "source_mappings": matched_mappings,
+                    "source_sql_artifact_names": sql_artifact["source_sql_artifact_names"],
+                    "summary": _sql_artifact_summary(
+                        name=cast(str, sql_artifact["name"]),
+                        sql_artifact_type=cast(str, sql_artifact["type"]),
+                        kind=kind,
+                        row_count=row_count,
+                        column_names=column_names,
+                        source_paths=_source_paths_from_mappings(matched_mappings),
+                    ),
+                }
+            )
+
+        matches.sort(key=lambda item: (cast(str, item["kind"]) != "typed_content_view", cast(str, item["name"])))
+        preview, truncated = _preview_list(matches, max_items=MAX_SOURCE_MATCH_PREVIEW)
+        return {
+            "database_path": str(resolved_path),
+            "status": "ok",
+            "has_tabular_catalog": catalog["has_catalog"],
+            "source_path": source_path,
+            "source_format": source_format,
+            "artifact_count": len(matches),
+            "artifacts": preview,
+            "artifacts_truncated": truncated,
+            "summary": f"Found {len(matches)} artifact(s) for source `{source_path}`.",
+        }
+    except ValueError as exc:
+        return error_result(
+            database_path=requested_path,
+            error_type="missing_database",
+            message=str(exc),
+            source_path=source_path,
+            source_format=source_format,
+        )
+    except CatalogMetadataError as exc:
+        return error_result(
+            database_path=requested_path,
+            error_type="catalog_metadata_error",
+            message=str(exc),
+            source_path=source_path,
+            source_format=source_format,
+        )
+    except (sqlite3.Error, sqlite3.Warning) as exc:
+        return error_result(
+            database_path=requested_path,
+            error_type="sql_execution_error",
+            message=str(exc),
+            source_path=source_path,
+            source_format=source_format,
         )
 
 

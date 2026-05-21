@@ -160,7 +160,14 @@ def orchestrator_view_name(
     sql_path: str | None = None,
 ) -> str:
     """Return the per-run saved result view name."""
-    return Path(sql_path).stem if sql_path else name_sql_artifact(run.message, run.run_id)
+    return (
+        Path(sql_path).stem
+        if sql_path
+        else name_sql_artifact(
+            run.message,
+            identifier=run.run_id,
+        )
+    )
 
 
 def _sql_output_result_fields(

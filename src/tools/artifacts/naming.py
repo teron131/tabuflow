@@ -69,7 +69,7 @@ def build_sql_artifact_namer(llm: Any | None) -> ArtifactNamerFn | None:
                     content=(
                         "Name this SQL artifact with exactly two concrete noun words. "
                         "Use lowercase words only. Do not include the suffix, file extension, verbs, or filler words. "
-                        "The suffix may be a random run id or a stable content fingerprint, so choose words that describe the artifact content.\n\n"
+                        "The suffix may be a random id or stable content fingerprint, so choose words that describe the artifact content.\n\n"
                         f"Artifact context:\n{description}"
                     )
                 )
@@ -83,11 +83,11 @@ def build_sql_artifact_namer(llm: Any | None) -> ArtifactNamerFn | None:
 
 def name_sql_artifact(
     description: str,
-    run_id: str | None,
+    identifier: str | None,
 ) -> str:
     """Return a SQL artifact stem with two semantic words and six id chars."""
     slug_tokens = _slug_words(SLUG_PATTERN.findall(description.lower()))
-    suffix = _artifact_suffix(run_id)
+    suffix = _artifact_suffix(identifier)
     return "-".join([*slug_tokens, suffix])
 
 

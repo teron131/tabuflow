@@ -13,9 +13,20 @@ The first pass should try direct PDF text extraction. Most AWS invoices are text
 
 Preserve table boundaries, titles, row order, parent/child hierarchy, and totals unless the caller explicitly asks for logical regrouping.
 
+## Email References
+
+When invoice folders include `.eml` or `.msg` files, inspect them as references before final reporting:
+
+```bash
+uv run tabuflow email inspect <message.eml>
+uv run tabuflow email inspect <message.msg>
+```
+
+Use the result's subject, sender/date, attachments, and body preview to understand approvals and package grouping. Infer message type, provider, account, period, and amount from the email text when useful, but keep `reference_only: true` emails separate from PDF table outputs.
+
 ## First-Pass Text Extraction
 
-Use `scripts/extract_aws_pdf_text_tables.py` for text-based AWS invoice PDFs. It extracts label/amount rows into CSV and JSON with these columns:
+Use the bundled helper script for text-based AWS invoice PDFs. It extracts label/amount rows into CSV/JSON sidecars with these columns:
 
 - `page`
 - `section`
@@ -27,13 +38,14 @@ Use `scripts/extract_aws_pdf_text_tables.py` for text-based AWS invoice PDFs. It
 - `invoice_number`
 - `invoice_date`
 
-Run shape:
+Run shape from the repo root:
 
 ```bash
-python scripts/extract_aws_pdf_text_tables.py <invoice.pdf> --output-dir <output-dir>
+uv run tabuflow pdf inspect <invoice.pdf>
+uv run python .agents/skills/aws-invoice-pdf-tables/scripts/extract_aws_pdf_text_tables.py <invoice.pdf> --output-dir artifacts/aws_text
 ```
 
-The script can accept multiple PDF paths. It reports per-PDF row counts and pages that need OCR. Treat `pages_needing_ocr` as the handoff point to OCR or visual extraction, not as a failure.
+The script reports per-page row counts and `pages_needing_ocr`. Treat `pages_needing_ocr` as the handoff point to OCR or visual extraction, not as a failure. Keep this as an AWS skill helper rather than a generic Tabuflow PDF CLI method.
 
 ## Final Tables
 

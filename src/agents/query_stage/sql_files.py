@@ -26,7 +26,10 @@ def _sql_user_path(
 ) -> str:
     """Return the query-stage SQL artifact path in workspace-relative form."""
     if sql_path is None:
-        stem = name_sql_artifact(filename_hint or description, run_id)
+        stem = name_sql_artifact(
+            filename_hint or description,
+            identifier=run_id,
+        )
         return f"{DEFAULT_SQL_DIR}/{stem}.sql"
 
     path = Path(sql_path).expanduser()

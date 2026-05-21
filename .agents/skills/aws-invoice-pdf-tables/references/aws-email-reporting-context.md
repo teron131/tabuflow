@@ -39,8 +39,16 @@ Do not use emails to:
 
 ## Parsing Notes
 
+- Prefer the standalone CLI when available:
+
+```bash
+uv run tabuflow email inspect <message.eml>
+uv run tabuflow email inspect <message.msg>
+```
+
+- The CLI output is structural: subject, sender/recipients/date, body source, body preview, body length, and attachments. Derive provider/account/period/amount and approval status from that text; they are not generic tool fields.
 - `.eml` files can usually be parsed with Python's standard `email` package.
-- `.msg` files may need an Outlook MSG parser when available; if not, a text scan can still recover useful subjects, dates, attachment names, and quoted message snippets.
+- `.msg` files need an Outlook MSG parser for reliable headers, body text, and attachment names; avoid raw `strings` scans unless no parser is available.
 - HTML email bodies often contain reporting tables. Convert them to plain text or parse the HTML table structure before extracting fields.
 - Approval replies may be short, with the useful reporting table in quoted history. Read the thread, not only the newest reply.
 

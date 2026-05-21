@@ -1,4 +1,4 @@
-"""Tool exports used by the standalone tabular-agent subset."""
+"""Standalone Tabuflow tool exports."""
 
 from .skills import create_skill_package, create_skill_package_frame, list_skills, load_skill, search_skills
 

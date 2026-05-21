@@ -9,13 +9,10 @@ from typing import Any
 import pymupdf
 
 from ..tabular.storage import fingerprint, load_tables_into_sqlite, resolve_root_dir
-from .llm_ocr_tables import (
-    DEFAULT_DPI,
-    DEFAULT_MAX_CONCURRENCY,
-    DEFAULT_PAGES_PER_CHUNK,
-    extract_pdf_tables,
-)
 
+DEFAULT_PAGES_PER_CHUNK = 3
+DEFAULT_DPI = 192
+DEFAULT_MAX_CONCURRENCY = 1
 DEFAULT_PDF_INSPECT_OUTPUT_DIR = Path("data/pdf_inspect")
 DEFAULT_PDF_EXTRACT_OUTPUT_DIR = Path("data/pdf_ocr")
 DEFAULT_INSPECT_PAGE_LIMIT = 2
@@ -66,9 +63,13 @@ def inspect_pdf_file(
     return {
         "path": str(pdf_path),
         "format": "pdf",
+        "status": "ok",
+        "route": "deterministic_pdf_inspect",
+        "llm_required": False,
         "page_count": page_count,
         "page_start": safe_page_start,
         "page_end": pages[-1]["page_number"] if pages else safe_page_start - 1,
+        "image_output_dir": str(output_path) if include_images else None,
         "pages": pages,
     }
 
@@ -128,6 +129,8 @@ def extract_pdf_file(
     if not pdf_path.is_absolute():
         pdf_path = resolved_root_dir / pdf_path
     pdf_path = pdf_path.resolve()
+
+    from .llm_ocr_tables import extract_pdf_tables
 
     ocr_result = extract_pdf_tables(
         pdf_path,

@@ -57,6 +57,7 @@ The standalone tool layer is intentionally smaller than the full custom agent:
 
 - `tools.tabular`: inspect raw grids, profile table structure, and extract CSV/XLSX tables into SQLite-backed artifacts.
 - `tools.pdf`: inspect PDF pages and extract PDF tables into SQLite-backed artifacts.
+- `tools.mail`: inspect EML/MSG metadata, body previews, and attachments as reference context without turning emails into table artifacts.
 - `tools.artifacts`: list/describe queryable artifacts, run read-only SQL, save query views, name SQL artifacts when an LLM namer is configured, and suggest deterministic SQLite repair hints from schema context.
 - `tools.fs`: sandbox and workspace filesystem primitives used by adapters and custom agents, not a primary CLI value proposition for coding agents.
 - `tools.skills`: workspace skill file helpers, kept separate from artifact structure even though both are directory-backed.
@@ -111,12 +112,17 @@ tabuflow tabular profile path/to/file.xlsx
 tabuflow tabular extract path/to/file.csv
 tabuflow pdf inspect path/to/file.pdf
 tabuflow pdf extract path/to/file.pdf
+tabuflow email inspect path/to/message.eml
+tabuflow email inspect path/to/message.msg
 tabuflow artifacts list
+tabuflow artifacts from-source path/to/file.xlsx
 tabuflow artifacts describe artifact_name
 tabuflow artifacts query "select * from artifact_name limit 20"
 tabuflow artifacts query @query.sql
 tabuflow artifacts save-view saved_view_name @query.sql
 ```
+
+Generated artifact names often contain hyphens, so quote them in SQL: `select * from "service-usage-1cca2e" limit 20`.
 
 The CLI deliberately does not expose storage root or database path knobs to the agent. The runtime resolves those from the local workspace/tool configuration. Agents can choose source paths and SQL text, but should not be able to redirect Tabuflow's artifact store.
 
