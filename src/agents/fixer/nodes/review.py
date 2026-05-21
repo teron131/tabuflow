@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from ....clients.openai import ChatOpenAI
 from ..prompts import CLEAN_TASK_LOG, DEFAULT_FIXER_SYSTEM_PROMPT, build_fixer_progress_prompt, build_review_system_prompt
 from ..state import FixerState
-from .common import (
+from .runtime import (
     MAX_REPEAT_REMAINING_REVIEWS,
     FixerProgress,
     FixerRuntime,
@@ -20,7 +20,7 @@ from .common import (
     get_metadata,
     logger,
 )
-from .task_log import (
+from ..task_log import (
     normalized_remaining_block,
     stop_reason_for_task_log,
     task_log_score,

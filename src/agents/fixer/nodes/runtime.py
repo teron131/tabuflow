@@ -1,4 +1,4 @@
-"""Shared fixer node runtime and progress helpers."""
+"""Shared runtime and progress helpers for fixer graph nodes."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ class FixerProgress:
 
     @classmethod
     def from_state(cls, state: FixerState) -> FixerProgress:
-        """Create mutable progress from persisted graph state."""
+        """Create mutable progress from the current fixer state."""
         return cls(
             total_tokens_in=state.fixer_tokens_in,
             total_tokens_out=state.fixer_tokens_out,
@@ -80,7 +80,7 @@ class FixerProgress:
 
 
 @dataclass(frozen=True, slots=True)
-class FixPassResult:
+class EditPassResult:
     edits: list
     raw_text: str
     tokens_in: int = 0
@@ -89,7 +89,7 @@ class FixPassResult:
 
 
 @dataclass(frozen=True, slots=True)
-class WriteApplyResult:
+class WriteResult:
     after_text: str | None
     write_error: str | None = None
     tokens_in: int = 0

@@ -19,12 +19,12 @@ from ..prompts import (
     build_hashline_repair_system_prompt,
 )
 from ..state import FixerState
-from .common import (
+from .runtime import (
     EMPTY_EDIT_SENTINEL,
     FixerProgress,
     FixerRuntime,
-    FixPassResult,
-    WriteApplyResult,
+    EditPassResult,
+    WriteResult,
     add_usage,
     append_write_note,
     build_runtime,
@@ -78,7 +78,7 @@ def _write_edits(
     tokens_in: int = 0,
     tokens_out: int = 0,
     cost: float = 0.0,
-) -> WriteApplyResult:
+) -> WriteResult:
     """Apply edits, write to disk, and preserve shared no-op handling."""
     updated_text = edit_hashline(current_text, edits)
     try:
@@ -93,7 +93,7 @@ def _write_edits(
 
     if updated_text == current_text:
         logger.info("[FIXER] Treating empty edit as no-op for %s", runtime.target_path)
-        return WriteApplyResult(
+        return WriteResult(
             after_text=current_text,
             write_error=EMPTY_EDIT_SENTINEL,
             tokens_in=tokens_in,
@@ -102,7 +102,7 @@ def _write_edits(
         )
 
     runtime.fs.write_text(runtime.target_path, updated_text)
-    return WriteApplyResult(
+    return WriteResult(
         after_text=updated_text,
         tokens_in=tokens_in,
         tokens_out=tokens_out,
@@ -117,7 +117,7 @@ def _run_fix_pass(
     progress: FixerProgress,
     current_text: str,
     turn: int,
-) -> FixPassResult:
+) -> EditPassResult:
     """Run one fixer model pass against the current file contents."""
     llm = _build_edit_llm(state)
     prompt = build_fixer_pass_prompt(
@@ -142,7 +142,7 @@ def _run_fix_pass(
         ]
     )
     edit_response, tokens_in, tokens_out, cost = _parse_edit_response(response)
-    return FixPassResult(
+    return EditPassResult(
         edits=edit_response.edits,
         raw_text=edit_response.model_dump_json(indent=2),
         tokens_in=tokens_in,
@@ -159,7 +159,7 @@ def _run_hashline_edit_with_repair(
     current_text: str,
     edits: list[HashlineEdit],
     attempted_text: str,
-) -> WriteApplyResult:
+) -> WriteResult:
     """Apply hashline edits and try one repair pass if validation fails."""
     llm = _build_edit_llm(state)
     try:
@@ -186,7 +186,7 @@ def _run_hashline_edit_with_repair(
         )
         repaired_response, tokens_in, tokens_out, cost = _parse_edit_response(response)
         if not repaired_response.edits:
-            return WriteApplyResult(
+            return WriteResult(
                 after_text=None,
                 write_error=str(error),
                 tokens_in=tokens_in,
@@ -205,7 +205,7 @@ def _run_hashline_edit_with_repair(
         except (HashlineReferenceError, ValueError) as repaired_error:
             logger.warning("[FIXER] Repaired hashline edit rejected: %s", _summarize_write_error(repaired_error))
             logger.debug("[FIXER] Full repaired hashline rejection details: %s", str(repaired_error).replace("\n", " | "))
-            return WriteApplyResult(
+            return WriteResult(
                 after_text=None,
                 write_error=str(repaired_error),
                 tokens_in=tokens_in,
@@ -221,7 +221,7 @@ def _handle_write_result(
     progress: FixerProgress,
     current_text: str,
     turn: int,
-    write_result: WriteApplyResult,
+    write_result: WriteResult,
 ) -> dict[str, object]:
     """Update fixer state after edit application, rollback, or no-op."""
     add_usage(

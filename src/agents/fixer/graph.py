@@ -9,7 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from .nodes import fix_node, review_node
-from .nodes.common import coerce_state
+from .nodes.runtime import coerce_state
 from .state import FixerInput, FixerOutput, FixerState
 
 type FixerRoute = Literal["fix", "review", "end"]
