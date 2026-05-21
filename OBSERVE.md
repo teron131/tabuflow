@@ -508,7 +508,11 @@ The shared SQLite cache at `data/tabular.sqlite` already contains:
 
 - raw content tables such as `content_23ac1d333f4101ab`
 - linkage tables `_tabular_contents` and `_tabular_sources`
-- stable GCP helper views such as: - `gcp_raw_cost_item` - `gcp_cost_item_typed_view` - `gcp_account_payload_view` - `gcp_summary_payload_view`
+- stable GCP helper views such as:
+  - `gcp_raw_cost_item`
+  - `gcp_cost_item_typed_view`
+  - `gcp_account_payload_view`
+  - `gcp_summary_payload_view`
 
 ### Queries tried
 
@@ -729,19 +733,19 @@ That is more important than the top-level query-engine wrapper itself. For messy
 
 Based on those upstream patterns, the next improvements with the best cost/value ratio look like:
 
-1. Add sample-row context to `sql_describe` - not full tables, just a few rows and maybe distinct examples for text-heavy columns.
+1. Add sample-row context to `sql_describe`. Not full tables, just a few rows and maybe distinct examples for text-heavy columns.
 
-2. Add optional custom target context - business descriptions, join hints, metric units, and "prefer this curated view for X" notes.
+2. Add optional custom target context. Business descriptions, join hints, metric units, and "prefer this curated view for X" notes.
 
-3. Add a target-suggestion helper - input: natural-language question - output: likely tables/views plus why - this is the lightest version of LlamaIndex's table retriever idea.
+3. Add a target-suggestion helper. Input: natural-language question. Output: likely tables/views plus why. This is the lightest version of LlamaIndex's table retriever idea.
 
-4. Add lightweight value-grounding helpers - for example: suggest matching account IDs, customer names, project names, SKUs, or regions from actual column values.
+4. Add lightweight value-grounding helpers. For example: suggest matching account IDs, customer names, project names, SKUs, or regions from actual column values.
 
-5. Add `sql_plan` or `sql_only` mode - return candidate SQL without executing it. - useful for inspection, review, and safer multi-step agent loops.
+5. Add `sql_plan` or `sql_only` mode. Return candidate SQL without executing it. Useful for inspection, review, and safer multi-step agent loops.
 
-6. Add deterministic query-repair helpers - on missing table/column errors, suggest nearby targets/columns from the schema instead of relying on an LLM checker.
+6. Add deterministic query-repair helpers. On missing table/column errors, suggest nearby targets/columns from the schema instead of relying on an LLM checker.
 
-7. Add target allowlists / preferred surfaces - bias toward curated summary views and keep raw `content_*` tables de-emphasized.
+7. Add target allowlists / preferred surfaces. Bias toward curated summary views and keep raw `content_*` tables de-emphasized.
 
 ### What still does not look worth copying yet
 
@@ -785,3 +789,57 @@ The API hides auto-generated `typed_content_view` targets from the browser targe
 - `pnpm build`
 - direct `_bootstrap_payload(default_database_path())` check
 - live `http://localhost:5174/api/bootstrap` check
+
+## Current State: Repo Skills As Outcome Contracts
+
+Date: `2026-05-21`.
+
+The latest skill work shifted the repo-level skill strategy away from "tell the agent which tools and commands to use" and toward "tell the agent what result must exist, what source artifacts count, and how to tell whether the result is good."
+
+### Skill placement
+
+The official repo-level skill surface is `.agents/skills/`. The `skills/` directory is still preserved as a mirrored repo copy where useful, but the active session loads from `.agents/skills/`.
+
+`.agents/skills/AGENTS.md` should stay small. It is a context/router note for the current experiment, not a generic tool manual and not a place for command transcripts. It should explain what tasks are being explored, which domain skills exist, and what process boundaries matter.
+
+### Skill-evolution method
+
+The useful loop is:
+
+1. inspect real source artifacts and any reference outputs,
+2. define required inputs and outputs,
+3. write the smallest durable skill contract,
+4. pressure-test it in a fresh or weaker isolated agent session,
+5. inspect the produced files yourself,
+6. revise the skill only for failures that should generalize.
+
+Do not call a skill good because the main session solved the task manually. The proof is whether another session with the skill can find the right target, produce the right artifact shape, and report gaps honestly.
+
+The reusable version of this method now lives in `skill-evolution-loop`.
+
+### GCP skill boundary
+
+The GCP skill now treats the raw monthly `cost_table.xlsx` as the only required user input. Reference workbooks can explain shape and business intent, but they are not default runtime inputs.
+
+The required outputs are:
+
+- an aggregated GCP reconciliation result,
+- an IBS charge-item upload result.
+
+The raw GCP column names are fixed but messy. The skill should tell agents to normalize those exact ingestion labels into semantic fields before grouping or deriving formulas. It should not teach agents to infer business meaning from pivot labels, generated table names, or one month's copied examples.
+
+The IBS output needs closer babysitting than the aggregated result because it is a fixed upload template. The skill should preserve template column order, constants, date shape, total row behavior, and maintained defaults/mappings where raw source data does not contain IBS-only fields.
+
+Do not bundle a hardcoded GCP script just because one working script exists. For now the GCP skill should preserve the contract and validation bar while leaving implementation freedom.
+
+### AWS skill boundary
+
+The AWS examples are mostly PDFs, and the minimum useful result is coherent tabular data extracted from the invoices. The current AWS skill therefore starts with PDF table extraction rather than pretending the final accounting output is already known.
+
+Direct text extraction is the first pass because many AWS invoices are text PDFs. The helper script `extract_aws_pdf_text_tables.py` gives the agent a deterministic way to produce per-PDF CSV/JSON table rows and flag pages that need OCR. OCR/visual extraction should be reserved for pages with no text, incomplete text extraction, or ambiguous layout.
+
+Emails in AWS example folders are reference context only. They can explain reporting, approval, forwarding, account IDs, periods, or attachments, but they are not billing-table truth and should not be emitted as CSV/table outputs unless the user explicitly asks for an email reconciliation dataset.
+
+### Markdown style note
+
+Repo skill docs and observation notes should not hard-wrap ordinary prose. Keep prose paragraphs and bullet text on one line unless a real Markdown structure, table, code fence, or nested list needs multiple lines. This avoids making future diffs noisy and keeps skill edits easier to review.
