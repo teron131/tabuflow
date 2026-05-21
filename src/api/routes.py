@@ -488,7 +488,7 @@ def _skill_modified_at(skill_file: Path) -> str:
 
 def _writable_skill_path(skill_name: str) -> Path:
     """Resolve the workspace skill file path or raise an HTTP error."""
-    loaded_payload = load_skill.func(path=str(SKILLS_DIR), skill=skill_name)
+    loaded_payload = load_skill(path=str(SKILLS_DIR), skill=skill_name)
     loaded_skills = loaded_payload.get("skills", [])
     if not loaded_skills:
         raise HTTPException(
@@ -745,7 +745,7 @@ def file_explanation(request: FileExplanationRequest) -> dict[str, Any]:
 @router.get("/skills")
 def skills() -> dict[str, Any]:
     """List workspace skills with full instruction content for the browser UI."""
-    payload = list_skills.func(path=str(SKILLS_DIR), max_files=50)
+    payload = list_skills(path=str(SKILLS_DIR), max_files=50)
     enriched_skills: list[dict[str, Any]] = []
     diagnostics = list(payload.get("diagnostics", []))
     for skill in payload.get("skills", []):
@@ -753,7 +753,7 @@ def skills() -> dict[str, Any]:
         if not isinstance(skill_name, str):
             enriched_skills.append(skill)
             continue
-        loaded_payload = load_skill.func(path=str(SKILLS_DIR), skill=skill_name)
+        loaded_payload = load_skill(path=str(SKILLS_DIR), skill=skill_name)
         loaded_skills = loaded_payload.get("skills", [])
         if loaded_skills:
             loaded_skill = loaded_skills[0]
@@ -789,7 +789,7 @@ def skills() -> dict[str, Any]:
 @router.post("/skills/create")
 def create_skill(request: SkillCreateRequest) -> dict[str, Any]:
     """Create a deterministic workspace skill package frame."""
-    result = create_skill_package.func(
+    result = create_skill_package(
         path=str(SKILLS_DIR),
         name=request.name,
         description=request.description,

@@ -1,12 +1,16 @@
 """PDF extraction helpers."""
 
-from .llm_ocr_tables import PdfTableOcrResult, extract_pdf_tables
-from .tools import extract_pdf_file, inspect_pdf_file, make_pdf_tools
+from .llm_ocr_tables import DEFAULT_DPI, DEFAULT_MAX_CONCURRENCY, DEFAULT_PAGES_PER_CHUNK, PdfTableOcrResult, extract_pdf_tables
+from .tools import DEFAULT_INSPECT_PAGE_LIMIT, DEFAULT_INSPECT_TEXT_CHARS, extract_pdf_file, inspect_pdf_file
 
 __all__ = [
+    "DEFAULT_DPI",
+    "DEFAULT_INSPECT_PAGE_LIMIT",
+    "DEFAULT_INSPECT_TEXT_CHARS",
+    "DEFAULT_MAX_CONCURRENCY",
+    "DEFAULT_PAGES_PER_CHUNK",
     "PdfTableOcrResult",
     "extract_pdf_file",
     "extract_pdf_tables",
     "inspect_pdf_file",
-    "make_pdf_tools",
 ]

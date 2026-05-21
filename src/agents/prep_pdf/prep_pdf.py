@@ -15,8 +15,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import patch_config
 from langgraph.graph.state import CompiledStateGraph
 
-from ...tools.pdf import make_pdf_tools
 from ..base import ApplicationAgent
+from ..tool_adapter import make_pdf_tools
 from ..trace_utils import PREP_PDF_STAGE, append_stage_trace, append_trace
 from ..prep_payloads import collect_extracted_sql_artifacts
 from .prompts import PREP_PDF_STAGE_SYSTEM_PROMPT, build_prep_request, parse_tool_content

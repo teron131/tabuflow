@@ -12,13 +12,14 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 
-from ...tools import create_skill_package, list_skills, load_skill, search_skills
-from ...tools.fs import allow_sql_or_skill_write, make_fs_tools
+from ...tools import list_skills
+from ...tools.fs import allow_sql_or_skill_write
 from ...tools.fs.hashline import HashlineReferenceError
 from ..base import ApplicationAgent
 from ..prep_csv import PrepCsv
 from ..prep_pdf import PrepPdf
 from ..query_stage import SQLRepairerFn, SQLWriterFn
+from ..tool_adapter import make_fs_tools, make_skill_tools
 from ..trace_utils import SKILL_CONTEXT_STAGE, append_stage_trace
 from ..validation_stage import ValidationStage
 from .skill_context import SKILLS_PATH, format_skills_overview
@@ -234,12 +235,8 @@ def skills_node(
     if not latest_user_message(messages):
         return {}
 
-    skills_overview = format_skills_overview(
-        list_skills.invoke(
-            {"path": SKILLS_PATH},
-            config=config,
-        ),
-    )
+    _ = config
+    skills_overview = format_skills_overview(list_skills(path=SKILLS_PATH))
     source_files = state.source_files if isinstance(state, OrchestratorState) else list(state.get("source_files") or [])
     trace = state.trace if isinstance(state, OrchestratorState) else list(state.get("trace") or [])
     return {
@@ -424,9 +421,7 @@ class Orchestrator(ApplicationAgent):
                 can_write=allow_sql_or_skill_write,
                 write_denied_message="Scoped writes are only allowed for .sql files or workspace skill instructions, references, and scripts.",
             ),
-            create_skill_package,
-            load_skill,
-            search_skills,
+            *make_skill_tools(),
         ]
         builder = StateGraph(
             OrchestratorState,

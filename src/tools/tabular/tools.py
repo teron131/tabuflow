@@ -1,12 +1,10 @@
-"""Public tabular orchestration and tool wiring."""
+"""Standalone tabular inspection and extraction tools."""
 
 from __future__ import annotations
 
 from pathlib import Path
 import statistics
 from typing import Any
-
-from langchain.tools import tool
 
 from .ingestion import (
     MAX_FULL_EXTRACT_BYTES,
@@ -202,88 +200,3 @@ def extract_tabular_file(
         "recovered_metadata_block_count": len(recovered["metadata"]),
         "tables": loaded["tables"],
     }
-
-
-def make_tabular_tools(*, root_dir: str | Path | None = None):
-    """Create tabular inspect/profile/extract/query tools for CSV and XLSX files."""
-    resolved_root_dir = resolve_root_dir(root_dir=root_dir)
-
-    def source_path(path: str) -> Path:
-        resolved_path = Path(path).expanduser()
-        return resolved_path if resolved_path.is_absolute() else resolved_root_dir / resolved_path
-
-    @tool(parse_docstring=True)
-    def inspect_tabular(
-        path: str,
-        start_row: int = 1,
-        limit: int = 5,
-        start_col: int = 1,
-        end_col: int | None = None,
-        sheet: str | None = None,
-    ) -> dict[str, Any]:
-        """Inspect a CSV or XLSX file with a bounded raw grid window.
-
-        Args:
-            path: Path to the CSV or XLSX file to inspect.
-            start_row: One-based row number where the preview window begins.
-            limit: Maximum number of rows to return in the preview window.
-            start_col: One-based column number where the preview window begins.
-            end_col: Optional one-based column number where the preview window ends.
-            sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
-        """
-        return inspect_tabular_file(
-            source_path(path),
-            start_row=start_row,
-            limit=limit,
-            start_col=start_col,
-            end_col=end_col,
-            sheet=sheet,
-        )
-
-    @tool(parse_docstring=True)
-    def profile_tabular(
-        path: str,
-        max_sample_rows: int = MAX_SAMPLE_ROWS,
-        sheet: str | None = None,
-    ) -> dict[str, Any]:
-        """Profile a CSV or XLSX file with read-only structural hints.
-
-        Args:
-            path: Path to the CSV or XLSX file to profile.
-            max_sample_rows: Maximum number of top rows to include in the profile sample.
-            sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
-        """
-        return profile_tabular_file(
-            source_path(path),
-            max_sample_rows=max_sample_rows,
-            sheet=sheet,
-        )
-
-    @tool(parse_docstring=True)
-    def extract_tabular(
-        path: str,
-        sample_rows: int = MAX_SAMPLE_ROWS,
-        metadata_rows: int = MAX_METADATA_ROWS,
-        sheet: str | None = None,
-    ) -> dict[str, Any]:
-        """Extract tables from a CSV or XLSX file into the shared SQLite cache.
-
-        Args:
-            path: Path to the CSV or XLSX file to extract.
-            sample_rows: Maximum number of rows to inspect while preparing extraction.
-            metadata_rows: Maximum number of metadata rows to inspect while preparing extraction.
-            sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
-        """
-        return extract_tabular_file(
-            path,
-            root_dir=resolved_root_dir,
-            sample_rows=sample_rows,
-            metadata_rows=metadata_rows,
-            sheet=sheet,
-        )
-
-    return [
-        inspect_tabular,
-        profile_tabular,
-        extract_tabular,
-    ]

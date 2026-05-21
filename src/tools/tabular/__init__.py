@@ -1,7 +1,12 @@
 """Tabular tool exports."""
 
-from .tools import make_tabular_tools
+from .ingestion import MAX_METADATA_ROWS, MAX_SAMPLE_ROWS
+from .tools import extract_tabular_file, inspect_tabular_file, profile_tabular_file
 
 __all__ = [
-    "make_tabular_tools",
+    "MAX_METADATA_ROWS",
+    "MAX_SAMPLE_ROWS",
+    "extract_tabular_file",
+    "inspect_tabular_file",
+    "profile_tabular_file",
 ]

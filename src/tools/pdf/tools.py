@@ -1,4 +1,4 @@
-"""LangChain tools for inspecting and extracting PDF table data."""
+"""Standalone PDF inspection and extraction tools."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from langchain.tools import tool
 import pymupdf
 
 from ..tabular.storage import fingerprint, load_tables_into_sqlite, resolve_root_dir
@@ -187,68 +186,3 @@ def extract_pdf_file(
             "cost": ocr_result.usage.cost,
         },
     }
-
-
-def make_pdf_tools(*, root_dir: str | Path | None = None):
-    """Create PDF inspect and extraction tools."""
-    resolved_root_dir = resolve_root_dir(root_dir=root_dir)
-
-    def source_path(path: str) -> Path:
-        resolved_path = Path(path).expanduser()
-        return resolved_path if resolved_path.is_absolute() else resolved_root_dir / resolved_path
-
-    @tool(parse_docstring=True)
-    def inspect_pdf(
-        path: str,
-        page_start: int = 1,
-        page_limit: int = DEFAULT_INSPECT_PAGE_LIMIT,
-        max_text_chars: int = DEFAULT_INSPECT_TEXT_CHARS,
-        include_images: bool = False,
-    ) -> dict[str, Any]:
-        """Inspect a PDF with raw page text and optional rendered page images.
-
-        Args:
-            path: Path to the PDF file to inspect.
-            page_start: One-based page number where inspection begins.
-            page_limit: Maximum number of pages to inspect.
-            max_text_chars: Maximum text characters to include per page.
-            include_images: Whether to render inspected pages to image artifacts.
-        """
-        return inspect_pdf_file(
-            source_path(path),
-            page_start=page_start,
-            page_limit=page_limit,
-            max_text_chars=max_text_chars,
-            include_images=include_images,
-        )
-
-    @tool(parse_docstring=True)
-    def extract_pdf(
-        path: str,
-        pages_per_chunk: int = DEFAULT_PAGES_PER_CHUNK,
-        max_chunks: int | None = None,
-        fix_bridges: bool = True,
-        fix_overall: bool = True,
-    ) -> dict[str, Any]:
-        """Extract visual tables from a PDF into the shared SQLite cache.
-
-        Args:
-            path: Path to the PDF file to extract.
-            pages_per_chunk: Number of PDF pages rendered into each OCR request.
-            max_chunks: Optional cap on rendered chunks for bounded trial runs.
-            fix_bridges: Whether to repair tables that cross chunk boundaries.
-            fix_overall: Whether to run a final full-document table cleanup.
-        """
-        return extract_pdf_file(
-            path,
-            root_dir=resolved_root_dir,
-            pages_per_chunk=pages_per_chunk,
-            max_chunks=max_chunks,
-            fix_bridges=fix_bridges,
-            fix_overall=fix_overall,
-        )
-
-    return [
-        inspect_pdf,
-        extract_pdf,
-    ]

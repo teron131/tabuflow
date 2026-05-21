@@ -15,8 +15,8 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import patch_config
 from langgraph.graph.state import CompiledStateGraph
 
-from ...tools.tabular import make_tabular_tools
 from ..base import ApplicationAgent
+from ..tool_adapter import make_tabular_tools
 from ..trace_utils import PREP_CSV_STAGE, append_stage_trace, append_trace
 from ..prep_payloads import collect_extracted_sql_artifacts
 from .prompts import PREP_CSV_STAGE_SYSTEM_PROMPT, build_prep_request, parse_tool_content

@@ -5,8 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.runnables import RunnableConfig
-
 from ...config import SKILLS_DIR
 from ...tools import load_skill, search_skills
 
@@ -52,16 +50,11 @@ def build_worker_skill_payload(
     message: str,
     *,
     path: str = SKILLS_PATH,
-    config: RunnableConfig | None = None,
+    config: object | None = None,
 ) -> WorkerSkillPayload:
     """Search and load matched skills into one worker-ready payload."""
-    search_result = search_skills.invoke(
-        {
-            "path": path,
-            "query": message,
-        },
-        config=config,
-    )
+    _ = config
+    search_result = search_skills(path=path, query=message)
     matched_skills = list(search_result.get("skills", []))
     worker_sections: list[str] = []
     skill_refs: list[dict[str, Any]] = []
@@ -70,13 +63,7 @@ def build_worker_skill_payload(
         if not skill_name:
             continue
 
-        load_result = load_skill.invoke(
-            {
-                "path": path,
-                "skill": skill_name,
-            },
-            config=config,
-        )
+        load_result = load_skill(path=path, skill=skill_name)
         loaded_skills = list(load_result.get("skills", []))
         if not loaded_skills:
             continue

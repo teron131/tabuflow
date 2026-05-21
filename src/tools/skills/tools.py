@@ -9,11 +9,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from langchain.tools import tool
-from langchain_core.embeddings import Embeddings
 import yaml
-
-from ...clients.openai import OpenAIEmbeddings
 
 SKILL_FILENAME = "SKILL.md"
 DEFAULT_MAX_FILES = 20
@@ -629,7 +625,6 @@ def _result_payload(
     return result
 
 
-@tool(parse_docstring=True)
 def create_skill_package(
     name: str,
     description: str,
@@ -735,7 +730,7 @@ def _build_skill_search_index(
     *,
     skill_files: list[SkillFile],
     skill_root: Path,
-    embeddings: Embeddings,
+    embeddings: Any,
 ) -> tuple[SkillSearchIndex, list[str]]:
     """Build or reuse one cached embedding index for the current skill files."""
     diagnostics: list[str] = []
@@ -772,7 +767,6 @@ def _build_skill_search_index(
     return index, diagnostics
 
 
-@tool(parse_docstring=True)
 def list_skills(
     path: str = ".",
     max_files: int = DEFAULT_MAX_FILES,
@@ -796,7 +790,6 @@ def list_skills(
     return _result_payload(skills, diagnostics)
 
 
-@tool(parse_docstring=True)
 def search_skills(
     query: str,
     path: str = ".",
@@ -833,6 +826,8 @@ def search_skills(
         return result
 
     try:
+        from ...clients.openai import OpenAIEmbeddings
+
         embeddings = OpenAIEmbeddings(
             model=model,
             check_embedding_ctx_length=False,
@@ -880,7 +875,6 @@ def search_skills(
     return result
 
 
-@tool(parse_docstring=True)
 def load_skill(
     path: str = ".",
     skill: str = "",
