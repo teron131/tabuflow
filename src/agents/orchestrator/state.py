@@ -19,13 +19,18 @@ class PreparedDataState(BaseModel):
     skill_refs: list[dict[str, Any]] = Field(default_factory=list, description="Loaded skill reference payloads relevant to this run.")
 
 
-class SQLArtifactState(BaseModel):
-    """Current SQL artifact, execution, and validation state."""
+class SQLReuseState(BaseModel):
+    """Existing-SQL reuse decision state for the query stage."""
+
+    reuse_existing_sql: bool = Field(default=False, description="Whether the current SQL stage should execute an accepted existing SQL artifact.")
+    related_sql_artifacts: list[dict[str, Any]] = Field(default_factory=list, description="Existing SQL artifacts considered for this request.")
+
+
+class SQLExecutionState(BaseModel):
+    """Current SQL artifact and SQLite execution state."""
 
     status: str = Field(default="pending", description="Current SQL-stage status.")
     sql_path: str | None = Field(default=None, description="Path to the current SQL artifact file.")
-    reuse_existing_sql: bool = Field(default=False, description="Whether the current SQL stage should execute an accepted existing SQL artifact.")
-    related_sql_artifacts: list[dict[str, Any]] = Field(default_factory=list, description="Existing SQL artifacts considered for this request.")
     selected_sql_artifacts: list[str] = Field(default_factory=list, description="SQL artifacts selected by the current write.")
     candidate_sql: str | None = Field(default=None, description="Current SQL text read from or written to the SQL artifact.")
     repair_hints: list[dict[str, Any]] = Field(default_factory=list, description="Deterministic hints for repairing SQLite runtime errors.")
@@ -33,8 +38,21 @@ class SQLArtifactState(BaseModel):
     attempts: int = Field(default=0, description="Number of SQL execution attempts made in the current loop.")
     last_error: str | None = Field(default=None, description="Most recent SQL-stage error message.")
     trace: list[str] = Field(default_factory=list, description="Compact SQL-stage trace messages.")
+
+
+class SQLValidationState(BaseModel):
+    """Semantic validation retry state owned by the orchestrator loop."""
+
     validation_feedback: dict[str, Any] | None = Field(default=None, description="Semantic validation feedback for another SQL write.")
     validation_attempts: int = Field(default=0, description="Number of semantic validation retry requests made so far.")
+
+
+class SQLArtifactState(
+    SQLReuseState,
+    SQLExecutionState,
+    SQLValidationState,
+):
+    """Compatibility aggregate for older SQL-stage state imports."""
 
 
 class SQLRuntimeState(BaseModel):
@@ -64,7 +82,9 @@ class OrchestratorState(
     OrchestratorInput,
     OrchestratorOutput,
     PreparedDataState,
-    SQLArtifactState,
+    SQLReuseState,
+    SQLExecutionState,
+    SQLValidationState,
     SQLRuntimeState,
 ):
     """Parent graph state shared by the orchestrator-owned workflow stages."""

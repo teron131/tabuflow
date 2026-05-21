@@ -10,8 +10,10 @@ from ...tools.fs import HashlineEdit
 from ..orchestrator.state import (
     OrchestratorInput,
     PreparedDataState,
-    SQLArtifactState,
+    SQLExecutionState,
+    SQLReuseState,
     SQLRuntimeState,
+    SQLValidationState,
 )
 
 
@@ -40,7 +42,9 @@ class ExistingSQLDecision(BaseModel):
 class QueryStageState(
     OrchestratorInput,
     PreparedDataState,
-    SQLArtifactState,
+    SQLReuseState,
+    SQLExecutionState,
+    SQLValidationState,
     SQLRuntimeState,
 ):
     """Internal graph state for the file-backed query stage."""

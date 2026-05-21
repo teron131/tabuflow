@@ -8,9 +8,7 @@ from typing import Any
 from langchain.tools import tool
 from langchain_core.tools import BaseTool
 
-from ..tools import create_skill_package as create_skill_package_core
-from ..tools import load_skill as load_skill_core
-from ..tools import search_skills as search_skills_core
+from ..tools import create_skill_package as create_skill_package_core, load_skill as load_skill_core, search_skills as search_skills_core
 from ..tools.fs import (
     DEFAULT_WRITE_DENIED_MESSAGE,
     FSWritePredicate,
@@ -21,6 +19,7 @@ from ..tools.fs import (
     search_text,
     write_text,
 )
+from ..tools.fs.workspace import resolve_workspace_file
 from ..tools.pdf import (
     DEFAULT_INSPECT_PAGE_LIMIT,
     DEFAULT_INSPECT_TEXT_CHARS,
@@ -38,13 +37,18 @@ from ..tools.tabular import (
 from ..tools.tabular.storage import resolve_root_dir
 
 
+def _workspace_source_path(
+    path: str,
+    *,
+    root_dir: Path,
+) -> Path:
+    """Resolve one model-supplied source path inside the configured workspace."""
+    return resolve_workspace_file(path, root_dir=root_dir).path
+
+
 def make_tabular_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
     """Create LangChain adapters for standalone tabular operations."""
     resolved_root_dir = resolve_root_dir(root_dir=root_dir)
-
-    def source_path(path: str) -> Path:
-        resolved_path = Path(path).expanduser()
-        return resolved_path if resolved_path.is_absolute() else resolved_root_dir / resolved_path
 
     @tool(parse_docstring=True)
     def inspect_tabular(
@@ -66,7 +70,7 @@ def make_tabular_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
         return inspect_tabular_file(
-            source_path(path),
+            _workspace_source_path(path, root_dir=resolved_root_dir),
             start_row=start_row,
             limit=limit,
             start_col=start_col,
@@ -88,7 +92,7 @@ def make_tabular_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
         return profile_tabular_file(
-            source_path(path),
+            _workspace_source_path(path, root_dir=resolved_root_dir),
             max_sample_rows=max_sample_rows,
             sheet=sheet,
         )
@@ -109,7 +113,7 @@ def make_tabular_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
         return extract_tabular_file(
-            path,
+            _workspace_source_path(path, root_dir=resolved_root_dir),
             root_dir=resolved_root_dir,
             sample_rows=sample_rows,
             metadata_rows=metadata_rows,
@@ -122,10 +126,6 @@ def make_tabular_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
 def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
     """Create LangChain adapters for standalone PDF operations."""
     resolved_root_dir = resolve_root_dir(root_dir=root_dir)
-
-    def source_path(path: str) -> Path:
-        resolved_path = Path(path).expanduser()
-        return resolved_path if resolved_path.is_absolute() else resolved_root_dir / resolved_path
 
     @tool(parse_docstring=True)
     def inspect_pdf(
@@ -145,7 +145,10 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             include_images: Whether to render inspected pages to image artifacts.
         """
         return inspect_pdf_file(
-            source_path(path),
+            _workspace_source_path(
+                path,
+                root_dir=resolved_root_dir,
+            ),
             page_start=page_start,
             page_limit=page_limit,
             max_text_chars=max_text_chars,
@@ -170,7 +173,10 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             fix_overall: Whether to run a final full-document table cleanup.
         """
         return extract_pdf_file(
-            path,
+            _workspace_source_path(
+                path,
+                root_dir=resolved_root_dir,
+            ),
             root_dir=resolved_root_dir,
             pages_per_chunk=pages_per_chunk,
             max_chunks=max_chunks,
@@ -303,14 +309,14 @@ def make_fs_tools(
     return tools
 
 
-def make_skill_tools() -> list[BaseTool]:
+def make_skill_tools(*, skills_path: str | Path = "skills") -> list[BaseTool]:
     """Create LangChain adapters for standalone workspace-skill operations."""
+    resolved_skills_path = str(skills_path)
 
     @tool("create_skill_package", parse_docstring=True)
     def create_skill_package(
         name: str,
         description: str,
-        path: str = "skills",
         reference_files: list[str] | None = None,
         script_files: list[str] | None = None,
     ) -> dict[str, Any]:
@@ -319,12 +325,11 @@ def make_skill_tools() -> list[BaseTool]:
         Args:
             name: Kebab-case skill package name. It must match the created folder name.
             description: Frontmatter routing description written at the top of SKILL.md.
-            path: Skills root directory relative to the current working directory, or an absolute path.
             reference_files: Optional starter file names created under references/. Use .sql for SQL reference frames.
             script_files: Optional starter file names created under scripts/.
         """
         return create_skill_package_core(
-            path=path,
+            path=resolved_skills_path,
             name=name,
             description=description,
             reference_files=reference_files,
@@ -334,7 +339,6 @@ def make_skill_tools() -> list[BaseTool]:
     @tool("search_skills", parse_docstring=True)
     def search_skills(
         query: str,
-        path: str = ".",
         top_k: int = 5,
         score_threshold: float = 0.2,
         search_mode: str = "lexical",
@@ -344,7 +348,6 @@ def make_skill_tools() -> list[BaseTool]:
 
         Args:
             query: Natural-language task or question used to find relevant skills.
-            path: Relative directory or file path from the current working directory, or an absolute path.
             top_k: Maximum number of matching skills entries to return.
             score_threshold: Minimum similarity score required to include a match.
             search_mode: Search strategy. Use "lexical" for token overlap or "embedding" for embedding similarity.
@@ -352,7 +355,7 @@ def make_skill_tools() -> list[BaseTool]:
         """
         return search_skills_core(
             query=query,
-            path=path,
+            path=resolved_skills_path,
             top_k=top_k,
             score_threshold=score_threshold,
             search_mode=search_mode,
@@ -361,15 +364,16 @@ def make_skill_tools() -> list[BaseTool]:
 
     @tool("load_skill", parse_docstring=True)
     def load_skill(
-        path: str = ".",
         skill: str = "",
     ) -> dict[str, Any]:
         """Load one selected skill entry from the workspace, including instructions, scripts, and references.
 
         Args:
-            path: Relative directory or file path from the current working directory, or an absolute path.
             skill: Skill entry name to load.
         """
-        return load_skill_core(path=path, skill=skill)
+        return load_skill_core(
+            path=resolved_skills_path,
+            skill=skill,
+        )
 
     return [create_skill_package, load_skill, search_skills]

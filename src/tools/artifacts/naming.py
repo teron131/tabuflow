@@ -1,12 +1,9 @@
-"""Artifact naming pipeline for generated SQL files and saved views."""
+"""Naming helpers for generated artifact files and saved views."""
 
 from collections.abc import Callable
 import re
 import secrets
 from typing import Any
-
-from langchain_core.messages import HumanMessage
-from pydantic import BaseModel, Field
 
 ARTIFACT_WORD_COUNT = 2
 ARTIFACT_SUFFIX_CHARS = 6
@@ -45,18 +42,23 @@ SLUG_FALLBACK_WORDS = ("data", "query", "result")
 ArtifactNamerFn = Callable[[str], str]
 
 
-class SQLArtifactName(BaseModel):
-    """Structured model output for one SQL artifact name."""
+def build_sql_artifact_namer(llm: Any | None) -> ArtifactNamerFn | None:
+    """Build an optional LLM-backed namer from the shared orchestrator model."""
+    if llm is None:
+        return None
 
-    words: list[str] = Field(
-        min_length=ARTIFACT_WORD_COUNT,
-        max_length=ARTIFACT_WORD_COUNT,
-        description="Exactly two concrete noun words for the artifact name, without the random suffix.",
-    )
+    from langchain_core.messages import HumanMessage
+    from pydantic import BaseModel, Field
 
+    class SQLArtifactName(BaseModel):
+        """Structured model output for one SQL artifact name."""
 
-def build_sql_artifact_namer(llm: Any) -> ArtifactNamerFn:
-    """Build a structured-output namer from the shared orchestrator model."""
+        words: list[str] = Field(
+            min_length=ARTIFACT_WORD_COUNT,
+            max_length=ARTIFACT_WORD_COUNT,
+            description="Exactly two concrete noun words for the artifact name, without the random suffix.",
+        )
+
     structured_llm = llm.with_structured_output(SQLArtifactName)
 
     def namer(description: str) -> str:
@@ -79,7 +81,10 @@ def build_sql_artifact_namer(llm: Any) -> ArtifactNamerFn:
     return namer
 
 
-def name_sql_artifact(description: str, run_id: str | None) -> str:
+def name_sql_artifact(
+    description: str,
+    run_id: str | None,
+) -> str:
     """Return a SQL artifact stem with two semantic words and six id chars."""
     slug_tokens = _slug_words(SLUG_PATTERN.findall(description.lower()))
     suffix = _artifact_suffix(run_id)

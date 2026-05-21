@@ -421,7 +421,7 @@ class Orchestrator(ApplicationAgent):
                 can_write=allow_sql_or_skill_write,
                 write_denied_message="Scoped writes are only allowed for .sql files or workspace skill instructions, references, and scripts.",
             ),
-            *make_skill_tools(),
+            *make_skill_tools(skills_path=SKILLS_PATH),
         ]
         builder = StateGraph(
             OrchestratorState,

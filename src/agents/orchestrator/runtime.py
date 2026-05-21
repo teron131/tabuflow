@@ -5,11 +5,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from ...pipelines.namer import name_sql_artifact
-from ...tools.artifacts import save_view
+from ...tools.artifacts import name_sql_artifact, save_view
 from ..trace_utils import SAVE_STAGE, append_stage_trace
 from .payloads import build_result_artifact, build_result_message
-from .state import OrchestratorState, SQLArtifactState, latest_user_message
+from .state import OrchestratorState, latest_user_message
 
 PREP_CSV_STAGE_NAME = "prep_csv"
 PREP_PDF_STAGE_NAME = "prep_pdf"
@@ -69,10 +68,23 @@ class OrchestratorRun:
 
 
 @dataclass
+class SQLStageOutput:
+    """Terminal SQL-stage fields needed by validation, save, and final results."""
+
+    status: str = "pending"
+    sql_path: str | None = None
+    selected_sql_artifacts: list[str] = field(default_factory=list)
+    candidate_sql: str | None = None
+    result: dict[str, Any] | None = None
+    last_error: str | None = None
+    trace: list[str] = field(default_factory=list)
+
+
+@dataclass
 class SqlLoopResult:
     """State accumulated across orchestrator-owned SQL attempts."""
 
-    output: SQLArtifactState | None = None
+    output: SQLStageOutput | None = None
     validation_feedback: dict[str, Any] | None = None
     validation_attempts: int = 0
 
@@ -98,19 +110,17 @@ def sql_loop_from_state(state: OrchestratorState) -> SqlLoopResult:
     )
 
 
-def sql_output_from_state(state: OrchestratorState) -> SQLArtifactState | None:
+def sql_output_from_state(state: OrchestratorState) -> SQLStageOutput | None:
     """Rebuild the SQL stage output from direct orchestrator state fields."""
     has_direct_sql_output = state.status != "pending" or state.attempts > 0 or state.result is not None or state.candidate_sql is not None
     if not has_direct_sql_output:
         return None
-    return SQLArtifactState(
+    return SQLStageOutput(
         status=state.status,
         sql_path=state.sql_path,
         selected_sql_artifacts=state.selected_sql_artifacts,
         candidate_sql=state.candidate_sql,
-        repair_hints=state.repair_hints,
         result=state.result,
-        attempts=state.attempts,
         last_error=state.last_error,
         trace=state.trace,
     )
@@ -154,7 +164,7 @@ def orchestrator_view_name(
 
 
 def _sql_output_result_fields(
-    sql_output: SQLArtifactState,
+    sql_output: SQLStageOutput,
     *,
     saved_view_name: str | None = None,
     saved_view: dict[str, Any] | None = None,
@@ -173,7 +183,7 @@ def _sql_output_result_fields(
 def save_sql_result(
     run: OrchestratorRun,
     *,
-    sql_output: SQLArtifactState,
+    sql_output: SQLStageOutput,
     validation_feedback: dict[str, Any] | None,
     validation_attempts: int,
 ) -> tuple[str, dict]:

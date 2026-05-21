@@ -14,7 +14,7 @@ import sqlite3
 import time
 from typing import Any, cast
 
-from ...pipelines.namer import name_sql_artifact
+from ..artifacts.naming import name_sql_artifact
 
 SQLITE_FILENAME = "tabular.sqlite"
 SQLITE_CONTENTS_TABLE = "_tabular_contents"

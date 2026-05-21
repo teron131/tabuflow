@@ -1,33 +1,32 @@
-"""SQLite-backed artifact catalog and query helpers."""
+"""Artifact catalog metadata, listing, description, and suggestions."""
 
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import date, datetime, time as datetime_time
-from decimal import Decimal
-from difflib import SequenceMatcher
 from functools import lru_cache
-from itertools import zip_longest
 import json
 from pathlib import Path
 import re
 import sqlite3
 from typing import Any, cast
 
-from ..tabular.storage import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, quote_identifier, sqlite_database_path, sqlite_write_lock
+from ..tabular.storage import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, quote_identifier
+from .database import (
+    error_result,
+    jsonable_value,
+    normalized_column_names,
+    open_read_only_connection,
+    requested_database_path,
+    resolve_db_path,
+    zip_exact,
+)
 
-MAX_QUERY_ROWS = 200
 MAX_DESCRIBE_SAMPLE_ROWS = 5
-MAX_REPAIR_CANDIDATES = 3
 MAX_TEXT_VALUE_HINTS = 5
 MAX_SUGGESTED_SQL_ARTIFACTS = 5
 MAX_SOURCE_PATH_PREVIEW = 3
 MAX_COLUMN_PREVIEW = 8
 MAX_REASON_PREVIEW = 3
-_MISSING = object()
-_READ_ONLY_SQL_PREFIXES = ("SELECT", "WITH", "EXPLAIN")
-_VIEW_SQL_PREFIXES = ("SELECT", "WITH")
-_LEADING_SQL_COMMENT = re.compile(r"\A(?:\s+|--[^\n]*(?:\n|\Z)|/\*.*?\*/)*", re.DOTALL)
 _TEXT_TYPE_MARKERS = ("CHAR", "CLOB", "TEXT", "VARCHAR")
 _TEXT_HINT_NAME_MARKERS = ("category", "code", "description", "group", "id", "identifier", "key", "kind", "label", "name", "segment", "status", "type")
 _SQL_ARTIFACT_MASTER_SQL = """
@@ -37,66 +36,11 @@ WHERE type IN ('table', 'view')
   AND name NOT LIKE 'sqlite_%'
 ORDER BY type, name
 """
-_SQL_ARTIFACT_BY_NAME_SQL = """
-SELECT name, type, sql
-FROM sqlite_master
-WHERE type IN ('table', 'view') AND name = ?
-"""
-_AMBIGUOUS_COLUMN_ERROR_PREFIX = "ambiguous column name:"
-_MISSING_COLUMN_ERROR_PREFIX = "no such column:"
-_MISSING_TABLE_ERROR_PREFIX = "no such table:"
 _SUGGESTION_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "how", "in", "is", "me", "of", "on", "show", "the", "to", "what", "which", "with"}
-_VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$")
 
 
 class CatalogMetadataError(RuntimeError):
     """Raised when a queryable catalog sql_artifact is missing required lineage."""
-
-
-def _jsonable_value(value: object) -> object:
-    """Convert SQL query results into JSON-friendly values."""
-    if isinstance(value, bytes):
-        return {
-            "kind": "bytes",
-            "hex": value.hex(),
-            "length": len(value),
-        }
-    if isinstance(value, Decimal):
-        return float(value)
-    if isinstance(value, (datetime, date, datetime_time)):
-        return value.isoformat()
-    if isinstance(value, (list, tuple)):
-        return [_jsonable_value(item) for item in value]
-    return value
-
-
-def _zip_exact(left: list[str], right: tuple[Any, ...]) -> list[tuple[str, Any]]:
-    """Zip two sequences and fail if their lengths differ."""
-    pairs: list[tuple[str, Any]] = []
-    for left_item, right_item in zip_longest(left, right, fillvalue=_MISSING):
-        if left_item is _MISSING or right_item is _MISSING:
-            raise ValueError("SQL result row width did not match the reported column metadata.")
-        pairs.append((cast(str, left_item), right_item))
-    return pairs
-
-
-def _error_result(
-    *,
-    database_path: str | Path | None,
-    error_type: str,
-    message: str,
-    **extra: Any,
-) -> dict[str, Any]:
-    """Build a stable error payload for tool callers."""
-    payload: dict[str, Any] = {
-        "status": "error",
-        "error_type": error_type,
-        "message": message,
-    }
-    if database_path is not None:
-        payload["database_path"] = str(database_path)
-    payload.update(extra)
-    return payload
 
 
 def _preview_list(
@@ -107,19 +51,6 @@ def _preview_list(
     """Return a bounded list preview plus truncation state."""
     safe_max_items = max(0, max_items)
     return items[:safe_max_items], len(items) > safe_max_items
-
-
-def _query_summary(
-    *,
-    row_count: int,
-    column_count: int,
-    truncated: bool,
-) -> str:
-    """Build one compact summary for a SQL query result."""
-    summary = f"Returned {row_count} row(s) across {column_count} column(s)."
-    if truncated:
-        summary += " Result rows were truncated."
-    return summary
 
 
 def _sql_artifact_summary(
@@ -164,47 +95,6 @@ def _sql_artifact_row_count(connection: sqlite3.Connection, sql_artifact_name: s
     return cast(int, row[0])
 
 
-def _normalized_column_names(column_names: list[str | None]) -> tuple[list[str], list[str]]:
-    """Return stable, unique column names for row dictionaries."""
-    seen: set[str] = set()
-    normalized: list[str] = []
-    originals: list[str] = []
-    for index, raw_name in enumerate(column_names, start=1):
-        base_name = raw_name or f"column_{index}"
-        originals.append(base_name)
-        suffix = 1
-        candidate_name = base_name
-        while candidate_name in seen:
-            suffix += 1
-            candidate_name = f"{base_name}__{suffix}"
-        seen.add(candidate_name)
-        normalized.append(candidate_name)
-    return normalized, originals
-
-
-def _leading_sql_keyword(sql: str) -> str:
-    """Extract the first SQL keyword after whitespace and comments."""
-    stripped = _LEADING_SQL_COMMENT.sub("", sql, count=1).lstrip()
-    if not stripped:
-        return ""
-    return stripped.split(None, 1)[0].upper()
-
-
-def _is_read_only_sql(sql: str) -> bool:
-    """Return whether a SQL statement looks read-only."""
-    return _leading_sql_keyword(sql) in _READ_ONLY_SQL_PREFIXES
-
-
-def _is_view_sql(sql: str) -> bool:
-    """Return whether a SQL statement can be embedded in CREATE VIEW AS."""
-    return _leading_sql_keyword(sql) in _VIEW_SQL_PREFIXES
-
-
-def _normalized_sql(sql: str) -> str:
-    """Normalize one SQL statement for validation and embedding."""
-    return sql.strip().rstrip(";").strip()
-
-
 def _sqlite_object_names(connection: sqlite3.Connection) -> set[str]:
     """Return all user-visible table and view names in a SQLite database."""
     return {
@@ -236,10 +126,10 @@ def _sample_rows(
         [safe_limit],
     )
     description = cursor.description or []
-    column_names, _ = _normalized_column_names([cast(Any, column[0]) for column in description])
+    column_names, _ = normalized_column_names([cast(Any, column[0]) for column in description])
     preview_rows = []
     for row in cursor.fetchall():
-        preview_rows.append({column_name: _jsonable_value(value) for column_name, value in _zip_exact(column_names, row)})
+        preview_rows.append({column_name: jsonable_value(value) for column_name, value in zip_exact(column_names, row)})
     return preview_rows
 
 
@@ -281,20 +171,6 @@ def _fetch_catalog_metadata(
     return content_rows, source_rows
 
 
-def _requested_database_path(
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-) -> Path:
-    """Return the requested SQLite path before existence checks."""
-    return sqlite_database_path(root_dir=root_dir) if database_path is None else Path(database_path)
-
-
-def _open_read_only_connection(database_path: Path) -> sqlite3.Connection:
-    """Open one SQLite connection in read-only mode."""
-    return sqlite3.connect(f"{database_path.resolve().as_uri()}?mode=ro", uri=True)
-
-
 def _catalog_state(
     connection: sqlite3.Connection,
 ) -> tuple[
@@ -313,6 +189,21 @@ def _has_catalog(connection: sqlite3.Connection) -> bool:
     """Return whether the shared tabular catalog exists in this database."""
     object_names = _sqlite_object_names(connection)
     return SQLITE_CONTENTS_TABLE in object_names and SQLITE_SOURCES_TABLE in object_names
+
+
+def classify_sql_artifact(
+    name: str,
+    content_table_names: set[str] | None = None,
+) -> str:
+    """Classify a SQLite sql_artifact using current naming conventions."""
+    if name in (SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE):
+        return "internal_catalog"
+    content_tables = content_table_names or set()
+    if name in content_tables:
+        return "raw_content_table"
+    if name.endswith("_typed") and name.removesuffix("_typed") in content_tables:
+        return "typed_content_view"
+    return "view_or_table"
 
 
 def _base_table_name(name: str, kind: str) -> str:
@@ -446,7 +337,7 @@ def _cached_database_catalog(
     """Load one cached SQLite catalog snapshot."""
     del mtime_ns, size_bytes
     database_path = Path(resolved_path)
-    with closing(_open_read_only_connection(database_path)) as connection:
+    with closing(open_read_only_connection(database_path)) as connection:
         has_catalog, content_rows, source_rows = _catalog_state(connection)
         content_table_names = set(content_rows)
         sql_artifacts = []
@@ -573,93 +464,6 @@ def _tokenize_query(text: str) -> list[str]:
     return [token for token in tokens if token not in _SUGGESTION_STOP_WORDS]
 
 
-def _identifier_tokens(value: str) -> set[str]:
-    """Split one identifier into comparable lowercase tokens."""
-    return set(re.findall(r"[a-z0-9]+", value.lower()))
-
-
-def _identifier_similarity(reference: str, candidate: str) -> float:
-    """Score one candidate identifier against a missing identifier."""
-    normalized_reference = re.sub(r"[^a-z0-9]+", "", reference.lower())
-    normalized_candidate = re.sub(r"[^a-z0-9]+", "", candidate.lower())
-    if not normalized_reference or not normalized_candidate:
-        return 0.0
-    if normalized_reference == normalized_candidate:
-        return 100.0
-
-    score = 0.0
-    if normalized_reference in normalized_candidate or normalized_candidate in normalized_reference:
-        score += 40.0
-
-    reference_tokens = _identifier_tokens(reference)
-    candidate_tokens = _identifier_tokens(candidate)
-    if reference_tokens and candidate_tokens:
-        shared_tokens = reference_tokens & candidate_tokens
-        score += 20.0 * len(shared_tokens)
-        if shared_tokens == reference_tokens == candidate_tokens:
-            score += 20.0
-
-    score += SequenceMatcher(a=normalized_reference, b=normalized_candidate).ratio() * 20.0
-    return score
-
-
-def _rank_identifier_candidates(identifier: str, candidates: list[str], *, max_matches: int) -> list[str]:
-    """Return the best schema identifier matches for a missing sql_artifact or column."""
-    if not identifier or max_matches <= 0:
-        return []
-
-    scored_candidates = sorted(
-        ((_identifier_similarity(identifier, candidate), candidate) for candidate in dict.fromkeys(candidates)),
-        key=lambda item: (-item[0], item[1]),
-    )
-    return [candidate for score, candidate in scored_candidates if score > 0][:max_matches]
-
-
-def _error_identifier(error_message: str, prefix: str) -> str:
-    """Extract the identifier payload from a SQLite error message."""
-    identifier = error_message[len(prefix) :].strip()
-    if not identifier:
-        return ""
-    unqualified = identifier.rsplit(".", 1)[-1]
-    return unqualified.strip('"`[]')
-
-
-def _format_repair_candidates(
-    candidates: list[dict[str, Any]],
-    *,
-    include_sql_artifacts: bool,
-) -> str:
-    """Format repair candidates into one compact human-readable string."""
-    parts = []
-    for candidate in candidates:
-        name = cast(str, candidate["name"])
-        if include_sql_artifacts:
-            sql_artifacts = cast(list[str], candidate.get("sql_artifacts", []))
-            sql_artifact_suffix = f" on {', '.join(sql_artifacts)}" if sql_artifacts else ""
-            parts.append(f"{name}{sql_artifact_suffix}")
-        else:
-            parts.append(name)
-    return ", ".join(parts)
-
-
-def _repair_result(
-    *,
-    kind: str,
-    identifier: str,
-    candidates: list[dict[str, Any]],
-    message: str,
-) -> list[dict[str, Any]]:
-    """Wrap one repair suggestion in the stable public payload shape."""
-    return [
-        {
-            "kind": kind,
-            "identifier": identifier,
-            "candidates": candidates,
-            "message": message,
-        }
-    ]
-
-
 def _sql_artifact_search_text(
     *,
     name: str,
@@ -733,234 +537,6 @@ def _kind_bias(kind: str) -> int:
     return 0
 
 
-def resolve_db_path(
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-) -> Path:
-    """Resolve the SQLite database path and ensure it exists."""
-    resolved_path = _requested_database_path(root_dir=root_dir, database_path=database_path)
-    if not resolved_path.exists():
-        raise ValueError(f"SQLite database does not exist: {resolved_path}")
-    return resolved_path
-
-
-def classify_sql_artifact(name: str, content_table_names: set[str] | None = None) -> str:
-    """Classify a SQLite sql_artifact using current naming conventions."""
-    if name in (SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE):
-        return "internal_catalog"
-    content_tables = content_table_names or set()
-    if name in content_tables:
-        return "raw_content_table"
-    if name.endswith("_typed") and name.removesuffix("_typed") in content_tables:
-        return "typed_content_view"
-    return "view_or_table"
-
-
-def run_query(
-    sql: str,
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-    max_rows: int = MAX_QUERY_ROWS,
-) -> dict[str, Any]:
-    """Run SQL against a SQLite database and return a bounded result."""
-    requested_path = _requested_database_path(root_dir=root_dir, database_path=database_path)
-    safe_max_rows = max(1, max_rows)
-    normalized_sql = _normalized_sql(sql)
-    try:
-        if not normalized_sql:
-            return _error_result(
-                database_path=requested_path,
-                error_type="empty_sql",
-                message="SQL query must not be empty.",
-                max_rows=safe_max_rows,
-            )
-        # This is a quick UX guard. The read-only SQLite connection is the actual safety boundary.
-        if not _is_read_only_sql(normalized_sql):
-            return _error_result(
-                database_path=requested_path,
-                error_type="disallowed_sql",
-                message="Only read-only SELECT, WITH, and EXPLAIN queries are allowed.",
-                max_rows=safe_max_rows,
-            )
-
-        resolved_path = resolve_db_path(
-            root_dir=root_dir,
-            database_path=database_path,
-        )
-        with closing(_open_read_only_connection(resolved_path)) as connection:
-            cursor = connection.execute(sql)
-            description = cursor.description
-            if not description:
-                return {
-                    "database_path": str(resolved_path),
-                    "status": "ok",
-                    "max_rows": safe_max_rows,
-                    "row_count": 0,
-                    "truncated": False,
-                    "columns": [],
-                    "rows": [],
-                    "summary": _query_summary(row_count=0, column_count=0, truncated=False),
-                }
-
-            column_names, original_columns = _normalized_column_names([cast(Any, column[0]) for column in description])
-            raw_rows = cursor.fetchmany(safe_max_rows + 1)
-            truncated = len(raw_rows) > safe_max_rows
-            result_rows = raw_rows[:safe_max_rows]
-            rows = []
-            for row in result_rows:
-                rows.append({column_name: _jsonable_value(value) for column_name, value in _zip_exact(column_names, row)})
-
-            payload = {
-                "database_path": str(resolved_path),
-                "status": "ok",
-                "max_rows": safe_max_rows,
-                "row_count": len(rows),
-                "truncated": truncated,
-                "columns": column_names,
-                "rows": rows,
-                "summary": _query_summary(row_count=len(rows), column_count=len(column_names), truncated=truncated),
-            }
-            if column_names != original_columns:
-                payload["original_columns"] = original_columns
-            return payload
-    except ValueError as exc:
-        return _error_result(
-            database_path=requested_path,
-            error_type="missing_database",
-            message=str(exc),
-            max_rows=safe_max_rows,
-        )
-    except (sqlite3.Error, sqlite3.Warning) as exc:
-        return _error_result(
-            database_path=requested_path,
-            error_type="sql_execution_error",
-            message=str(exc),
-            max_rows=safe_max_rows,
-        )
-
-
-def save_view(
-    sql: str,
-    view_name: str,
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-    replace: bool = False,
-) -> dict[str, Any]:
-    """Save one read-only SQL query as a named SQLite view."""
-    requested_path = _requested_database_path(root_dir=root_dir, database_path=database_path)
-    normalized_sql = _normalized_sql(sql)
-    normalized_view_name = view_name.strip()
-    try:
-        if not normalized_sql:
-            return _error_result(
-                database_path=requested_path,
-                error_type="empty_sql",
-                message="SQL query must not be empty.",
-                view_name=normalized_view_name,
-                replace=replace,
-            )
-        if not normalized_view_name:
-            return _error_result(
-                database_path=requested_path,
-                error_type="empty_view_name",
-                message="View name must not be empty.",
-                replace=replace,
-            )
-        if not _VIEW_NAME_PATTERN.fullmatch(normalized_view_name):
-            return _error_result(
-                database_path=requested_path,
-                error_type="invalid_view_name",
-                message="View name must start with a letter and contain only letters, digits, and hyphen-separated words.",
-                view_name=normalized_view_name,
-                replace=replace,
-            )
-        if normalized_view_name.startswith("sqlite_"):
-            return _error_result(
-                database_path=requested_path,
-                error_type="reserved_view_name",
-                message="View name must not start with 'sqlite_'.",
-                view_name=normalized_view_name,
-                replace=replace,
-            )
-        if not _is_view_sql(normalized_sql):
-            return _error_result(
-                database_path=requested_path,
-                error_type="disallowed_sql",
-                message="Only read-only SELECT and WITH queries can be saved as views.",
-                view_name=normalized_view_name,
-                replace=replace,
-            )
-
-        resolved_path = resolve_db_path(
-            root_dir=root_dir,
-            database_path=database_path,
-        )
-        with sqlite_write_lock(resolved_path), closing(sqlite3.connect(str(resolved_path))) as connection:
-            existing_row = connection.execute(
-                """
-                SELECT type
-                FROM sqlite_master
-                WHERE name = ?
-                """,
-                [normalized_view_name],
-            ).fetchone()
-            if existing_row is not None:
-                existing_type = cast(str, existing_row[0])
-                if existing_type != "view":
-                    return _error_result(
-                        database_path=resolved_path,
-                        error_type="name_conflict",
-                        message=f"SQLite object already exists and is not a view: {normalized_view_name}",
-                        view_name=normalized_view_name,
-                        replace=replace,
-                    )
-                if not replace:
-                    return _error_result(
-                        database_path=resolved_path,
-                        error_type="view_exists",
-                        message=f"SQLite view already exists: {normalized_view_name}",
-                        view_name=normalized_view_name,
-                        replace=replace,
-                    )
-                connection.execute(f"DROP VIEW IF EXISTS {quote_identifier(normalized_view_name)}")
-
-            connection.execute(f"CREATE VIEW {quote_identifier(normalized_view_name)} AS {normalized_sql}")
-            connection.commit()
-
-        description = describe_sql_artifact(
-            normalized_view_name,
-            root_dir=root_dir,
-            database_path=resolved_path,
-        )
-        return {
-            "database_path": str(resolved_path),
-            "status": "ok",
-            "view_name": normalized_view_name,
-            "replace": replace,
-            "saved_sql": normalized_sql,
-            "sql_artifact": description,
-        }
-    except ValueError as exc:
-        return _error_result(
-            database_path=requested_path,
-            error_type="missing_database",
-            message=str(exc),
-            view_name=normalized_view_name,
-            replace=replace,
-        )
-    except (sqlite3.Error, sqlite3.Warning) as exc:
-        return _error_result(
-            database_path=requested_path,
-            error_type="sql_execution_error",
-            message=str(exc),
-            view_name=normalized_view_name,
-            replace=replace,
-        )
-
-
 def list_sql_artifacts(
     *,
     root_dir: str | Path | None = None,
@@ -968,7 +544,7 @@ def list_sql_artifacts(
     include_internal: bool = False,
 ) -> dict[str, Any]:
     """List queryable SQLite tables and views."""
-    requested_path = _requested_database_path(root_dir=root_dir, database_path=database_path)
+    requested_path = requested_database_path(root_dir=root_dir, database_path=database_path)
     try:
         resolved_path = resolve_db_path(
             root_dir=root_dir,
@@ -1021,22 +597,22 @@ def list_sql_artifacts(
             "has_tabular_catalog": catalog["has_catalog"],
             "sql_artifact_count": len(items),
             "sql_artifacts": items,
-            "summary": f"Listed {len(items)} queryable SQL artifact(s).",
+            "summary": f"Listed {len(items)} queryable artifact(s).",
         }
     except ValueError as exc:
-        return _error_result(
+        return error_result(
             database_path=requested_path,
             error_type="missing_database",
             message=str(exc),
         )
     except CatalogMetadataError as exc:
-        return _error_result(
+        return error_result(
             database_path=requested_path,
             error_type="catalog_metadata_error",
             message=str(exc),
         )
     except (sqlite3.Error, sqlite3.Warning) as exc:
-        return _error_result(
+        return error_result(
             database_path=requested_path,
             error_type="sql_execution_error",
             message=str(exc),
@@ -1052,7 +628,7 @@ def describe_sql_artifact(
     text_value_hints: int = 3,
 ) -> dict[str, Any]:
     """Describe a single SQLite table or view."""
-    requested_path = _requested_database_path(root_dir=root_dir, database_path=database_path)
+    requested_path = requested_database_path(root_dir=root_dir, database_path=database_path)
     try:
         resolved_path = resolve_db_path(
             root_dir=root_dir,
@@ -1061,10 +637,10 @@ def describe_sql_artifact(
         catalog = _database_catalog(resolved_path)
         sql_artifact_info = cast(dict[str, Any] | None, catalog["sql_artifacts_by_name"].get(sql_artifact_name))
         if sql_artifact_info is None:
-            return _error_result(
+            return error_result(
                 database_path=resolved_path,
                 error_type="missing_sql_artifact",
-                message=f"SQLite sql_artifact does not exist: {sql_artifact_name}",
+                message=f"SQLite artifact does not exist: {sql_artifact_name}",
                 sql_artifact_name=sql_artifact_name,
             )
 
@@ -1076,7 +652,7 @@ def describe_sql_artifact(
         row_count = cast(int | None, sql_artifact_info["row_count"])
         source_mappings = cast(list[dict[str, Any]], sql_artifact_info["source_mappings"])
         source_paths = cast(list[str], sql_artifact_info["source_paths"])
-        with closing(_open_read_only_connection(resolved_path)) as connection:
+        with closing(open_read_only_connection(resolved_path)) as connection:
             sample_row_items = _sample_rows(
                 connection,
                 sql_artifact_name=name,
@@ -1120,21 +696,21 @@ def describe_sql_artifact(
                 ),
             }
     except ValueError as exc:
-        return _error_result(
+        return error_result(
             database_path=requested_path,
             error_type="missing_database",
             message=str(exc),
             sql_artifact_name=sql_artifact_name,
         )
     except CatalogMetadataError as exc:
-        return _error_result(
+        return error_result(
             database_path=requested_path,
             error_type="catalog_metadata_error",
             message=str(exc),
             sql_artifact_name=sql_artifact_name,
         )
     except (sqlite3.Error, sqlite3.Warning) as exc:
-        return _error_result(
+        return error_result(
             database_path=requested_path,
             error_type="sql_execution_error",
             message=str(exc),
@@ -1151,12 +727,12 @@ def suggest_sql_artifacts(
     max_results: int = MAX_SUGGESTED_SQL_ARTIFACTS,
 ) -> dict[str, Any]:
     """Suggest likely tables or views for a natural-language question."""
-    requested_path = _requested_database_path(root_dir=root_dir, database_path=database_path)
+    requested_path = requested_database_path(root_dir=root_dir, database_path=database_path)
     safe_max_results = max(1, max_results)
     try:
         tokens = _tokenize_query(question)
         if not tokens:
-            return _error_result(
+            return error_result(
                 database_path=requested_path,
                 error_type="empty_question",
                 message="Question must include at least one meaningful search token.",
@@ -1235,10 +811,10 @@ def suggest_sql_artifacts(
             "tokens": tokens,
             "suggestion_count": len(top_suggestions),
             "suggestions": top_suggestions,
-            "summary": f"Suggested {len(top_suggestions)} SQL artifact(s) for {len(tokens)} search token(s).",
+            "summary": f"Suggested {len(top_suggestions)} artifact(s) for {len(tokens)} search token(s).",
         }
     except ValueError as exc:
-        return _error_result(
+        return error_result(
             database_path=requested_path,
             error_type="missing_database",
             message=str(exc),
@@ -1246,7 +822,7 @@ def suggest_sql_artifacts(
             max_results=safe_max_results,
         )
     except CatalogMetadataError as exc:
-        return _error_result(
+        return error_result(
             database_path=requested_path,
             error_type="catalog_metadata_error",
             message=str(exc),
@@ -1254,124 +830,13 @@ def suggest_sql_artifacts(
             max_results=safe_max_results,
         )
     except (sqlite3.Error, sqlite3.Warning) as exc:
-        return _error_result(
+        return error_result(
             database_path=requested_path,
             error_type="sql_execution_error",
             message=str(exc),
             question=question,
             max_results=safe_max_results,
         )
-
-
-def suggest_sql_error_repair(
-    error_message: str,
-    *,
-    available_sql_artifacts: list[str],
-    sql_artifact_columns: dict[str, list[str]],
-    max_matches: int = MAX_REPAIR_CANDIDATES,
-) -> list[dict[str, Any]]:
-    """Return deterministic schema-aware repair hints for common SQLite errors."""
-    safe_max_matches = max(1, max_matches)
-    lowered_error = error_message.strip().lower()
-
-    if lowered_error.startswith(_MISSING_COLUMN_ERROR_PREFIX):
-        missing_column = _error_identifier(error_message, _MISSING_COLUMN_ERROR_PREFIX)
-        columns_by_name: dict[str, list[str]] = {}
-        for sql_artifact_name, columns in sql_artifact_columns.items():
-            for column_name in columns:
-                columns_by_name.setdefault(column_name, []).append(sql_artifact_name)
-
-        candidate_columns = _rank_identifier_candidates(
-            missing_column,
-            list(columns_by_name),
-            max_matches=safe_max_matches,
-        )
-        if not candidate_columns:
-            return []
-
-        candidates = [
-            {
-                "name": column_name,
-                "sql_artifacts": sorted(columns_by_name[column_name]),
-            }
-            for column_name in candidate_columns
-        ]
-        return _repair_result(
-            kind="missing_column",
-            identifier=missing_column,
-            candidates=candidates,
-            message=(f"Column `{missing_column}` was not found. Closest inspected columns: {_format_repair_candidates(candidates, include_sql_artifacts=True)}."),
-        )
-
-    if lowered_error.startswith(_MISSING_TABLE_ERROR_PREFIX):
-        missing_sql_artifact = _error_identifier(error_message, _MISSING_TABLE_ERROR_PREFIX)
-        candidate_sql_artifacts = _rank_identifier_candidates(
-            missing_sql_artifact,
-            available_sql_artifacts,
-            max_matches=safe_max_matches,
-        )
-        if not candidate_sql_artifacts:
-            return []
-
-        candidates = [{"name": sql_artifact_name} for sql_artifact_name in candidate_sql_artifacts]
-        return _repair_result(
-            kind="missing_sql_artifact",
-            identifier=missing_sql_artifact,
-            candidates=candidates,
-            message=(
-                f"SQL artifact `{missing_sql_artifact}` was not found. Closest inspected SQL artifacts: {_format_repair_candidates(candidates, include_sql_artifacts=False)}."
-            ),
-        )
-
-    if lowered_error.startswith(_AMBIGUOUS_COLUMN_ERROR_PREFIX):
-        ambiguous_column = _error_identifier(error_message, _AMBIGUOUS_COLUMN_ERROR_PREFIX)
-        matching_sql_artifacts = sorted(sql_artifact_name for sql_artifact_name, columns in sql_artifact_columns.items() if ambiguous_column in columns)
-        if not matching_sql_artifacts:
-            return []
-
-        candidates = [{"name": ambiguous_column, "sql_artifacts": matching_sql_artifacts}]
-        return _repair_result(
-            kind="ambiguous_column",
-            identifier=ambiguous_column,
-            candidates=candidates,
-            message=f"Column `{ambiguous_column}` is ambiguous. Qualify it with one of: {', '.join(matching_sql_artifacts)}.",
-        )
-
-    return []
-
-
-def query_artifacts(
-    sql: str,
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-    max_rows: int = MAX_QUERY_ROWS,
-) -> dict[str, Any]:
-    """Run read-only SQL against the artifact cache and return bounded JSON rows."""
-    return run_query(
-        sql,
-        root_dir=root_dir,
-        database_path=database_path,
-        max_rows=max_rows,
-    )
-
-
-def save_artifact_view(
-    sql: str,
-    view_name: str,
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-    replace: bool = False,
-) -> dict[str, Any]:
-    """Save a read-only artifact-cache query as a named SQLite view."""
-    return save_view(
-        sql,
-        view_name,
-        root_dir=root_dir,
-        database_path=database_path,
-        replace=replace,
-    )
 
 
 def list_artifacts(
@@ -1403,22 +868,4 @@ def describe_artifact(
         database_path=database_path,
         sample_rows=sample_rows,
         text_value_hints=text_value_hints,
-    )
-
-
-def find_artifacts(
-    question: str,
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-    include_internal: bool = False,
-    max_results: int = MAX_SUGGESTED_SQL_ARTIFACTS,
-) -> dict[str, Any]:
-    """Find likely artifacts for a natural-language question."""
-    return suggest_sql_artifacts(
-        question,
-        root_dir=root_dir,
-        database_path=database_path,
-        include_internal=include_internal,
-        max_results=max_results,
     )

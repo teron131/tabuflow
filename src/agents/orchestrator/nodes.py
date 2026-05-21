@@ -9,11 +9,11 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from ...pipelines.namer import build_sql_artifact_namer
-from ..prep_payloads import collect_extracted_sql_artifacts
+from ...tools.artifacts import build_sql_artifact_namer
 from ..prep_csv import PrepCsv, PrepCsvOutput
 from ..prep_csv.prep_csv import collect_prep_csv_trial_result
 from ..prep_csv.state import PrepCsvDecision
+from ..prep_payloads import collect_extracted_sql_artifacts
 from ..prep_pdf import PrepPdf, PrepPdfOutput
 from ..prep_pdf.prep_pdf import collect_prep_pdf_trial_result
 from ..prep_pdf.state import PrepPdfDecision
@@ -37,6 +37,7 @@ from ..validation_stage import ValidationStage
 from .prompts import build_prep_csv_message, build_prep_pdf_message, build_sql_worker_context, build_user_request_message
 from .runtime import (
     QUERY_STAGE_NAME,
+    SQLStageOutput,
     VALIDATION_STAGE_NAME,
     build_sql_failure_result,
     orchestrator_run_from_state,
@@ -47,7 +48,7 @@ from .runtime import (
     sql_output_from_state,
 )
 from .skill_context import build_worker_skill_payload
-from .state import OrchestratorState, SQLArtifactState, latest_user_message
+from .state import OrchestratorState, latest_user_message
 
 
 def stage_report_message(name: str, content: str) -> AIMessage:
@@ -269,7 +270,7 @@ def normalize_orchestrator_state(state: OrchestratorState | dict[str, Any]) -> O
 def workflow_trace_from_state(
     state: OrchestratorState,
     *,
-    sql_output: SQLArtifactState | None = None,
+    sql_output: SQLStageOutput | None = None,
 ) -> list[str]:
     """Merge parent and worker traces into one caller-facing workflow log."""
     trace: list[str] = []
@@ -398,7 +399,10 @@ class OrchestratorNodes:
 
     def execute_sql(self, state: OrchestratorState) -> dict[str, Any]:
         """Execute the current SQL artifact directly from the orchestrator graph."""
-        update = execute_sql_node(state)
+        update = execute_sql_node(
+            state,
+            root_dir=self.root_dir,
+        )
         if update.get("status") == "complete":
             row_count = (update.get("result") or {}).get("row_count")
             content = f"Executed SQL successfully on attempt {update.get('attempts')}; row_count={row_count}."

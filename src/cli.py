@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from .tools.artifacts import describe_artifact, find_artifacts, list_artifacts, query_artifacts, save_artifact_view
+from .tools.artifacts import describe_artifact, list_artifacts, query_artifacts, save_artifact_view
 from .tools.pdf import (
     DEFAULT_DPI,
     DEFAULT_INSPECT_PAGE_LIMIT,
@@ -31,12 +31,6 @@ def read_sql_argument(sql: str) -> str:
     if not sql.startswith("@"):
         return sql
     return Path(sql[1:]).read_text(encoding="utf-8")
-
-
-def add_common_database_options(parser: argparse.ArgumentParser) -> None:
-    """Add shared SQLite database path options."""
-    parser.add_argument("--root-dir", default=None, help="Workspace root used to resolve the shared SQLite cache.")
-    parser.add_argument("--database-path", default=None, help="Explicit SQLite database path.")
 
 
 def add_tabular_commands(subparsers: Any) -> None:
@@ -76,14 +70,12 @@ def add_tabular_commands(subparsers: Any) -> None:
 
     extract = tabular_subparsers.add_parser("extract", help="Extract tables into the shared SQLite cache.")
     extract.add_argument("path")
-    extract.add_argument("--root-dir", default=None)
     extract.add_argument("--sample-rows", type=int, default=MAX_SAMPLE_ROWS)
     extract.add_argument("--metadata-rows", type=int, default=MAX_METADATA_ROWS)
     extract.add_argument("--sheet", default=None)
     extract.set_defaults(
         handler=lambda args: extract_tabular_file(
             args.path,
-            root_dir=args.root_dir,
             sample_rows=args.sample_rows,
             metadata_rows=args.metadata_rows,
             sheet=args.sheet,
@@ -102,7 +94,6 @@ def add_pdf_commands(subparsers: Any) -> None:
     inspect.add_argument("--page-limit", type=int, default=DEFAULT_INSPECT_PAGE_LIMIT)
     inspect.add_argument("--max-text-chars", type=int, default=DEFAULT_INSPECT_TEXT_CHARS)
     inspect.add_argument("--include-images", action="store_true")
-    inspect.add_argument("--output-dir", default="data/pdf_inspect")
     inspect.add_argument("--dpi", type=int, default=96)
     inspect.set_defaults(
         handler=lambda args: inspect_pdf_file(
@@ -111,15 +102,12 @@ def add_pdf_commands(subparsers: Any) -> None:
             page_limit=args.page_limit,
             max_text_chars=args.max_text_chars,
             include_images=args.include_images,
-            output_dir=args.output_dir,
             dpi=args.dpi,
         )
     )
 
     extract = pdf_subparsers.add_parser("extract", help="Extract visual tables into the shared SQLite cache.")
     extract.add_argument("path")
-    extract.add_argument("--root-dir", default=None)
-    extract.add_argument("--output-dir", default="data/pdf_ocr")
     extract.add_argument("--model", default=None)
     extract.add_argument("--pages-per-chunk", type=int, default=DEFAULT_PAGES_PER_CHUNK)
     extract.add_argument("--max-concurrency", type=int, default=DEFAULT_MAX_CONCURRENCY)
@@ -131,8 +119,6 @@ def add_pdf_commands(subparsers: Any) -> None:
     extract.set_defaults(
         handler=lambda args: extract_pdf_file(
             args.path,
-            root_dir=args.root_dir,
-            output_dir=args.output_dir,
             model=args.model,
             pages_per_chunk=args.pages_per_chunk,
             max_concurrency=args.max_concurrency,
@@ -146,19 +132,16 @@ def add_pdf_commands(subparsers: Any) -> None:
 
 
 def add_artifact_commands(subparsers: Any) -> None:
-    """Add SQLite-backed artifact catalog commands."""
-    artifacts = subparsers.add_parser("artifacts", help="Inspect and query the Tabuflow SQLite artifact cache.")
+    """Add SQLite-backed artifact commands."""
+    artifacts = subparsers.add_parser("artifacts", help="Inspect and query prepared artifacts.")
     artifact_subparsers = artifacts.add_subparsers(dest="artifact_command", required=True)
 
     query = artifact_subparsers.add_parser("query", help="Query prepared artifacts with read-only SQL. Prefix SQL with @ to read from a file.")
     query.add_argument("sql")
-    add_common_database_options(query)
     query.add_argument("--max-rows", type=int, default=200)
     query.set_defaults(
         handler=lambda args: query_artifacts(
             read_sql_argument(args.sql),
-            root_dir=args.root_dir,
-            database_path=args.database_path,
             max_rows=args.max_rows,
         )
     )
@@ -166,63 +149,42 @@ def add_artifact_commands(subparsers: Any) -> None:
     save = artifact_subparsers.add_parser("save-view", help="Save an artifact query as a named SQLite view.")
     save.add_argument("view_name")
     save.add_argument("sql")
-    add_common_database_options(save)
     save.add_argument("--replace", action="store_true")
     save.set_defaults(
         handler=lambda args: save_artifact_view(
             read_sql_argument(args.sql),
             args.view_name,
-            root_dir=args.root_dir,
-            database_path=args.database_path,
             replace=args.replace,
         )
     )
 
-    list_command = artifact_subparsers.add_parser("list", help="List queryable artifacts in the SQLite cache.")
-    add_common_database_options(list_command)
+    list_command = artifact_subparsers.add_parser("list", help="List queryable prepared artifacts.")
     list_command.add_argument("--include-internal", action="store_true")
     list_command.set_defaults(
         handler=lambda args: list_artifacts(
-            root_dir=args.root_dir,
-            database_path=args.database_path,
             include_internal=args.include_internal,
         )
     )
 
     describe = artifact_subparsers.add_parser("describe", help="Describe one queryable artifact.")
     describe.add_argument("name")
-    add_common_database_options(describe)
     describe.add_argument("--sample-rows", type=int, default=3)
     describe.add_argument("--text-value-hints", type=int, default=3)
     describe.set_defaults(
         handler=lambda args: describe_artifact(
             args.name,
-            root_dir=args.root_dir,
-            database_path=args.database_path,
             sample_rows=args.sample_rows,
             text_value_hints=args.text_value_hints,
-        )
-    )
-
-    find = artifact_subparsers.add_parser("find", help="Find likely artifacts for a natural-language question.")
-    find.add_argument("question")
-    add_common_database_options(find)
-    find.add_argument("--include-internal", action="store_true")
-    find.add_argument("--max-results", type=int, default=5)
-    find.set_defaults(
-        handler=lambda args: find_artifacts(
-            args.question,
-            root_dir=args.root_dir,
-            database_path=args.database_path,
-            include_internal=args.include_internal,
-            max_results=args.max_results,
         )
     )
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the Tabuflow command parser."""
-    parser = argparse.ArgumentParser(prog="tabuflow")
+    parser = argparse.ArgumentParser(
+        prog="tabuflow",
+        description="Inspect tabular/PDF sources and query prepared artifacts.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
     add_tabular_commands(subparsers)
     add_pdf_commands(subparsers)
