@@ -158,19 +158,22 @@ def extract_pdf(path: Path) -> dict[str, Any]:
     document = fitz.open(path)
     all_rows: list[dict[str, str]] = []
     page_summaries = []
+    total_text_line_count = 0
     first_page_lines = clean_lines(document[0].get_text("text")) if document.page_count else []
     metadata = invoice_metadata(first_page_lines)
 
     for page_idx, page in enumerate(document, start=1):
         text = page.get_text("text")
         lines = clean_lines(text)
+        total_text_line_count += len(lines)
         rows = extract_rows_from_lines(lines, page_number=page_idx, metadata=metadata)
         all_rows.extend(rows)
         page_summaries.append(
             {
                 "page": page_idx,
                 "text_char_count": len(text),
-                "row_count": len(rows),
+                "text_line_count": len(lines),
+                "extracted_amount_row_count": len(rows),
                 "needs_ocr": not bool(text.strip()),
             }
         )
@@ -179,6 +182,9 @@ def extract_pdf(path: Path) -> dict[str, Any]:
         "path": str(path),
         "page_count": document.page_count,
         "metadata": metadata,
+        "extraction_route": "direct_pdf_text_label_amount_pairs",
+        "text_line_count": total_text_line_count,
+        "extracted_amount_row_count": len(all_rows),
         "columns": [
             "page",
             "section",
@@ -227,7 +233,9 @@ def main() -> int:
             {
                 "path": str(pdf_path),
                 "page_count": result["page_count"],
-                "row_count": len(result["rows"]),
+                "extraction_route": result["extraction_route"],
+                "text_line_count": result["text_line_count"],
+                "extracted_amount_row_count": result["extracted_amount_row_count"],
                 "pages_needing_ocr": [page["page"] for page in result["page_summaries"] if page["needs_ocr"]],
                 **paths,
             }

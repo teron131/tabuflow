@@ -26,7 +26,7 @@ Use the result's subject, sender/date, attachments, and body preview to understa
 
 ## First-Pass Text Extraction
 
-Use the bundled helper script for text-based AWS invoice PDFs. It extracts label/amount rows into CSV/JSON sidecars with these columns:
+Use the bundled helper script for text-based AWS invoice PDFs. It extracts text-derived label/amount rows into CSV/JSON sidecars with these columns:
 
 - `page`
 - `section`
@@ -45,7 +45,7 @@ uv run tabuflow pdf inspect <invoice.pdf>
 uv run python .agents/skills/aws-invoice-pdf-tables/scripts/extract_aws_pdf_text_tables.py <invoice.pdf> --output-dir artifacts/aws_text
 ```
 
-The script reports per-page row counts and `pages_needing_ocr`. Treat `pages_needing_ocr` as the handoff point to OCR or visual extraction, not as a failure. Keep this as an AWS skill helper rather than a generic Tabuflow PDF CLI method.
+The script reports `extracted_amount_row_count`, `text_line_count`, per-page `extracted_amount_row_count`, and `pages_needing_ocr`. These are direct PDF text-layer counts, not visually verified table-row counts. Treat `pages_needing_ocr` as the handoff point to OCR or visual extraction, not as a failure. Keep this as an AWS skill helper rather than a generic Tabuflow PDF CLI method.
 
 ## Final Tables
 
@@ -77,13 +77,13 @@ Set `parent_label` for child rows to the nearest preceding parent row in the sam
 1. Inspect the PDF text and page count.
 2. If emails are present, inspect them as supporting references and keep notes separate from PDF table outputs.
 3. Run direct text extraction for AWS invoice-style text PDFs.
-4. Review row counts, page summaries, section names, and a sample of extracted rows.
+4. Review text-derived amount-row counts, page summaries, section names, and a sample of extracted rows.
 5. Escalate pages to OCR/visual extraction only when direct text extraction is empty, obviously incomplete, or visually ambiguous.
 6. If OCR/visual output is used, visual evidence wins for table names, table boundaries, row order, indentation, parent/child hierarchy, and totals.
 7. Produce SQLite-ready tabular data with stable columns.
 8. Keep provenance metadata out of importable table columns. If metadata is needed internally, keep it in sidecar JSON or graph state.
 9. Validate:
-   - row count is plausible for the PDF page count and invoice type,
+   - text-derived amount-row count is plausible for the PDF page count and invoice type,
    - summary/detail rows are not collapsed into one total,
    - invoice header facts do not leak into table rows unless they appear inside a table,
    - zero-amount tax rows are preserved,

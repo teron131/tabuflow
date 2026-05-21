@@ -931,7 +931,7 @@ Do not bundle a hardcoded GCP script just because one working script exists. For
 
 The AWS examples are mostly PDFs, and the minimum useful result is coherent tabular data extracted from the invoices. The current AWS skill therefore starts with PDF table extraction rather than pretending the final accounting output is already known.
 
-Direct text extraction is the first pass because many AWS invoices are text PDFs. The helper script `extract_aws_pdf_text_tables.py` gives the agent a deterministic way to produce per-PDF CSV/JSON table rows and flag pages that need OCR. OCR/visual extraction should be reserved for pages with no text, incomplete text extraction, or ambiguous layout.
+Direct text extraction is the first pass because many AWS invoices are text PDFs. The helper script `extract_aws_pdf_text_tables.py` gives the agent a deterministic way to produce per-PDF CSV/JSON text-derived label/amount rows and flag pages that need OCR. Its `extracted_amount_row_count` is not a visually verified table-row count. OCR/visual extraction should be reserved for pages with no text, incomplete text extraction, or ambiguous layout.
 
 Emails in AWS example folders are reference context only. They can explain reporting, approval, forwarding, account IDs, periods, or attachments, but they are not billing-table truth and should not be emitted as CSV/table outputs unless the user explicitly asks for an email reconciliation dataset.
 
