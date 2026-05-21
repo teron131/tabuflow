@@ -1,4 +1,4 @@
-"""State definitions for the file fixer workflow."""
+"""State definitions for the file fixer agent workflow."""
 
 from __future__ import annotations
 

@@ -11,19 +11,19 @@ from ..prompts import CLEAN_TASK_LOG, DEFAULT_FIXER_SYSTEM_PROMPT, build_fixer_p
 from ..state import FixerState
 from .common import (
     MAX_REPEAT_REMAINING_REVIEWS,
-    _add_usage,
-    _build_runtime,
-    _coerce_state,
-    _continue_or_finalize,
-    _FixerProgress,
-    _FixerRuntime,
-    _get_metadata,
+    FixerProgress,
+    FixerRuntime,
+    add_usage,
+    build_runtime,
+    coerce_state,
+    continue_or_finalize,
+    get_metadata,
     logger,
 )
 from .task_log import (
-    _normalized_remaining_block,
-    _stop_reason_for_task_log,
-    _task_log_score,
+    normalized_remaining_block,
+    stop_reason_for_task_log,
+    task_log_score,
 )
 
 STOP_KIND_STATUS = {
@@ -54,7 +54,7 @@ def _strip_code_fences(text: str) -> str:
 def _run_review_snapshot(
     *,
     state: FixerState,
-    progress: _FixerProgress,
+    progress: FixerProgress,
     current_text: str,
 ) -> None:
     """Ask the model for a compact progress checklist of the current file."""
@@ -77,15 +77,15 @@ def _run_review_snapshot(
             ),
         ]
     )
-    tokens_in, tokens_out, cost = _get_metadata(response)
+    tokens_in, tokens_out, cost = get_metadata(response)
     progress.fixer_notes = _strip_code_fences(str(response.content or "")) or CLEAN_TASK_LOG
-    _add_usage(
+    add_usage(
         progress,
         tokens_in=tokens_in,
         tokens_out=tokens_out,
         cost=cost,
     )
-    candidate_score = _task_log_score(progress.fixer_notes)
+    candidate_score = task_log_score(progress.fixer_notes)
     if progress.best_text is None:
         progress.best_text = current_text
         progress.best_notes = progress.fixer_notes
@@ -102,7 +102,7 @@ def _run_review_snapshot(
 def _review_and_maybe_stop(
     *,
     state: FixerState,
-    progress: _FixerProgress,
+    progress: FixerProgress,
     current_text: str,
     turn: int,
     stop_kind: str,
@@ -110,7 +110,7 @@ def _review_and_maybe_stop(
 ) -> dict[str, object] | None:
     """Review a non-patched terminal signal and stop if the file is clean enough."""
     _run_review_snapshot(state=state, progress=progress, current_text=current_text)
-    current_remaining_block = _normalized_remaining_block(progress.fixer_notes)
+    current_remaining_block = normalized_remaining_block(progress.fixer_notes)
     if current_remaining_block and current_remaining_block == progress.last_remaining_block:
         progress.repeated_remaining_reviews += 1
     else:
@@ -118,7 +118,7 @@ def _review_and_maybe_stop(
         progress.last_remaining_block = current_remaining_block
 
     done_suffix, stalled_reason = STOP_KIND_STATUS[stop_kind]
-    if stop_reason := _stop_reason_for_task_log(progress.fixer_notes):
+    if stop_reason := stop_reason_for_task_log(progress.fixer_notes):
         logger.info("[FIXER] Stop reason=%s%s at pass=%s", stop_reason, done_suffix, turn)
         return progress.build_result(
             iteration=turn,
@@ -137,19 +137,19 @@ def _review_and_maybe_stop(
 
 def _review_patched_text(
     *,
-    runtime: _FixerRuntime,
+    runtime: FixerRuntime,
     state: FixerState,
-    progress: _FixerProgress,
+    progress: FixerProgress,
     iteration: int,
     current_text: str,
 ) -> dict[str, object]:
     """Review the file after a successful patch application."""
     _run_review_snapshot(state=state, progress=progress, current_text=current_text)
-    progress.last_remaining_block = _normalized_remaining_block(progress.fixer_notes)
+    progress.last_remaining_block = normalized_remaining_block(progress.fixer_notes)
     progress.repeated_remaining_reviews = 0
     task_log = progress.fixer_notes.replace("\n", " | ").strip()
     logger.info("[FIXER] Task log after pass %s: %s", iteration, task_log)
-    if stop_reason := _stop_reason_for_task_log(progress.fixer_notes):
+    if stop_reason := stop_reason_for_task_log(progress.fixer_notes):
         logger.info("[FIXER] Stop reason=%s_after_patch at pass=%s", stop_reason, iteration)
         return (
             progress.state_update()
@@ -161,7 +161,7 @@ def _review_patched_text(
             | {"review_kind": ""}
         )
     logger.info("[FIXER] Applied pass %s", iteration)
-    return _continue_or_finalize(
+    return continue_or_finalize(
         runtime=runtime,
         progress=progress,
         iteration=iteration,
@@ -173,16 +173,16 @@ def _review_patched_text(
 def _review_initial_text(
     *,
     state: FixerState,
-    progress: _FixerProgress,
+    progress: FixerProgress,
     current_text: str,
 ) -> dict[str, object]:
     """Review the initial file state before the first edit pass."""
     _run_review_snapshot(state=state, progress=progress, current_text=current_text)
-    progress.last_remaining_block = _normalized_remaining_block(progress.fixer_notes)
+    progress.last_remaining_block = normalized_remaining_block(progress.fixer_notes)
     progress.repeated_remaining_reviews = 0
     task_log = progress.fixer_notes.replace("\n", " | ").strip()
     logger.info("[FIXER] Initial task log: %s", task_log)
-    if stop_reason := _stop_reason_for_task_log(progress.fixer_notes):
+    if stop_reason := stop_reason_for_task_log(progress.fixer_notes):
         logger.info("[FIXER] Stop reason=%s_before_fix", stop_reason)
         return (
             progress.state_update()
@@ -198,9 +198,9 @@ def _review_initial_text(
 
 def review_node(state: FixerState | dict[str, Any]) -> dict[str, object]:
     """Review the current file state and decide whether to continue."""
-    state = _coerce_state(state)
-    runtime = _build_runtime(state)
-    progress = _FixerProgress.from_state(state)
+    state = coerce_state(state)
+    runtime = build_runtime(state)
+    progress = FixerProgress.from_state(state)
     current_text = runtime.fs.read_text(runtime.target_path)
 
     if state.review_kind == "":
@@ -231,7 +231,7 @@ def review_node(state: FixerState | dict[str, Any]) -> dict[str, object]:
         return progress.state_update() | stop_result | {"review_kind": ""}
 
     logger.info(NON_TERMINAL_REVIEW_LOGS[state.review_kind], state.iteration)
-    return _continue_or_finalize(
+    return continue_or_finalize(
         runtime=runtime,
         progress=progress,
         iteration=state.iteration,

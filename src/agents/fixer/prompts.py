@@ -1,4 +1,4 @@
-"""Prompt builders for the generic file fixer workflow."""
+"""Prompt builders for the file fixer agent workflow."""
 
 DEFAULT_FIXER_TASK_PROMPT = "Fix grammar, spelling, and obvious typos while preserving meaning and structure."
 

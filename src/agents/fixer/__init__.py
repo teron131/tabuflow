@@ -1,4 +1,4 @@
-"""Public exports for the generic file fixer workflow."""
+"""Public exports for the file fixer agent workflow."""
 
 from .fixer import fix_file, fix_text
 from .graph import create_fixer_graph

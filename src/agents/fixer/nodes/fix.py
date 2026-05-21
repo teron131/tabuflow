@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
 
 from ....clients.openai import ChatOpenAI
-from ...fs.hashline import HashlineEdit, HashlineEditResponse, HashlineReferenceError, edit_hashline
+from ....tools.fs.hashline import HashlineEdit, HashlineEditResponse, HashlineReferenceError, edit_hashline
 from ..prompts import (
     CLEAN_TASK_LOG,
     DEFAULT_FIXER_SYSTEM_PROMPT,
@@ -21,16 +21,16 @@ from ..prompts import (
 from ..state import FixerState
 from .common import (
     EMPTY_EDIT_SENTINEL,
-    _add_usage,
-    _append_write_note,
-    _build_runtime,
-    _coerce_state,
-    _continue_or_finalize,
-    _FixerProgress,
-    _FixerRuntime,
-    _FixPassResult,
-    _get_metadata,
-    _WriteApplyResult,
+    FixerProgress,
+    FixerRuntime,
+    FixPassResult,
+    WriteApplyResult,
+    add_usage,
+    append_write_note,
+    build_runtime,
+    coerce_state,
+    continue_or_finalize,
+    get_metadata,
     logger,
 )
 
@@ -66,19 +66,19 @@ def _parse_edit_response(response: object) -> tuple[HashlineEditResponse, int, i
     if parsed is None:
         raise ValueError("Fixer response did not include parsed structured output")
     raw = response.get("raw")
-    tokens_in, tokens_out, cost = _get_metadata(raw) if isinstance(raw, AIMessage) else (0, 0, 0.0)
+    tokens_in, tokens_out, cost = get_metadata(raw) if isinstance(raw, AIMessage) else (0, 0, 0.0)
     return HashlineEditResponse.model_validate(parsed), tokens_in, tokens_out, cost
 
 
 def _write_edits(
     *,
-    runtime: _FixerRuntime,
+    runtime: FixerRuntime,
     current_text: str,
     edits: list[HashlineEdit],
     tokens_in: int = 0,
     tokens_out: int = 0,
     cost: float = 0.0,
-) -> _WriteApplyResult:
+) -> WriteApplyResult:
     """Apply edits, write to disk, and preserve shared no-op handling."""
     updated_text = edit_hashline(current_text, edits)
     try:
@@ -93,7 +93,7 @@ def _write_edits(
 
     if updated_text == current_text:
         logger.info("[FIXER] Treating empty edit as no-op for %s", runtime.target_path)
-        return _WriteApplyResult(
+        return WriteApplyResult(
             after_text=current_text,
             write_error=EMPTY_EDIT_SENTINEL,
             tokens_in=tokens_in,
@@ -102,7 +102,7 @@ def _write_edits(
         )
 
     runtime.fs.write_text(runtime.target_path, updated_text)
-    return _WriteApplyResult(
+    return WriteApplyResult(
         after_text=updated_text,
         tokens_in=tokens_in,
         tokens_out=tokens_out,
@@ -112,12 +112,12 @@ def _write_edits(
 
 def _run_fix_pass(
     *,
-    runtime: _FixerRuntime,
+    runtime: FixerRuntime,
     state: FixerState,
-    progress: _FixerProgress,
+    progress: FixerProgress,
     current_text: str,
     turn: int,
-) -> _FixPassResult:
+) -> FixPassResult:
     """Run one fixer model pass against the current file contents."""
     llm = _build_edit_llm(state)
     prompt = build_fixer_pass_prompt(
@@ -142,7 +142,7 @@ def _run_fix_pass(
         ]
     )
     edit_response, tokens_in, tokens_out, cost = _parse_edit_response(response)
-    return _FixPassResult(
+    return FixPassResult(
         edits=edit_response.edits,
         raw_text=edit_response.model_dump_json(indent=2),
         tokens_in=tokens_in,
@@ -153,13 +153,13 @@ def _run_fix_pass(
 
 def _run_hashline_edit_with_repair(
     *,
-    runtime: _FixerRuntime,
+    runtime: FixerRuntime,
     state: FixerState,
-    progress: _FixerProgress,
+    progress: FixerProgress,
     current_text: str,
     edits: list[HashlineEdit],
     attempted_text: str,
-) -> _WriteApplyResult:
+) -> WriteApplyResult:
     """Apply hashline edits and try one repair pass if validation fails."""
     llm = _build_edit_llm(state)
     try:
@@ -186,7 +186,7 @@ def _run_hashline_edit_with_repair(
         )
         repaired_response, tokens_in, tokens_out, cost = _parse_edit_response(response)
         if not repaired_response.edits:
-            return _WriteApplyResult(
+            return WriteApplyResult(
                 after_text=None,
                 write_error=str(error),
                 tokens_in=tokens_in,
@@ -205,7 +205,7 @@ def _run_hashline_edit_with_repair(
         except (HashlineReferenceError, ValueError) as repaired_error:
             logger.warning("[FIXER] Repaired hashline edit rejected: %s", _summarize_write_error(repaired_error))
             logger.debug("[FIXER] Full repaired hashline rejection details: %s", str(repaired_error).replace("\n", " | "))
-            return _WriteApplyResult(
+            return WriteApplyResult(
                 after_text=None,
                 write_error=str(repaired_error),
                 tokens_in=tokens_in,
@@ -216,15 +216,15 @@ def _run_hashline_edit_with_repair(
 
 def _handle_write_result(
     *,
-    runtime: _FixerRuntime,
+    runtime: FixerRuntime,
     state: FixerState,
-    progress: _FixerProgress,
+    progress: FixerProgress,
     current_text: str,
     turn: int,
-    write_result: _WriteApplyResult,
+    write_result: WriteApplyResult,
 ) -> dict[str, object]:
     """Update fixer state after edit application, rollback, or no-op."""
-    _add_usage(
+    add_usage(
         progress,
         tokens_in=write_result.tokens_in,
         tokens_out=write_result.tokens_out,
@@ -240,8 +240,8 @@ def _handle_write_result(
 
     if write_result.after_text is None:
         if write_result.write_error is not None:
-            progress.fixer_notes = _append_write_note(progress.fixer_notes, write_result.write_error)
-        return _continue_or_finalize(
+            progress.fixer_notes = append_write_note(progress.fixer_notes, write_result.write_error)
+        return continue_or_finalize(
             runtime=runtime,
             progress=progress,
             iteration=turn,
@@ -251,7 +251,7 @@ def _handle_write_result(
 
     if write_result.after_text == current_text:
         logger.info("[FIXER] Edit pass %s made no changes; remaining work still logged", turn)
-        return _continue_or_finalize(
+        return continue_or_finalize(
             runtime=runtime,
             progress=progress,
             iteration=turn,
@@ -268,9 +268,9 @@ def _handle_write_result(
 
 def fix_node(state: FixerState | dict[str, Any]) -> dict[str, object]:
     """Run one fixer pass and queue the next review state."""
-    state = _coerce_state(state)
-    runtime = _build_runtime(state)
-    progress = _FixerProgress.from_state(state)
+    state = coerce_state(state)
+    runtime = build_runtime(state)
+    progress = FixerProgress.from_state(state)
     turn = state.iteration + 1
 
     if state.iteration == 0:
@@ -289,7 +289,7 @@ def fix_node(state: FixerState | dict[str, Any]) -> dict[str, object]:
         current_text=current_text,
         turn=turn,
     )
-    _add_usage(
+    add_usage(
         progress,
         tokens_in=pass_result.tokens_in,
         tokens_out=pass_result.tokens_out,

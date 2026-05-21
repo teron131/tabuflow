@@ -37,7 +37,7 @@ def _task_log_sections(task_log: str) -> tuple[list[str], list[str]] | None:
     return (done_lines, remaining_lines) if found_section else None
 
 
-def _normalized_remaining_block(task_log: str) -> str:
+def normalized_remaining_block(task_log: str) -> str:
     """Normalize the remaining-work block for repeat-detection comparisons."""
     sections = _task_log_sections(task_log)
     if sections is None:
@@ -61,7 +61,7 @@ def _remaining_action_names(task_log: str) -> list[str]:
     return action_names
 
 
-def _stop_reason_for_task_log(task_log: str) -> str | None:
+def stop_reason_for_task_log(task_log: str) -> str | None:
     """Return a stop reason when the task log shows only acceptable remaining work."""
     if task_log.strip() == CLEAN_TASK_LOG:
         return "clean"
@@ -73,7 +73,7 @@ def _stop_reason_for_task_log(task_log: str) -> str | None:
     return None
 
 
-def _task_log_score(task_log: str) -> tuple[int, int] | None:
+def task_log_score(task_log: str) -> tuple[int, int] | None:
     """Score remaining work to decide whether a snapshot is the best so far."""
     sections = _task_log_sections(task_log)
     if sections is None:

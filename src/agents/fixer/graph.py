@@ -1,4 +1,4 @@
-"""LangGraph workflow construction for the file fixer."""
+"""LangGraph workflow construction for the file fixer agent."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from .nodes import fix_node, review_node
-from .nodes.common import _coerce_state
+from .nodes.common import coerce_state
 from .state import FixerInput, FixerOutput, FixerState
 
 type FixerRoute = Literal["fix", "review", "end"]
@@ -17,7 +17,7 @@ type FixerRoute = Literal["fix", "review", "end"]
 
 def route_after_fix(state: FixerState | dict) -> FixerRoute:
     """Route from the fix step to review, another pass, or the end."""
-    state = _coerce_state(state)
+    state = coerce_state(state)
     if state.review_kind:
         return "review"
     if state.fixer_last_text == "max_turns":
@@ -27,7 +27,7 @@ def route_after_fix(state: FixerState | dict) -> FixerRoute:
 
 def route_after_review(state: FixerState | dict) -> FixerRoute:
     """Route from the review step back to fixing or to the end."""
-    state = _coerce_state(state)
+    state = coerce_state(state)
     if state.fixer_completed or state.fixer_last_text in {"stalled", "max_turns"}:
         return "end"
     return "fix"
