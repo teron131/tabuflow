@@ -1,6 +1,6 @@
-# data-agentics
+# Tabuflow
 
-`data-agentics` is a local workbench for helping non-technical users do coding-style data analysis over SQL without having to operate vendor-specific tools, cloud consoles, notebook platforms, or BI products directly.
+`Tabuflow` is a local workbench for helping non-technical users do coding-style data analysis over SQL without having to operate vendor-specific tools, cloud consoles, notebook platforms, or BI products directly.
 
 The project exists to put an agentic coding workflow around ordinary business data: observe the source, plan the analysis, prepare queryable tables, write SQL, inspect results, repair mistakes, and save useful artifacts. The user should be able to ask for the analysis they need while the system handles the mechanics that normally require a data engineer, analyst notebook, warehouse UI, or vendor dashboard.
 
@@ -15,7 +15,7 @@ Two notes capture the current direction:
 
 ```mermaid
 flowchart TB
-    accTitle: data-agentics architecture
+    accTitle: Tabuflow architecture
     accDescr: Shows the browser workbench, FastAPI shell, direct backend routes, chat orchestrator, stage tools, scoped filesystem tools, skills, and persisted artifacts.
 
     Workbench["Workbench UI<br/>files, SQL, skills, chat"] --> ApiLayer

@@ -3,7 +3,7 @@ import { toCsv } from "@/lib/api";
 
 export function downloadResult(
 	result: SqlResult,
-	filename = "data-agentics-result.csv",
+	filename = "tabuflow-result.csv",
 ) {
 	const blob = new Blob([toCsv(result)], { type: "text/csv;charset=utf-8" });
 	const url = URL.createObjectURL(blob);

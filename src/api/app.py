@@ -1,4 +1,4 @@
-"""FastAPI application factory for the data-agentics workbench."""
+"""FastAPI application factory for the Tabuflow workbench."""
 
 from collections.abc import Awaitable, Callable
 import logging
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def create_app() -> FastAPI:
     """Create and configure the workbench API application."""
     configure_logging()
-    api = FastAPI(title="data-agentics workbench", version="0.1.0")
+    api = FastAPI(title="Tabuflow Workbench", version="0.1.0")
     api.add_middleware(
         CORSMiddleware,
         allow_origins=DEV_FRONTEND_ORIGINS,

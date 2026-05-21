@@ -1,4 +1,4 @@
-"""HTTP routes for the data-agentics workbench API."""
+"""HTTP routes for the Tabuflow workbench API."""
 
 import csv
 from dataclasses import asdict
@@ -547,7 +547,7 @@ def health() -> dict[str, Any]:
         database_ready = False
     return {
         "status": "ok",
-        "app": "data-agentics",
+        "app": "tabuflow",
         "model": resolve_agent_model(),
         "llm_configured": has_llm_environment(),
         "database_ready": database_ready,

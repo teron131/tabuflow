@@ -93,7 +93,7 @@ def fix_text(
     config: RunnableConfig | None = None,
 ) -> str:
     """Run the fixer graph on in-memory text via a temporary sandbox file."""
-    with TemporaryDirectory(prefix="data-agentics-fixer-") as temp_dir:
+    with TemporaryDirectory(prefix="tabuflow-fixer-") as temp_dir:
         temp_root = Path(temp_dir).resolve()
         fs = SandboxFS(root_dir=temp_root)
         sandbox_path = f"/{sandbox_file_name.lstrip('/')}"

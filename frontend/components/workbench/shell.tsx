@@ -53,7 +53,7 @@ import {
 	uploadWorkspaceFile,
 } from "@/lib/api";
 
-const themeStorageKey = "data-agentics-theme";
+const themeStorageKey = "tabuflow-theme";
 const previewRowLimit = 250;
 
 function isThemeMode(value: string | null): value is ThemeMode {
@@ -616,7 +616,7 @@ export function Workbench() {
 				<div className="brand-lockup">
 					<BrandMark />
 					<div>
-						<span className="eyebrow">DATA AGENTICS</span>
+						<span className="eyebrow">TABUFLOW</span>
 						<h1>Workbench</h1>
 					</div>
 				</div>

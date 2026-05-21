@@ -8,7 +8,7 @@ API_HOST="${API_HOST:-localhost}"
 API_PORT="${API_PORT:-8017}"
 UI_HOST="${UI_HOST:-localhost}"
 UI_PORT="${UI_PORT:-5174}"
-export DATA_AGENTICS_API_URL="${DATA_AGENTICS_API_URL:-http://${API_HOST}:${API_PORT}}"
+export TABUFLOW_API_URL="${TABUFLOW_API_URL:-http://${API_HOST}:${API_PORT}}"
 
 stop_port_listener() {
   local port="$1"

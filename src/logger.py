@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 
 DEFAULT_LOG_LEVEL = "INFO"
-FILE_HANDLER_NAME = "data-agentics-file"
-LOG_LEVEL_ENV = "DATA_AGENTICS_LOG_LEVEL"
+FILE_HANDLER_NAME = "tabuflow-file"
+LOG_LEVEL_ENV = "TABUFLOW_LOG_LEVEL"
 LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STARTED_AT = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")

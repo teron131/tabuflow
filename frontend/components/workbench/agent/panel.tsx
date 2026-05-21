@@ -102,7 +102,7 @@ const initialMessages: WorkbenchMessage[] = [
 		parts: [
 			{
 				type: "text",
-				text: "Data workbench online. Ask about loaded files, SQL artifacts, or the current result set.",
+				text: "Tabuflow is online. Ask about loaded files, SQL artifacts, or the current result set.",
 			},
 		],
 	},
@@ -989,7 +989,7 @@ export const AgentPanel = memo(function AgentPanel({
 		[selectedModel],
 	);
 	const { messages, sendMessage, status, stop } = useChat<WorkbenchMessage>({
-		id: "data-agentics-workbench",
+		id: "tabuflow-workbench",
 		messages: initialMessages,
 		transport,
 	});

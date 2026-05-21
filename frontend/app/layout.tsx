@@ -4,7 +4,7 @@ import "@glideapps/glide-data-grid/dist/index.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-	title: "Data Agentics Workbench",
+	title: "Tabuflow Workbench",
 	description: "IDE-style data analysis workbench backed by Python agents.",
 };
 

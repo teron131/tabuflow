@@ -1,6 +1,6 @@
 import { createLogger } from "@/lib/logger";
 
-const API_BASE = process.env.DATA_AGENTICS_API_URL || "http://localhost:8017";
+const API_BASE = process.env.TABUFLOW_API_URL || "http://localhost:8017";
 const logger = createLogger("api.proxy");
 
 export const dynamic = "force-dynamic";

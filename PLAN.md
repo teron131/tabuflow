@@ -4,7 +4,7 @@
 
 ### Product Goal
 
-Build a viable, functional UI around the current Python-first data-agentics backend without reshaping the analysis engine. The frontend should make the existing orchestrator, tabular extraction posture, SQL helpers, and future skills-assisted workflows visible as one coherent workbench.
+Build a viable, functional UI around the current Python-first Tabuflow backend without reshaping the analysis engine. The frontend should make the existing orchestrator, tabular extraction posture, SQL helpers, and future skills-assisted workflows visible as one coherent workbench.
 
 The first version should feel like a serious data operator surface:
 

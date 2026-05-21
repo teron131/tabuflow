@@ -4,7 +4,7 @@ export function BrandMark() {
 			className="brand-mark"
 			viewBox="0 0 96 78"
 			role="img"
-			aria-label="Data Agentics"
+			aria-label="Tabuflow"
 		>
 			<rect className="brand-mark-dark" x="22" y="8" width="38" height="8" />
 			<rect className="brand-mark-mid" x="66" y="8" width="17" height="8" />

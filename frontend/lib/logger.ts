@@ -21,8 +21,8 @@ function parseLogLevel(value: string | undefined): LogLevel | null {
 }
 
 const configuredLogLevel =
-	parseLogLevel(process.env.NEXT_PUBLIC_DATA_AGENTICS_LOG_LEVEL) ||
-	parseLogLevel(process.env.DATA_AGENTICS_LOG_LEVEL) ||
+	parseLogLevel(process.env.NEXT_PUBLIC_TABUFLOW_LOG_LEVEL) ||
+	parseLogLevel(process.env.TABUFLOW_LOG_LEVEL) ||
 	(process.env.NODE_ENV === "production" ? "warn" : "info");
 
 function writeLog(
@@ -35,7 +35,7 @@ function writeLog(
 		return;
 	}
 
-	const prefix = `[data-agentics:${scope}] ${message}`;
+	const prefix = `[tabuflow:${scope}] ${message}`;
 	if (context === undefined) {
 		console[level](prefix);
 		return;

@@ -1,4 +1,4 @@
-# data-agentics Roadmap
+# Tabuflow Roadmap
 
 This is a working roadmap, not a fixed release plan. It is now narrowed around one practical local-first product loop: upload CSV/XLSX/PDF-table data, inspect the schema/file state, ask a natural-language question, generate and run SQL, inspect the result, and export the useful output.
 

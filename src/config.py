@@ -34,15 +34,15 @@ def configured_path(env_name: str, default: Path) -> Path:
 
 
 PREPARED_DATABASE_PATH = configured_path(
-    "DATA_AGENTICS_PREPARED_DATABASE_PATH",
+    "TABUFLOW_PREPARED_DATABASE_PATH",
     REPO_ROOT / "data" / "tabular.sqlite",
 )
 UPLOADS_DIR = configured_path(
-    "DATA_AGENTICS_UPLOADS_DIR",
+    "TABUFLOW_UPLOADS_DIR",
     REPO_ROOT / "data" / "uploads",
 )
 WORKBENCH_SOURCE_ROOT = configured_path(
-    "DATA_AGENTICS_WORKBENCH_SOURCE_ROOT",
+    "TABUFLOW_WORKBENCH_SOURCE_ROOT",
     REPO_ROOT,
 )
 

@@ -11,7 +11,7 @@ import {
 	parseDemoTraceCommand,
 } from "./demo-trace-stream";
 
-const API_BASE = process.env.DATA_AGENTICS_API_URL || "http://localhost:8017";
+const API_BASE = process.env.TABUFLOW_API_URL || "http://localhost:8017";
 const BACKEND_CHAT_TOOL_NAME = "backendChat";
 const logger = createLogger("api.chat");
 

@@ -1,4 +1,4 @@
-# Data Agentics Skill Context
+# Tabuflow Skill Context
 
 We are exploring whether a general coding agent with loaded skills can replace most of the earlier specialized skill-wrapper and pseudo coding-agent machinery. The immediate work is to identify what is actually needed, what can stay as simple skill context, and what still needs real code.
 
