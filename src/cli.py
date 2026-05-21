@@ -44,8 +44,8 @@ def read_sql_argument(sql: str) -> str:
 
 
 def add_tabular_commands(subparsers: Any) -> None:
-    """Add CSV/XLSX inspection and extraction commands."""
-    tabular = subparsers.add_parser("tabular", help="Inspect or extract CSV/XLSX files.")
+    """Add CSV/XLS/XLSX inspection and extraction commands."""
+    tabular = subparsers.add_parser("tabular", help="Inspect or extract CSV/XLS/XLSX files.")
     tabular_subparsers = tabular.add_subparsers(dest="tabular_command", required=True)
 
     inspect = tabular_subparsers.add_parser("inspect", help="Inspect a bounded raw grid window.")

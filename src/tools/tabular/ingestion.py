@@ -275,7 +275,11 @@ def _load_xlsx_rows(
     dict[str, Any],
 ]:
     """Load worksheet rows and propagate merged-cell values."""
-    workbook = load_workbook(path, read_only=False, data_only=True)
+    workbook = load_workbook(
+        path,
+        read_only=False,
+        data_only=True,
+    )
     try:
         sheet_names = list(workbook.sheetnames)
         sheet_name = sheet or sheet_names[0]
@@ -289,7 +293,10 @@ def _load_xlsx_rows(
             for row_index in range(min_row - 1, max_row):
                 for column_index in range(min_col - 1, max_col):
                     rows[row_index][column_index] = value
-        return rows, {"sheet_name": worksheet.title, "sheet_names": sheet_names}
+        return rows, {
+            "sheet_name": worksheet.title,
+            "sheet_names": sheet_names,
+        }
     finally:
         workbook.close()
 
@@ -330,7 +337,10 @@ def _load_xls_rows(
             for row_idx in range(row_start, row_end):
                 for column_idx in range(column_start, column_end):
                     rows[row_idx][column_idx] = value
-        return rows, {"sheet_name": sheet_name, "sheet_names": sheet_names}
+        return rows, {
+            "sheet_name": sheet_name,
+            "sheet_names": sheet_names,
+        }
     finally:
         workbook.release_resources()
 

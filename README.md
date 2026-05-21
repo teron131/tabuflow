@@ -1,6 +1,6 @@
 # Tabuflow
 
-`Tabuflow` is a local workbench for coding-style data analysis over messy business files. It prepares CSV, XLSX, and PDF sources into queryable SQLite-backed artifacts, then lets an agent or CLI inspect, query, repair, and save useful views without forcing the user into vendor dashboards, notebooks, warehouse consoles, or BI tools.
+`Tabuflow` is a local workbench for coding-style data analysis over messy business files. It prepares CSV, XLS, XLSX, and PDF sources into queryable SQLite-backed artifacts, then lets an agent or CLI inspect, query, repair, and save useful views without forcing the user into vendor dashboards, notebooks, warehouse consoles, or BI tools.
 
 The current rework goal is to make the useful data tools standalone and coding-agent agnostic. LangChain and LangGraph should be one consumer of the tool layer, not the shape that the tool layer is forced to fit. Any Coding Agent with normal shell/read/edit access, such as OpenCode, Pi, or Codex, should be able to use the same core operations through Python APIs or the `tabuflow` CLI, while the custom Tabuflow agent keeps its orchestration logic under `src/agents`.
 
@@ -55,7 +55,7 @@ Bound workspace and database configuration stays outside model-controlled argume
 
 The standalone tool layer is intentionally smaller than the full custom agent:
 
-- `tools.tabular`: inspect raw grids, profile table structure, and extract CSV/XLSX tables into SQLite-backed artifacts.
+- `tools.tabular`: inspect raw grids, profile table structure, and extract CSV/XLS/XLSX tables into SQLite-backed artifacts.
 - `tools.pdf`: inspect PDF pages and extract PDF tables into SQLite-backed artifacts.
 - `tools.mail`: inspect EML/MSG metadata, body previews, and attachments as reference context without turning emails into table artifacts.
 - `tools.artifacts`: list/describe queryable artifacts, run read-only SQL, save query views, name SQL artifacts when an LLM namer is configured, and suggest deterministic SQLite repair hints from schema context.
@@ -80,7 +80,7 @@ The tabular preparation flow stays useful both standalone and through the custom
 
 ```mermaid
 flowchart TB
-    Source[CSV or XLSX Source] --> Inspect[Inspect Tabular]
+    Source[CSV, XLS, or XLSX Source] --> Inspect[Inspect Tabular]
     Source --> Profile[Profile Tabular]
     Inspect --> Choose[Choose Extraction]
     Profile --> Choose

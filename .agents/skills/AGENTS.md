@@ -15,7 +15,7 @@ Available domain skills:
 Practical process:
 
 - Start from the user's concrete task and decide whether one of the loaded domain skills is relevant.
-- Use `tabuflow-standalone-tools` when the task starts from messy CSV, XLSX, PDF, or prepared artifacts and the agent needs robust CLI/Python presets for inspection, extraction, querying, or saved views.
+- Use `tabuflow-standalone-tools` when the task starts from messy CSV, XLS, XLSX, PDF, or prepared artifacts and the agent needs robust CLI/Python presets for inspection, extraction, querying, or saved views.
 - If a skill applies, use its workflow and references as context, then translate that into whatever capabilities the current session actually has.
 - Keep the general agent responsible for reading code, editing files, writing SQL drafts, checking diffs, and verifying changes; do not wrap ordinary filesystem work in Tabuflow just because a helper exists.
 - Keep custom-agent-only behavior under `src/agents`: graph state, LangChain tool adapters, Query Stage SQL history/reuse, validation retry loops, fixer behavior, and orchestration traces.

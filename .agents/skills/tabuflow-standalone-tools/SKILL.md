@@ -1,6 +1,6 @@
 ---
 name: tabuflow-standalone-tools
-description: Use when a coding agent needs to inspect, extract, or query messy CSV, XLSX, or PDF business data with Tabuflow's standalone CLI or Python tool layer instead of relying on the custom LangChain/LangGraph agent.
+description: Use when a coding agent needs to inspect, extract, or query messy CSV, XLS, XLSX, or PDF business data with Tabuflow's standalone CLI or Python tool layer instead of relying on the custom LangChain/LangGraph agent.
 ---
 
 # Tabuflow Standalone Tools
@@ -13,7 +13,7 @@ The useful boundary is simple: use Tabuflow for best-fit presets around messy da
 
 Turn messy local business files into inspectable SQLite-backed artifacts that can be queried and saved:
 
-- inspect CSV/XLSX/PDF sources before assuming their structure,
+- inspect CSV/XLS/XLSX/PDF sources before assuming their structure,
 - extract tables into Tabuflow's configured artifact store,
 - inspect EML/MSG files as reference context,
 - list and describe prepared artifacts,
@@ -36,12 +36,13 @@ uv run tabuflow --help
 
 All CLI commands print JSON. Treat a nonzero exit or a JSON payload with `status: "error"` as a real failure to inspect and fix.
 
-## CSV and XLSX Workflow
+## CSV, XLS, and XLSX Workflow
 
 1. Inspect a bounded raw window before extracting.
 
 ```bash
 tabuflow tabular inspect path/to/file.csv
+tabuflow tabular inspect path/to/file.xls --sheet "Bill Item" --start-row 1 --limit 10
 tabuflow tabular inspect path/to/file.xlsx --sheet "Sheet1" --start-row 1 --limit 10
 ```
 
@@ -55,6 +56,7 @@ tabuflow tabular profile path/to/file.xlsx
 
 ```bash
 tabuflow tabular extract path/to/file.csv
+tabuflow tabular extract path/to/file.xls --sheet "Bill Item"
 tabuflow tabular extract path/to/file.xlsx --sheet "Sheet1"
 ```
 
@@ -87,7 +89,7 @@ tabuflow email inspect path/to/message.eml
 tabuflow email inspect path/to/message.msg
 ```
 
-Treat `reference_only: true` as a boundary. The generic payload gives message metadata, body preview, body length, and attachment names. Use your normal coding-agent reasoning or a domain skill to interpret the body; do not replace PDF/XLSX billing rows with email text unless the user explicitly asks for email reconciliation data.
+Treat `reference_only: true` as a boundary. The generic payload gives message metadata, body preview, body length, and attachment names. Use your normal coding-agent reasoning or a domain skill to interpret the body; do not replace PDF or spreadsheet billing rows with email text unless the user explicitly asks for email reconciliation data.
 
 ## Artifact Query Workflow
 
