@@ -111,9 +111,12 @@ def _csv_dialect(
     with path.open("r", encoding=encoding, newline="") as handle:
         sample = handle.read(MAX_SAMPLE_CHARS)
     try:
-        return csv.Sniffer().sniff(sample or ",")
+        dialect = csv.Sniffer().sniff(sample or ",")
     except csv.Error:
         return csv.get_dialect("excel")
+    if dialect.delimiter in {"\r", "\n"}:
+        return csv.get_dialect("excel")
+    return dialect
 
 
 def _csv_stream_info(
