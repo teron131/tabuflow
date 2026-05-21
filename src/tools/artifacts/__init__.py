@@ -6,9 +6,7 @@ from .catalog import (
     DEFAULT_CLI_ARTIFACT_LIST_LIMIT,
     SQL_ARTIFACT_LIST_DETAILS,
     artifacts_from_source,
-    describe_artifact,
     describe_sql_artifact,
-    list_artifacts,
     list_sql_artifacts,
 )
 from .catalog_metadata import CatalogMetadataError, classify_sql_artifact
@@ -34,10 +32,8 @@ __all__ = [
     "artifacts_from_source",
     "build_sql_artifact_namer",
     "classify_sql_artifact",
-    "describe_artifact",
     "describe_sql_artifact",
     "inspect_sql_artifact_schema",
-    "list_artifacts",
     "list_sql_artifacts",
     "name_sql_artifact",
     "query_artifacts",

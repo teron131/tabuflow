@@ -12,8 +12,8 @@ from .tools.artifacts import (
     DEFAULT_CLI_ARTIFACT_LIST_LIMIT,
     SQL_ARTIFACT_LIST_DETAILS,
     artifacts_from_source,
-    describe_artifact,
-    list_artifacts,
+    describe_sql_artifact,
+    list_sql_artifacts,
     query_artifacts,
     save_artifact_view,
 )
@@ -173,7 +173,7 @@ def add_artifact_commands(subparsers: Any) -> None:
     list_command.add_argument("--detail", choices=sorted(SQL_ARTIFACT_LIST_DETAILS), default="compact")
     list_command.add_argument("--all", action="store_true", help="Return the full artifact catalog.")
     list_command.set_defaults(
-        handler=lambda args: list_artifacts(
+        handler=lambda args: list_sql_artifacts(
             include_internal=args.include_internal,
             max_items=None if args.all else args.max_items,
             detail=args.detail,
@@ -197,7 +197,7 @@ def add_artifact_commands(subparsers: Any) -> None:
     describe.add_argument("--sample-rows", type=int, default=3)
     describe.add_argument("--text-value-hints", type=int, default=3)
     describe.set_defaults(
-        handler=lambda args: describe_artifact(
+        handler=lambda args: describe_sql_artifact(
             args.name,
             sample_rows=args.sample_rows,
             text_value_hints=args.text_value_hints,
