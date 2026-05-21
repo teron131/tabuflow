@@ -27,7 +27,7 @@ from ..config import (
 )
 from ..pipelines.explainer import MissingExplainerModelError, explain_file
 from ..tools import create_skill_package, list_skills, load_skill
-from ..tools.sql.query import describe_sql_artifact, list_sql_artifacts, run_query
+from ..tools.artifacts import describe_sql_artifact, list_sql_artifacts, run_query
 from ..tools.tabular.storage import quote_identifier
 from ..tools.tabular.tools import extract_tabular_file, inspect_tabular_file
 from .chat import ChatConfigurationError, ChatRuntimeError, run_chat, stream_chat_chunks

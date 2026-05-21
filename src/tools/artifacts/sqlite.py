@@ -1,4 +1,4 @@
-"""Standalone SQLite query and schema-navigation helpers."""
+"""SQLite-backed artifact catalog and query helpers."""
 
 from __future__ import annotations
 
@@ -1338,3 +1338,87 @@ def suggest_sql_error_repair(
         )
 
     return []
+
+
+def query_artifacts(
+    sql: str,
+    *,
+    root_dir: str | Path | None = None,
+    database_path: str | Path | None = None,
+    max_rows: int = MAX_QUERY_ROWS,
+) -> dict[str, Any]:
+    """Run read-only SQL against the artifact cache and return bounded JSON rows."""
+    return run_query(
+        sql,
+        root_dir=root_dir,
+        database_path=database_path,
+        max_rows=max_rows,
+    )
+
+
+def save_artifact_view(
+    sql: str,
+    view_name: str,
+    *,
+    root_dir: str | Path | None = None,
+    database_path: str | Path | None = None,
+    replace: bool = False,
+) -> dict[str, Any]:
+    """Save a read-only artifact-cache query as a named SQLite view."""
+    return save_view(
+        sql,
+        view_name,
+        root_dir=root_dir,
+        database_path=database_path,
+        replace=replace,
+    )
+
+
+def list_artifacts(
+    *,
+    root_dir: str | Path | None = None,
+    database_path: str | Path | None = None,
+    include_internal: bool = False,
+) -> dict[str, Any]:
+    """List queryable artifacts in the SQLite cache."""
+    return list_sql_artifacts(
+        root_dir=root_dir,
+        database_path=database_path,
+        include_internal=include_internal,
+    )
+
+
+def describe_artifact(
+    name: str,
+    *,
+    root_dir: str | Path | None = None,
+    database_path: str | Path | None = None,
+    sample_rows: int = 3,
+    text_value_hints: int = 3,
+) -> dict[str, Any]:
+    """Describe one queryable artifact in the SQLite cache."""
+    return describe_sql_artifact(
+        name,
+        root_dir=root_dir,
+        database_path=database_path,
+        sample_rows=sample_rows,
+        text_value_hints=text_value_hints,
+    )
+
+
+def find_artifacts(
+    question: str,
+    *,
+    root_dir: str | Path | None = None,
+    database_path: str | Path | None = None,
+    include_internal: bool = False,
+    max_results: int = MAX_SUGGESTED_SQL_ARTIFACTS,
+) -> dict[str, Any]:
+    """Find likely artifacts for a natural-language question."""
+    return suggest_sql_artifacts(
+        question,
+        root_dir=root_dir,
+        database_path=database_path,
+        include_internal=include_internal,
+        max_results=max_results,
+    )

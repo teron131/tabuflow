@@ -6,7 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from ...pipelines.namer import name_sql_artifact
-from ...tools.sql.query import save_view
+from ...tools.artifacts import save_view
 from ..trace_utils import SAVE_STAGE, append_stage_trace
 from .payloads import build_result_artifact, build_result_message
 from .state import OrchestratorState, SQLArtifactState, latest_user_message

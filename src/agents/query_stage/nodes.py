@@ -18,7 +18,7 @@ from ...file_management import (
     write_sql_file,
 )
 from ...pipelines.namer import ArtifactNamerFn
-from ...tools.sql.query import run_query, suggest_sql_error_repair
+from ...tools.artifacts import run_query, suggest_sql_error_repair
 from ..base import ApplicationAgent
 from ..orchestrator.state import latest_user_message
 from ..trace_utils import SQL_STAGE, append_stage_trace
