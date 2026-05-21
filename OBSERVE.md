@@ -1,5 +1,70 @@
 # Observe Notes
 
+## Current Direction: Standalone Tool Layer Rework
+
+Date: `2026-05-21`.
+
+The current refactor is no longer trying to make every internal agent tool equally public. The goal is to isolate reusable data operations from the custom LangChain/LangGraph agent stack so Tabuflow can be used by Any Coding Agent, scripts, and CLI workflows without inheriting graph-state shapes.
+
+Any Coding Agent means the ordinary coding-agent setup rather than a Tabuflow-specific agent: OpenCode, Pi, Codex, or another agent that can run commands, read files, edit files, and call repo-local scripts. These agents should be able to use Tabuflow as a small toolbelt for robust data operations while keeping their own native file and shell workflow.
+
+### Boundary that now feels right
+
+- `src/tools` is the reusable layer. It should expose ordinary Python functions for tabular inspection/extraction, PDF inspection/extraction, artifact catalog/query/view operations, deterministic SQLite repair hints, filesystem sandbox helpers, and workspace skill file helpers.
+- `src/cli.py` is a small preset surface over the useful standalone operations. It should wrap robust data workflows for Any Coding Agent usage, not generic file reading/editing that a coding agent already has through shell/read/edit tools.
+- `src/agents/tool_adapter.py` is the LangChain tool adapter layer. It turns standalone functions into LangChain tools and binds workspace/storage paths outside the model-visible schemas.
+- `src/agents` owns custom Tabuflow agent behavior: prep agents, Query Stage SQL reuse/history, SQL-file edits, validation retries, fixer, orchestration state, and graph routing.
+- `src/tools/artifacts` owns artifact structure and SQLite-backed artifact helpers. It is not the same thing as skills. Skills are reusable guidance contracts; artifacts are concrete working outputs and metadata from runs.
+
+### What changed in the tool split
+
+- LangChain tool wrappers moved out of the core tool layer and now sit under `src/agents/tool_adapter.py`.
+- Fixer is treated as agent-centric and stays under `src/agents/fixer`, because other coding agents do not need Tabuflow's fixer graph to work with the data tools.
+- SQL history reuse, SQL artifact file editing, and Query Stage repair loops moved under `src/agents/query_stage` because they are custom-agent orchestration behavior, not a general-purpose public tool surface.
+- The old standalone SQL-tool idea has narrowed into `src/tools/artifacts`: list/describe queryable artifacts, run read-only SQLite queries, save views, name SQL artifacts when an LLM namer is available, and provide deterministic repair hints.
+- Filesystem sandbox/hashline helpers are isolated under `src/tools/fs`, with workspace-specific helpers in `workspace.py`. They remain useful for adapters and custom agents, but they are not the main CLI value proposition.
+
+### State and field cleanup
+
+The agent state is being trimmed by ownership rather than deleted blindly. The old broad SQL artifact state mixed reuse decisions, SQL execution output, validation retries, and runtime repair details. It is now separated into reuse, execution, validation, and runtime state slices in `src/agents/orchestrator/state.py`, while compatibility remains for older imports.
+
+The runtime finalization path now uses a smaller SQL-stage output object instead of treating the full graph state as the final SQL result. This matters because final save/result code only needs terminal SQL fields such as status, SQL path, selected artifacts, candidate SQL, result payload, last error, and trace. It does not need reuse candidates, validation retry instructions, hashlines, or repair counters.
+
+### CLI posture
+
+The CLI should stay minimal:
+
+```bash
+tabuflow tabular inspect path/to/file.csv
+tabuflow tabular profile path/to/file.xlsx
+tabuflow tabular extract path/to/file.csv
+tabuflow pdf inspect path/to/file.pdf
+tabuflow pdf extract path/to/file.pdf
+tabuflow artifacts list
+tabuflow artifacts describe artifact_name
+tabuflow artifacts query "select * from artifact_name limit 20"
+tabuflow artifacts query @query.sql
+tabuflow artifacts save-view saved_view_name @query.sql
+```
+
+Do not expose storage root or database path as ordinary model-controlled CLI or LangChain tool arguments. Source paths and SQL text are valid user/agent choices; artifact storage configuration is not.
+
+The intended user is not only the custom Tabuflow workbench agent. OpenCode, Pi, Codex, or another coding agent should be able to treat `tabuflow` commands as higher-quality presets for messy tabular/PDF/artifact work, then use their normal edit/run/review loop around the produced files and views.
+
+### LLM-dependent operations
+
+The tools should be able to run without an LLM setup where possible. LLM-dependent behavior should be optional or live in `src/agents`.
+
+Current examples:
+
+- artifact naming can use an LLM-backed namer when configured, but should have a deterministic fallback,
+- PDF handling may eventually benefit from an LLM-assisted inspection/OCR/table path, but the baseline tool should still expose extracted text/images and deterministic extraction outputs,
+- custom validation/retry behavior belongs in the agent layer, not in a supposedly standalone artifact query function.
+
+### Superseded older notes
+
+Older notes below mention `sql_list`, `sql_describe`, `sql_query`, and a standalone SQL package shape. The useful part of those notes still stands: list targets, inspect schemas, run bounded read-only SQL, and recover from SQLite errors. The module boundary has changed. That work now belongs to `src/tools/artifacts` when it is a general artifact/catalog/query operation, and to `src/agents/query_stage` when it depends on Query Stage SQL history, SQL files, graph state, or custom validation loops.
+
 ## Experiment: Unknown CSV Inspection
 
 Goal: treat `examples/gcp/cost_table.csv` as an unknown artifact and inspect it without assuming a fixed schema or a prebuilt pipeline.

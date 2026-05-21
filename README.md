@@ -1,12 +1,10 @@
 # Tabuflow
 
-`Tabuflow` is a local workbench for helping non-technical users do coding-style data analysis over SQL without having to operate vendor-specific tools, cloud consoles, notebook platforms, or BI products directly.
+`Tabuflow` is a local workbench for coding-style data analysis over messy business files. It prepares CSV, XLSX, and PDF sources into queryable SQLite-backed artifacts, then lets an agent or CLI inspect, query, repair, and save useful views without forcing the user into vendor dashboards, notebooks, warehouse consoles, or BI tools.
 
-The project exists to put an agentic coding workflow around ordinary business data: observe the source, plan the analysis, prepare queryable tables, write SQL, inspect results, repair mistakes, and save useful artifacts. The user should be able to ask for the analysis they need while the system handles the mechanics that normally require a data engineer, analyst notebook, warehouse UI, or vendor dashboard.
+The current rework goal is to make the useful data tools standalone and coding-agent agnostic. LangChain and LangGraph should be one consumer of the tool layer, not the shape that the tool layer is forced to fit. Any Coding Agent with normal shell/read/edit access, such as OpenCode, Pi, or Codex, should be able to use the same core operations through Python APIs or the `tabuflow` CLI, while the custom Tabuflow agent keeps its orchestration logic under `src/agents`.
 
-Real source files are still messy. CSVs can start with metadata, spreadsheets can hide several sparse tables in one sheet, and PDFs often need a different extraction path entirely. The useful shape is not "ask a model to read a file"; it is a bounded system where Python tools inspect and prepare the data, the agent chooses the right stage, SQL does the deterministic work, and the UI shows what happened.
-
-Two notes capture the current direction:
+Two notes capture the broader product direction:
 
 - [OBSERVE.md](OBSERVE.md) records what has been learned from real files and tool experiments.
 - [PLAN.md](PLAN.md) records the stabilization plan for the agent stack and workbench UI.
@@ -15,149 +13,178 @@ Two notes capture the current direction:
 
 ```mermaid
 flowchart TB
-    accTitle: Tabuflow architecture
-    accDescr: Shows the browser workbench, FastAPI shell, direct backend routes, chat orchestrator, stage tools, scoped filesystem tools, skills, and persisted artifacts.
-
-    Workbench["Workbench UI<br/>files, SQL, skills, chat"] --> ApiLayer
-    ApiLayer --> Orchestrator
-    Orchestrator --> Stores
-    Stores --> Response["Workbench response"]
-
-    subgraph ApiLayer["FastAPI shell"]
-        direction LR
-        Api["FastAPI app<br/>CORS, request logging,<br/>optional static frontend"]
-        ChatRoutes["chat and chat/stream"]
-        DirectRoutes["direct routes<br/>settings, upload, preview,<br/>SQL, explainer, skills"]
-        Api --> ChatRoutes
-        Api --> DirectRoutes
-    end
-
-    subgraph Orchestrator["LangGraph orchestrator"]
-        direction LR
-        ChatGraph["chat graph<br/>skills, model, ToolNode,<br/>summary"]
-        StageTools["stage tools<br/>prep_csv, prep_pdf,<br/>query_stage"]
-        ScopedTools["scoped tools<br/>filesystem and skills"]
-        ChatGraph --> StageTools
-        ChatGraph --> ScopedTools
-    end
-
-    subgraph Stores["backend services and stores"]
-        direction LR
-        SourceStore["uploads and previews"] ~~~ PreparedStore["SQLite cache<br/>targets and profiles"]
-        PreparedStore ~~~ SqlStore["SQL artifacts<br/>views and downloads"]
-        SqlStore ~~~ SkillsStore["skills/"]
-        SkillsStore ~~~ ExplanationStore["cached explanations"]
-    end
+    AnyAgent[Any Coding Agent] --> AnyInterface[CLI or Python API]
+    Workbench[Workbench UI] --> Api[FastAPI]
+    Api --> CustomAgent[Custom Agent]
+    Api --> DirectRoutes[Direct Routes]
+    CustomAgent --> Adapter[LangChain Tool Adapter]
+    AnyInterface --> Tools[Standalone Tools]
+    Adapter --> Tools
+    DirectRoutes --> Tools
+    Tools --> Artifacts[Artifact Structure]
+    Artifacts --> Results[Views and Results]
 ```
 
-The orchestrator graph expands into the chat path and tool inventory:
+The important boundary is:
+
+- `src/tools` contains standalone operations with ordinary Python inputs and outputs. These functions should not require LangGraph state, chat messages, or custom agent-only payloads.
+- Any Coding Agent means the ordinary coding-agent shape: an agent such as OpenCode, Pi, or Codex that can run commands, read files, edit files, and call small repo-local scripts without becoming part of Tabuflow's custom graph.
+- `src/cli.py` exposes a small preset surface for robust repeated operations: tabular inspection/extraction, PDF inspection/extraction, and prepared artifact queries. It is not meant to wrap generic filesystem editing because coding agents already have shell/read/edit tools.
+- `src/agents/tool_adapter.py` is the LangChain tool adapter. It adapts standalone tools into LangChain tools and binds repo/workspace paths outside the model-visible schemas.
+- `src/agents` owns the custom Tabuflow agent behavior: prep agents, Query Stage SQL reuse/history, validation, fixer, orchestration state, and graph routing.
+- `src/tools/artifacts` owns the artifact directory/database helpers. SQL history reuse and SQL-file editing for the custom Query Stage stay in `src/agents/query_stage`.
+
+The public surfaces expand into the tool layer like this:
+
+```mermaid
+flowchart LR
+    AnyAgent[Any Coding Agent] --> Native[Native IO]
+    AnyAgent --> Presets[CLI or Python]
+    CustomAgent[Custom Agent] --> Adapter[LangChain Tool Adapter]
+    CustomAgent --> QueryStage[Query Stage]
+    Presets --> Tools[Standalone Tools]
+    Adapter --> Tools
+    Native --> Files[Ordinary Files]
+    Tools --> Store[Artifact Store]
+    QueryStage --> Store
+```
+
+Bound workspace and database configuration stays outside model-controlled arguments for both CLI presets and LangChain tool adapters.
+
+## Tool Inventory
+
+The standalone tool layer is intentionally smaller than the full custom agent:
+
+- `tools.tabular`: inspect raw grids, profile table structure, and extract CSV/XLSX tables into SQLite-backed artifacts.
+- `tools.pdf`: inspect PDF pages and extract PDF tables into SQLite-backed artifacts.
+- `tools.artifacts`: list/describe queryable artifacts, run read-only SQL, save query views, name SQL artifacts when an LLM namer is configured, and suggest deterministic SQLite repair hints from schema context.
+- `tools.fs`: sandbox and workspace filesystem primitives used by adapters and custom agents, not a primary CLI value proposition for coding agents.
+- `tools.skills`: workspace skill file helpers, kept separate from artifact structure even though both are directory-backed.
+
+For Any Coding Agent usage, the repo should feel like a normal toolbelt:
+
+- OpenCode, Pi, Codex, or another coding agent can call `tabuflow` commands for high-value data operations instead of reimplementing CSV/PDF/SQLite handling with ad hoc shell snippets.
+- The same agent can still use its native shell/read/edit abilities for ordinary files, SQL drafts, scripts, and reports.
+- Tabuflow should not require that agent to understand LangGraph state, message reducers, tool-call transcripts, or custom orchestrator fields.
+- The custom Tabuflow agent remains available when the workbench needs a guided multi-stage flow with validation, trace messages, and saved views.
+
+The LangChain-facing layer is now a tool-adapter layer:
+
+- `agents/tool_adapter.py` creates LangChain tool wrappers around tabular, PDF, filesystem, and skill operations.
+- `agents/fixer` is agent-centric and remains under `src/agents` because other coding agents do not need Tabuflow's fixer graph.
+- `agents/query_stage` owns custom Query Stage behavior: SQL reuse, SQL artifact file edits, SQL history search, runtime repair loops, and validation retry state.
+- `agents/orchestrator/state.py` now separates SQL state into reuse, execution, validation, and runtime slices instead of treating every field as one generic SQL artifact state.
+
+The tabular preparation flow stays useful both standalone and through the custom agent:
 
 ```mermaid
 flowchart TB
-    accTitle: orchestrator graph and tools
-    accDescr: Shows the user-facing chat graph and the tools it may call.
-
-    ChatPath --> ToolSurface
-
-    subgraph ChatPath["user-facing chat path"]
-        direction LR
-        ChatBridge["chat bridge<br/>graph input and AI SDK stream"]
-        ChatBridge --> SkillsNode["skills node<br/>workspace overview"]
-        SkillsNode --> Model["model node<br/>decides next step"]
-        Model -->|"answer directly"| DirectAnswer["direct answer"]
-        Model -->|"call tools"| ToolNode["ToolNode"]
-        ToolNode --> Model
-        Model -->|"tool run finished"| Summarize["summarize tool run"]
-    end
-
-    subgraph ToolSurface["orchestrator tool surface"]
-        direction LR
-        StageTools["stage tools"] --> PrepCsv["prep_csv"]
-        StageTools --> PrepPdf["prep_pdf"]
-        StageTools --> QueryStage["query_stage"]
-        FsTools["sandbox fs tools<br/>list, search, read,<br/>hashline edit"] ~~~ SkillTools["skill tools<br/>create, search, load"]
-    end
+    Source[CSV or XLSX Source] --> Inspect[Inspect Tabular]
+    Source --> Profile[Profile Tabular]
+    Inspect --> Choose[Choose Extraction]
+    Profile --> Choose
+    PrepAgent[Prep CSV Agent] --> Choose
+    Choose --> Extract[Extract Tabular]
+    Extract --> Store[SQLite Plus Catalog]
+    Store --> Query[Artifact Query]
 ```
 
-The `prep_csv` tool owns CSV/XLSX inspection and extraction:
+The PDF preparation flow follows the same boundary:
 
 ```mermaid
 flowchart TB
-    accTitle: prep_csv loop
-    accDescr: Shows how prep_csv inspects CSV or XLSX files, profiles structure, extracts tables into SQLite, and returns prepared target metadata.
-
-    SourceFiles["CSV/XLSX files"] --> PrepCsvAgent["prep_csv ReAct<br/>structured decision"]
-    PrepCsvAgent --> Inspect["inspect_tabular<br/>raw grid"]
-    PrepCsvAgent --> Profile["profile_tabular<br/>schema hints"]
-    PrepCsvAgent --> Extract["extract_tabular<br/>load SQLite"]
-    Inspect --> Decision{"ready?"}
-    Profile --> Decision
-    Decision -->|"inspect more"| PrepCsvAgent
-    Decision -->|"extract"| Extract
-    Extract --> PreparedTargets["prepared targets<br/>profiles, source refs"]
-    PreparedTargets --> QueryStageInput["query_stage input"]
+    Source[PDF Source] --> Inspect[Inspect PDF]
+    Inspect --> Choose[Choose Pages and Tables]
+    PrepAgent[Prep PDF Agent] --> Choose
+    Choose --> Extract[Extract PDF]
+    Extract --> Store[SQLite Plus Catalog]
+    Store --> Query[Artifact Query]
 ```
 
-The `prep_pdf` tool owns PDF table inspection and extraction:
+## CLI
+
+The CLI is a minimal preset surface over the standalone tools:
+
+```bash
+tabuflow tabular inspect path/to/file.csv
+tabuflow tabular profile path/to/file.xlsx
+tabuflow tabular extract path/to/file.csv
+tabuflow pdf inspect path/to/file.pdf
+tabuflow pdf extract path/to/file.pdf
+tabuflow artifacts list
+tabuflow artifacts describe artifact_name
+tabuflow artifacts query "select * from artifact_name limit 20"
+tabuflow artifacts query @query.sql
+tabuflow artifacts save-view saved_view_name @query.sql
+```
+
+The CLI deliberately does not expose storage root or database path knobs to the agent. The runtime resolves those from the local workspace/tool configuration. Agents can choose source paths and SQL text, but should not be able to redirect Tabuflow's artifact store.
+
+## Agent Flow
 
 ```mermaid
 flowchart TB
-    accTitle: prep_pdf loop
-    accDescr: Shows how prep_pdf inspects PDF pages, extracts visual tables into SQLite, and returns prepared target metadata.
-
-    SourceFiles["PDF files"] --> PrepPdfAgent["prep_pdf ReAct<br/>structured decision"]
-    PrepPdfAgent --> Inspect["inspect_pdf<br/>page text, images"]
-    PrepPdfAgent --> Extract["extract_pdf<br/>load SQLite"]
-    Inspect --> Decision{"tables found?"}
-    Decision -->|"inspect more"| PrepPdfAgent
-    Decision -->|"extract"| Extract
-    Extract --> PreparedTargets["prepared targets<br/>profiles, source refs"]
-    PreparedTargets --> QueryStageInput["query_stage input"]
+    User[User Request] --> Orchestrator[Orchestrator]
+    Orchestrator --> PrepCsv[Prep CSV]
+    Orchestrator --> PrepPdf[Prep PDF]
+    PrepCsv --> Prepared[Prepared Artifacts]
+    PrepPdf --> Prepared
+    Prepared --> QueryStage[Query Stage]
+    QueryStage --> Reuse[Check SQL History]
+    Reuse --> Write[Write or Reuse SQL]
+    Write --> Execute[Execute SQL]
+    Execute --> Repair[Repair Runtime Error]
+    Execute --> Validate[Validation]
+    Repair --> NextSql[Next SQL Attempt]
+    Validate --> Feedback[Retry with Feedback]
+    Validate --> Save[Save View]
+    Feedback --> NextSql
+    Save --> Answer[Final Artifact]
 ```
 
-The `query_stage` tool owns the SQL loop:
+This path is still useful for the Tabuflow workbench because it coordinates multi-step data work, validates the result, records trace messages, and saves named views. The rework does not remove the custom agent; it makes the underlying tools less dependent on it.
+
+The Query Stage loop is intentionally agent-owned:
 
 ```mermaid
 flowchart TB
-    accTitle: query_stage loop
-    accDescr: Shows how query_stage reuses or writes SQL, executes it, repairs runtime failures, validates results, and saves a view.
-
-    Prepared["prepared targets<br/>or saved SQL"] --> ExistingSql{"check_existing_sql"}
-    ExistingSql -->|"new SQL needed"| WriteSql["write_sql"]
-    ExistingSql -->|"reuse accepted SQL"| ExecuteSql["execute_sql"]
-    WriteSql --> ExecuteSql
-    ExecuteSql -->|"result ready"| Validate["validate result"]
-    Validate -->|"accepted or final"| SaveView["save_view"]
-    SaveView --> Artifact["saved SQL view"]
-    ExecuteSql -->|"runtime error"| RepairSql["repair_sql"]
-    RepairSql --> ExecuteSql
-    Validate -->|"retryable feedback"| WriteSql
+    Prepared[Prepared Artifacts] --> History[Check SQL History]
+    History --> Reuse{Reuse Existing SQL?}
+    Reuse --> ReadSql[Read SQL File]
+    Reuse --> WriteSql[Write SQL File]
+    ReadSql --> Execute[Run Query]
+    WriteSql --> Execute
+    Execute --> Complete{Query Complete?}
+    Complete --> Validate[Validate Result]
+    Complete --> Repair[Repair SQL]
+    Repair --> NextAttempt[Next SQL Attempt]
+    Validate --> Accepted{Accepted?}
+    Accepted --> SaveView[Save View]
+    Accepted --> Rewrite[Rewrite SQL]
+    Rewrite --> NextAttempt
+    SaveView --> Result[Final Artifact]
 ```
 
-The orchestrator is the user-facing LangGraph layer. It can answer ordinary questions directly, but for grounded work it can call stage tools, sandboxed filesystem tools, and skill tools:
+## Artifacts
 
-- `prep_csv` prepares CSV/XLSX sources into SQL artifacts.
-- `prep_pdf` prepares PDF table sources into SQL artifacts.
-- `query_stage` writes or reuses SQL, executes it, repairs runtime failures, validates the result, and saves a view.
-- `fs_list_files`, `fs_search_text`, `fs_read_text`, `fs_read_hashline`, and `fs_edit_hashline` keep file access sandboxed, with writes scoped to `.sql` files and workspace skill resources.
-- `create_skill_package`, `search_skills`, and `load_skill` let the agent create deterministic skill frames and load situational guidance.
+Artifacts are a directory-backed working structure, similar in spirit to skills but not the same thing. Skills are reusable guidance packages. Artifacts are the concrete working products of a run: extracted tables, SQLite database state, SQL files, saved views, and catalog metadata.
 
-FastAPI also exposes direct workbench routes for upload, preview, SQL execution/download, file explanation, LLM settings, and skill editing. Those routes share the same local stores as the agent path: the SQLite cache, SQL artifacts, cached explanations, and `skills/`.
+The artifact module should make existing outputs easier to discover and reuse. It should not become a hidden agent brain. If a coding agent can read or edit an ordinary file directly, Tabuflow should not add a wrapper just to mirror that ability.
 
-The backend stays Python-first because the hard parts are data inspection, parsing, OCR/table extraction, SQLite artifacts, and LangGraph workflows. The frontend is the operator surface: files, targets, SQL, saved views, skills, tool traces, and chat.
-
-## Current Shape
+## Current Posture
 
 The main runtime path is:
 
 ```text
-Workbench UI -> FastAPI -> orchestrator -> prep_csv/prep_pdf -> query_stage -> validation -> saved view -> answer
+Workbench UI -> FastAPI -> orchestrator -> Prep CSV / Prep PDF -> Query Stage -> validation -> saved view -> answer
 ```
 
-The lower-level posture is:
+The lower-level tool posture is:
 
 - observe real files before inventing schemas,
 - keep extraction conservative and inspectable,
-- use Python libraries for parsing instead of shell-driven parsing,
+- keep tabular, PDF, artifact catalog, SQLite query, and repair-hint helpers usable without LangChain,
+- keep LangChain schemas and graph-state compatibility in `src/agents`,
+- keep path and storage configuration outside model-editable tool arguments,
 - use SQL artifacts as the deterministic bridge between messy inputs and user-facing answers,
-- keep write access scoped to SQL artifacts and workspace skill files.
+- keep custom SQL history/reuse behavior in the agent layer until it proves useful as a standalone preset.
