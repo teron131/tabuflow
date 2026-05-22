@@ -50,6 +50,43 @@ PDF tools are useful when deterministic text/image inspection or model-backed vi
 
 Email inspection is reference context only. Emails can explain approvals, periods, account IDs, attachments, and reporting context, but they are not billing-table truth unless the task explicitly asks for email-derived data.
 
+## Data Input/Output Test Insights
+
+Keep these because they came from real files and still guide the generic tool design.
+
+### CSV and spreadsheet inputs
+
+- Do not assume row 1 is the header. `examples/gcp/cost_table.csv` has invoice metadata in rows 1-8 and the real table header on row 9.
+- Parse CSVs with a real CSV parser. Quoting, sparse cells, and embedded commas are normal in billing exports.
+- Keep rows above the detected table as metadata instead of merging them into headers.
+- Do not automatically merge multi-row headers. Earlier header merging corrupted simple CSVs, absorbed first data rows into schemas, and created fake column names such as month/rate-prefixed labels.
+- Fill only truly blank column names with stable placeholders such as `row_label` or `column_N`.
+- Treat wide accountant spreadsheets as 2D regions, not just row-density streams. Sparse rows can still belong inside the same table box when surrounding rows support the same column bands.
+
+### Extraction outputs
+
+- The tabular extractor is an extraction layer, not a full-fidelity read layer. It should recover usable table blocks, keep uncertain/non-table blocks as metadata, and avoid semantic invention.
+- A future read/render layer can preserve fuller visual context, ordering, and surrounding text. That should not be forced into the extraction contract.
+- Extracted tables should be queryable through SQLite artifacts with source lineage, row counts, content identity, typed views, and enough catalog metadata to rediscover outputs later.
+- Footer rows such as `Rounding error` and `Total` should be excluded from loaded table bodies when they are clearly footers, but reported through `excluded_row_hints` so the agent can reconcile totals honestly.
+
+### Real-file pressure tests
+
+Useful behaviors observed across the repo examples:
+
+- GCP raw/export CSVs are handled when metadata rows, real headers, and footer totals are separated.
+- AWS revenue/cost XLSX examples need merged-cell preservation and conservative table boundaries.
+- Wide GCP monthly matrices need box-based segmentation so sparse later rows do not get dropped.
+- Side mini-tables in aggregated workbooks should stay isolated instead of being merged into the main table.
+- Alibaba-style summary workbooks should keep summary rows as metadata and start the main table at the real header.
+
+### Output contracts
+
+- Generic extraction should not produce final business outputs by itself. It prepares artifacts.
+- Domain outputs need maintained rules/mappings/configuration: customer mappings, categories, discounts, exchange rates, template constants, rounding rules, and validation totals.
+- GCP Summary + IBS proved the generic tools are sufficient for inspection/extraction/querying, but the final outputs belong to a recipe/output layer or maintained implementation.
+- AWS invoice work should start from PDF table extraction. Email files beside the invoices are reference evidence only unless the task explicitly asks for an email-derived dataset.
+
 ## Domain Skills
 
 Repo skills should stay outcome-first. They should say what source artifacts count, what result must exist, and how to validate it. They should not become command transcripts.
