@@ -935,6 +935,82 @@ Direct text extraction is the first pass because many AWS invoices are text PDFs
 
 Emails in AWS example folders are reference context only. They can explain reporting, approval, forwarding, account IDs, periods, or attachments, but they are not billing-table truth and should not be emitted as CSV/table outputs unless the user explicitly asks for an email reconciliation dataset.
 
+## Current State: Command-First Generic Tool Bar
+
+Date: `2026-05-22`.
+
+The latest review clarified the real test for Tabuflow tools: they are only valuable when they improve robustness, repeatability, or efficiency over what a normal coding agent can already do with freestyle shell, Python, SQL, and file reads. Freestyle commands are the baseline, not a fallback. If a task is simpler as a one-off Python script, direct SQLite query, `csv`/`openpyxl` pass, or normal file inspection, use that path and do not force the custom tool layer into the middle.
+
+### Generic-file boundary
+
+Tabuflow's reusable tool layer should stay generic to messy local business files. Good generic targets are CSV, XLS, XLSX, PDF, EML/MSG, extracted SQLite artifacts, SQL files, and output files. Bad generic targets are vendor-specific billing meanings, one customer's mapping, one month of GCP/AWS/Alibaba conventions, generated content hashes, or a particular LangChain graph state.
+
+The useful generic tool jobs are:
+
+- inspect a file before assuming its schema,
+- preserve spreadsheet layout details that quick freestyle scripts often miss, such as merged cells, old XLS date/number cells, metadata rows, sparse side tables, and total rows,
+- extract discovered table regions into a queryable store with source lineage,
+- expose bounded list/describe/query/save operations over artifacts,
+- make SQL reviewable through ordinary `.sql` files,
+- provide deterministic first-pass PDF and email inspection,
+- report incomplete extraction, ambiguous headers, missing mappings, and OCR uncertainty plainly.
+
+### Where the tools currently earn their keep
+
+The current tabular tools are useful because they do more than `head` or a quick `pandas.read_csv`: they detect encoding/dialect, stream bounded CSV previews, normalize XLS/XLSX rows, preserve merged-cell values, identify likely headers and table regions, and load recovered tables into SQLite with a source catalog and typed views. That is real robustness for messy accountant files.
+
+The artifact tools are useful because they turn the extracted store into a repeatable query boundary: `list`, `from-source`, `describe`, bounded read-only `query`, SQL repair hints, and saved views. This is stronger than ad hoc `sqlite3` only when the catalog and lineage are used instead of hardcoding generated table names.
+
+The PDF tools are useful when a deterministic text/image inspection step or model-backed visual table extraction saves manual page-by-page work. They should not pretend OCR output is complete when layout or text extraction is uncertain.
+
+Email inspection is useful only as reference context. It should stay out of billing-table truth unless a task explicitly asks for an email-derived dataset.
+
+### Where the tools should not grow
+
+Do not invest in making LangChain adapters complete. The repo direction is to abandon LangChain as the core abstraction. `src/agents/*` and LangChain tool wrappers can remain temporary consumers or compatibility glue, but missing adapter coverage is not a product/tool gap. The source of truth should be repo-native commands, Python modules, SQL files, and durable output recipes.
+
+Do not build generic filesystem wrappers for coding agents. Normal coding agents already have shell/read/edit tools. Tabuflow should spend complexity only where it understands messy business-file structure better than generic file access.
+
+Do not turn domain skills into command manuals. Skills should state inputs, outputs, validation, failure modes, and business contract. Deterministic mechanics belong in repo-native commands, SQL files, scripts, or recipe modules.
+
+### Improvement priorities
+
+1. Make artifact roots explicit. CLI users need a reliable way to pass or see the workspace root and SQLite database path. Depending on the current working directory is fragile for reusable command workflows.
+
+2. Improve extraction efficiency only where it beats freestyle. Large CSV extraction still has a full-layout safety cap; if large CSVs matter, add streaming/chunked ingestion or document when direct SQLite/DuckDB/Python is the better path.
+
+3. Add a generic recipe/output layer. The missing middle is not another agent graph; it is a repeatable runner that can take prepared artifacts plus maintained config/mappings, run reviewable SQL/Python transforms, validate totals/row counts, and write named CSV/XLSX outputs. GCP Summary + IBS is one recipe. AWS invoice extraction can become another once the desired final output is clear.
+
+4. Keep generated artifact names out of business logic. Use `from-source`, `describe`, catalog metadata, saved views, and recipe-level stable names to bridge from generic extraction to repeatable outputs.
+
+5. Keep the app/workbench generic. UI and API defaults should expose prepared sources, artifacts, saved views, and output files without baking GCP/AWS-specific result columns into the core product.
+
+### Decision rule
+
+Use Tabuflow tools when they reduce schema/layout mistakes, preserve source lineage, make query work repeatable, or produce validated reusable outputs. Use freestyle commands when they are faster, clearer, and no less reliable. The durable architecture is command-first and recipe-backed; the agent layer is optional orchestration around those primitives.
+
+### Code improvement landed
+
+The first code improvement from this review is explicit CLI root/database control. `src/cli.py` now accepts `--root-dir` on `tabular`, `pdf`, `email`, and `artifacts` command groups. Relative source paths resolve under that root for inspect/profile/reference commands, and extraction commands pass the root through to the SQLite artifact store. `artifacts` also accepts `--database-path`, with relative database paths resolved under `--root-dir`.
+
+This directly addresses the highest-value robustness issue from the review: command workflows should not accidentally depend on the shell's current working directory when a coding agent runs them from a different place. The command surface is still generic; it does not add GCP/AWS-specific logic and does not improve LangChain adapters.
+
+Focused tests in `tests/test_cli.py` cover:
+
+- tabular extraction writing `data/tabular.sqlite` under an explicit root,
+- artifact query reading from an explicit root,
+- `@query.sql` resolving relative to the explicit root,
+- artifact query using an explicit relative database path under the root.
+
+Verification used:
+
+- `uv run ruff format src/cli.py tests/test_cli.py`
+- `uv run ruff check src/cli.py tests/test_cli.py`
+- `.venv/bin/python -m pytest tests/test_cli.py`
+- `uv --directory /Users/teron/Projects/tabuflow run tabuflow tabular --root-dir /Users/teron/Projects/tabuflow profile examples/gcp/cost_table.csv`
+
+Note: `uv run pytest ...` and `uv run --with pytest pytest ...` failed to spawn `pytest` in this checkout, and `.venv/bin/pytest` has a stale shebang pointing to the old `data-agentics` venv path. Running through `.venv/bin/python -m pytest` worked.
+
 ### Markdown style note
 
 Repo skill docs and observation notes should not hard-wrap ordinary prose. Keep prose paragraphs and bullet text on one line unless a real Markdown structure, table, code fence, or nested list needs multiple lines. This avoids making future diffs noisy and keeps skill edits easier to review.
