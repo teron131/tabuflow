@@ -107,7 +107,7 @@ def add_tabular_commands(subparsers: Any) -> None:
     inspect = tabular_subparsers.add_parser("inspect", help="Inspect a bounded raw grid window.")
     inspect.add_argument("path")
     inspect.add_argument("--start-row", type=int, default=1)
-    inspect.add_argument("--limit", type=int, default=5)
+    inspect.add_argument("--limit", type=int, default=20)
     inspect.add_argument("--start-col", type=int, default=1)
     inspect.add_argument("--end-col", type=int, default=None)
     inspect.add_argument("--sheet", default=None)
@@ -144,14 +144,12 @@ def add_tabular_commands(subparsers: Any) -> None:
 
     extract = tabular_subparsers.add_parser("extract", help="Extract tables into the shared SQLite cache.")
     extract.add_argument("path")
-    extract.add_argument("--sample-rows", type=int, default=MAX_SAMPLE_ROWS)
     extract.add_argument("--metadata-rows", type=int, default=MAX_METADATA_ROWS)
     extract.add_argument("--sheet", default=None)
     extract.set_defaults(
         handler=lambda args: extract_tabular_file(
             args.path,
             root_dir=resolve_cli_root(args),
-            sample_rows=args.sample_rows,
             metadata_rows=args.metadata_rows,
             sheet=args.sheet,
         )
@@ -286,7 +284,7 @@ def add_artifact_commands(subparsers: Any) -> None:
 
     describe = artifact_subparsers.add_parser("describe", help="Describe one queryable artifact.")
     describe.add_argument("name")
-    describe.add_argument("--sample-rows", type=int, default=3)
+    describe.add_argument("--sample-rows", type=int, default=10)
     describe.add_argument("--text-value-hints", type=int, default=3)
     describe.set_defaults(
         handler=lambda args: describe_sql_artifact(

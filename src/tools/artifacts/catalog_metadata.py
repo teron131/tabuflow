@@ -40,6 +40,21 @@ def _artifact_row_count(
     return cast(int, row[0])
 
 
+def _catalog_table_columns(
+    connection: sqlite3.Connection,
+    table_name: str,
+) -> set[str]:
+    """Return catalog table columns for schema-aware reads."""
+    return {cast(str, row[1]) for row in connection.execute(f"PRAGMA table_info({quote_identifier(table_name)})").fetchall()}
+
+
+def _catalog_fingerprint_column(columns: set[str]) -> str:
+    """Return the column that stores exact table fingerprints in this catalog."""
+    if "fingerprint" in columns:
+        return "fingerprint"
+    raise CatalogMetadataError("Tabular catalog metadata is missing a fingerprint column.")
+
+
 def _fetch_catalog_metadata(
     connection: sqlite3.Connection,
 ) -> tuple[
@@ -47,10 +62,12 @@ def _fetch_catalog_metadata(
     dict[str, list[dict[str, Any]]],
 ]:
     """Load shared tabular catalog metadata for list, describe, and suggest helpers."""
-    content_query = f"SELECT content_id, table_name, source_format, row_count, column_schema_json FROM {SQLITE_CONTENTS_TABLE}"
+    content_fingerprint_column = _catalog_fingerprint_column(_catalog_table_columns(connection, SQLITE_CONTENTS_TABLE))
+    source_fingerprint_column = _catalog_fingerprint_column(_catalog_table_columns(connection, SQLITE_SOURCES_TABLE))
+    content_query = f"SELECT {content_fingerprint_column}, table_name, source_format, row_count, column_schema_json FROM {SQLITE_CONTENTS_TABLE}"
     content_rows = {
         cast(str, row[1]): {
-            "content_id": cast(str, row[0]),
+            "fingerprint": cast(str, row[0]),
             "table_name": cast(str, row[1]),
             "source_format": cast(str, row[2]),
             "row_count": cast(int, row[3]),
@@ -60,19 +77,19 @@ def _fetch_catalog_metadata(
     }
     source_rows: dict[str, list[dict[str, Any]]] = {}
     source_query = f"""
-    SELECT content_id, source_path, source_format, source_sheet_name, source_table_name, fingerprint
+    SELECT {source_fingerprint_column}, source_path, source_format, source_sheet_name, source_table_name
     FROM {SQLITE_SOURCES_TABLE}
     ORDER BY source_path, source_table_name
     """
     for row in connection.execute(source_query).fetchall():
-        content_id = cast(str, row[0])
-        source_rows.setdefault(content_id, []).append(
+        table_fingerprint = cast(str, row[0])
+        source_rows.setdefault(table_fingerprint, []).append(
             {
                 "source_path": cast(str, row[1]),
                 "source_format": cast(str, row[2]),
                 "source_sheet_name": cast(str, row[3]),
                 "source_table_name": cast(str, row[4]),
-                "fingerprint": cast(str, row[5]),
+                "fingerprint": table_fingerprint,
             }
         )
     return content_rows, source_rows
@@ -125,7 +142,7 @@ def _artifact_source_paths(
     content_metadata = content_rows.get(base_table_name)
     if content_metadata is None:
         return None, [], []
-    source_mappings = _dedupe_source_mappings(source_rows.get(cast(str, content_metadata["content_id"]), []))
+    source_mappings = _dedupe_source_mappings(source_rows.get(cast(str, content_metadata["fingerprint"]), []))
     if not source_mappings:
         raise CatalogMetadataError(f"Source metadata is missing for queryable artifact `{content_metadata['table_name']}`.")
     source_paths = source_paths_from_mappings(source_mappings)
@@ -332,7 +349,7 @@ def _cached_database_catalog(
                 "kind": kind,
                 "create_sql": create_sql,
                 "columns": _artifact_columns(connection, name),
-                "content_id": None if content_metadata is None else content_metadata["content_id"],
+                "fingerprint": None if content_metadata is None else content_metadata["fingerprint"],
                 "content_schema": None if content_metadata is None else content_metadata["content_schema"],
                 "row_count": row_count,
                 "source_mappings": source_mappings,

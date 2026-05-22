@@ -11,7 +11,7 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.merge import MergedCellRange
 import xlrd
 
-MAX_SAMPLE_ROWS = 8
+MAX_SAMPLE_ROWS = 20
 MAX_METADATA_ROWS = 20
 MAX_SAMPLE_CHARS = 10000
 MAX_ENCODING_SAMPLE_BYTES = 65536

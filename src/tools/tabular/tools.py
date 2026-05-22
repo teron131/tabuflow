@@ -22,7 +22,7 @@ from .ingestion import (
     tabular_summary_from_counts,
 )
 from .segmentation import compute_region_boxes, header_candidates, profile_region_boxes, segment_tabular_blocks
-from .storage import fingerprint, fingerprint_from_samples, load_tables_into_sqlite, resolve_root_dir
+from .storage import load_tables_into_sqlite, resolve_root_dir
 
 FOOTER_LIKE_LABELS = {"total", "grand total", "rounding error"}
 WORKBOOK_SHEET_PROFILE_FIELDS = {
@@ -176,20 +176,11 @@ def profile_tabular_file(
     path = Path(path)
     if path.suffix.lower() == ".csv" and path.stat().st_size > MAX_FULL_PROFILE_BYTES:
         summary = stream_csv_profile(path, max_sample_rows=max_sample_rows)
-        profile_fingerprint = fingerprint_from_samples(
-            row_count=summary["row_count"],
-            column_count=summary["column_count"],
-            top_rows=summary["top_rows"],
-            bottom_rows=summary["bottom_rows"],
-            header_candidates=[],
-            max_sample_rows=max_sample_rows,
-        )
         header_candidate_rows: list[dict[str, Any]] = []
         regions: list[dict[str, Any]] = []
         return {
             "path": str(path),
             **{key: value for key, value in summary.items() if key not in {"top_rows", "bottom_rows"}},
-            "fingerprint": profile_fingerprint,
             "structure_hints": _structure_hints(
                 header_candidate_rows=header_candidate_rows,
                 regions=regions,
@@ -206,11 +197,6 @@ def profile_tabular_file(
     return {
         "path": str(path),
         **tabular_summary(rows, format_info),
-        "fingerprint": fingerprint(
-            rows,
-            max_sample_rows=max_sample_rows,
-            header_candidates=detected_header_candidates,
-        ),
         "non_empty_row_count": len(non_empty_counts),
         "blank_row_count": len(rows) - len(non_empty_counts),
         "max_non_empty_cells_in_row": max(non_empty_counts, default=0),
@@ -282,7 +268,6 @@ def extract_tabular_file(
     path: str | Path,
     *,
     root_dir: str | Path | None = None,
-    sample_rows: int = MAX_SAMPLE_ROWS,
     metadata_rows: int = MAX_METADATA_ROWS,
     sheet: str | None = None,
 ) -> dict[str, Any]:
@@ -293,7 +278,6 @@ def extract_tabular_file(
     if path.suffix.lower() == ".csv" and path.stat().st_size > MAX_FULL_EXTRACT_BYTES:
         raise ValueError(f"CSV extraction currently requires a full in-memory layout pass and is capped at {MAX_FULL_EXTRACT_BYTES} bytes for safety: {path}")
 
-    profile = profile_tabular_file(path, max_sample_rows=sample_rows, sheet=sheet)
     recovered = _recover_tabular_blocks(
         path,
         sample_rows=None,
@@ -308,7 +292,6 @@ def extract_tabular_file(
             "status": "empty",
             "artifact_backend": "sqlite",
             "database_path": "",
-            "fingerprint": profile["fingerprint"],
             "recovered_table_count": 0,
             "recovered_metadata_block_count": len(recovered["metadata"]),
             "excluded_row_hints": _footer_like_row_hints(recovered["tables"], recovered["metadata"]),
@@ -319,8 +302,8 @@ def extract_tabular_file(
     loaded = load_tables_into_sqlite(
         recovered,
         root_dir=root_dir,
-        fingerprint=profile["fingerprint"],
     )
+    table_fingerprints = [table["fingerprint"] for table in loaded["tables"]]
 
     return {
         "path": recovered["path"],
@@ -329,7 +312,7 @@ def extract_tabular_file(
         "status": "loaded",
         "artifact_backend": "sqlite",
         "database_path": loaded["database_path"],
-        "fingerprint": profile["fingerprint"],
+        "fingerprints": table_fingerprints,
         "recovered_table_count": len(recovered["tables"]),
         "recovered_metadata_block_count": len(recovered["metadata"]),
         "excluded_row_hints": _footer_like_row_hints(recovered["tables"], recovered["metadata"]),

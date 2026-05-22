@@ -20,7 +20,6 @@ SQLITE_SOURCES_TABLE = "_tabular_sources"
 INSERT_BATCH_SIZE = 1000
 LOCK_POLL_SECONDS = 0.1
 LOCK_TIMEOUT_SECONDS = 10.0
-DEFAULT_ROOT_DIR = Path.cwd().resolve()
 DATE_PATTERNS = ("%Y-%m-%d", "%Y/%m/%d")
 DATETIME_PATTERNS = (
     "%Y-%m-%d %H:%M",
@@ -38,20 +37,22 @@ SQLITE_SOURCES_COLUMNS = (
     "source_sheet_name",
     "source_table_name",
     "fingerprint",
-    "content_id",
 )
 SQLITE_SOURCES_UNIQUE_COLUMNS = (
     "source_path",
     "source_sheet_name",
     "source_table_name",
-    "content_id",
+    "fingerprint",
 )
 SQLITE_SOURCES_COLUMN_SET = frozenset(SQLITE_SOURCES_COLUMNS)
-
-
-def _tabular_dimensions(rows: list[list[str]]) -> tuple[int, int]:
-    """Return the row and column counts for loaded rows."""
-    return len(rows), max((len(row) for row in rows), default=0)
+SQLITE_CONTENTS_COLUMNS = (
+    "fingerprint",
+    "table_name",
+    "source_format",
+    "row_count",
+    "column_schema_json",
+)
+SQLITE_CONTENTS_COLUMN_SET = frozenset(SQLITE_CONTENTS_COLUMNS)
 
 
 def _update_hash_rows(
@@ -68,52 +69,8 @@ def _update_hash_rows(
         hasher.update(b"\x1e")
 
 
-def fingerprint_from_samples(
-    *,
-    row_count: int,
-    column_count: int,
-    top_rows: list[list[str]],
-    bottom_rows: list[list[str]],
-    header_candidates: list[dict[str, Any]],
-    max_sample_rows: int,
-) -> str:
-    """Build a cheap deterministic fingerprint from bounded samples."""
-    hasher = hashlib.sha256()
-    hasher.update(f"rows:{row_count}|cols:{column_count}".encode())
-    hasher.update(b"\x1b")
-    _update_hash_rows(
-        hasher,
-        (candidate["values"] for candidate in header_candidates),
-        row_limit=max_sample_rows,
-    )
-    hasher.update(b"\x1d")
-    _update_hash_rows(hasher, top_rows, row_limit=max_sample_rows)
-    if bottom_rows:
-        hasher.update(b"\x1c")
-        _update_hash_rows(hasher, bottom_rows, row_limit=max_sample_rows)
-    return hasher.hexdigest()
-
-
-def fingerprint(
-    rows: list[list[str]],
-    *,
-    max_sample_rows: int,
-    header_candidates: list[dict[str, Any]],
-) -> str:
-    """Build a cheap deterministic fingerprint for routing and cache hints."""
-    row_count, column_count = _tabular_dimensions(rows)
-    return fingerprint_from_samples(
-        row_count=row_count,
-        column_count=column_count,
-        top_rows=rows[:max_sample_rows],
-        bottom_rows=rows[-max_sample_rows:] if row_count > max_sample_rows else [],
-        header_candidates=header_candidates,
-        max_sample_rows=max_sample_rows,
-    )
-
-
-def _content_id(columns: list[str], rows: list[list[str]]) -> str:
-    """Build an exact content identifier from ordered columns and rows."""
+def fingerprint(columns: list[str], rows: list[list[str]]) -> str:
+    """Build an exact table-content fingerprint from ordered columns and rows."""
     hasher = hashlib.sha256()
     _update_hash_rows(hasher, [columns], row_limit=1)
     hasher.update(b"\x1a")
@@ -190,8 +147,26 @@ def _create_sqlite_sources_table(
             source_sheet_name TEXT NOT NULL,
             source_table_name TEXT NOT NULL,
             fingerprint TEXT NOT NULL,
-            content_id TEXT NOT NULL,
-            UNIQUE(source_path, source_sheet_name, source_table_name, content_id)
+            UNIQUE(source_path, source_sheet_name, source_table_name, fingerprint)
+        )
+        """
+    )
+
+
+def _create_sqlite_contents_table(
+    connection: sqlite3.Connection,
+    *,
+    table_name: str = SQLITE_CONTENTS_TABLE,
+) -> None:
+    """Create the content catalog table keyed by exact table fingerprint."""
+    connection.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {quote_identifier(table_name)} (
+            fingerprint TEXT PRIMARY KEY,
+            table_name TEXT NOT NULL,
+            source_format TEXT NOT NULL,
+            row_count INTEGER NOT NULL,
+            column_schema_json TEXT NOT NULL
         )
         """
     )
@@ -219,8 +194,22 @@ def _sqlite_unique_indexes(
     return unique_indexes
 
 
+def _ensure_sqlite_contents_table_schema(connection: sqlite3.Connection) -> None:
+    """Create `_tabular_contents` and require the current fingerprint-only schema."""
+    columns = _sqlite_table_columns(connection, SQLITE_CONTENTS_TABLE)
+    if not columns:
+        _create_sqlite_contents_table(connection)
+        return
+
+    existing_columns = set(columns)
+    if existing_columns == SQLITE_CONTENTS_COLUMN_SET:
+        return
+
+    raise ValueError(f"`{SQLITE_CONTENTS_TABLE}` must use the fingerprint-only schema.")
+
+
 def _ensure_sqlite_sources_table_schema(connection: sqlite3.Connection) -> None:
-    """Create or recreate `_tabular_sources` with the expected schema."""
+    """Create `_tabular_sources` and require the current fingerprint-only schema."""
     columns = _sqlite_table_columns(connection, SQLITE_SOURCES_TABLE)
     if not columns:
         _create_sqlite_sources_table(connection)
@@ -232,23 +221,12 @@ def _ensure_sqlite_sources_table_schema(connection: sqlite3.Connection) -> None:
     if has_expected_columns and has_expected_unique_key:
         return
 
-    connection.execute(f"DROP TABLE {quote_identifier(SQLITE_SOURCES_TABLE)}")
-    _create_sqlite_sources_table(connection)
+    raise ValueError(f"`{SQLITE_SOURCES_TABLE}` must use the fingerprint-only schema.")
 
 
 def _ensure_sqlite_catalog(connection: sqlite3.Connection) -> None:
     """Create the shared SQLite catalog tables when missing."""
-    connection.execute(
-        f"""
-        CREATE TABLE IF NOT EXISTS {SQLITE_CONTENTS_TABLE} (
-            content_id TEXT PRIMARY KEY,
-            table_name TEXT NOT NULL,
-            source_format TEXT NOT NULL,
-            row_count INTEGER NOT NULL,
-            column_schema_json TEXT NOT NULL
-        )
-        """
-    )
+    _ensure_sqlite_contents_table_schema(connection)
     _ensure_sqlite_sources_table_schema(connection)
 
 
@@ -341,7 +319,7 @@ def _create_typed_sqlite_view(
 
 def _content_table_name(
     *,
-    content_id: str,
+    table_fingerprint: str,
     columns: list[str],
     source_path: str,
     source_table_name: str,
@@ -354,7 +332,7 @@ def _content_table_name(
         Path(source_path).stem,
         source_table_name,
     ]
-    return name_sql_artifact(" ".join(description_parts), identifier=content_id)
+    return name_sql_artifact(" ".join(description_parts), identifier=table_fingerprint)
 
 
 def _content_schema_json(columns: list[str], db_columns: list[str]) -> str:
@@ -396,20 +374,20 @@ def _load_or_reuse_content_table(
     source_format: str,
 ) -> tuple[str, str, list[str], str]:
     """Ensure a raw content table exists and return its storage metadata."""
-    content_id = _content_id(columns, rows)
+    table_fingerprint = fingerprint(columns, rows)
     table_name = _content_table_name(
-        content_id=content_id,
+        table_fingerprint=table_fingerprint,
         columns=columns,
         source_path=source_path,
         source_table_name=source_table_name,
     )
     db_columns = _db_column_names(columns)
     existing = connection.execute(
-        f"SELECT table_name FROM {SQLITE_CONTENTS_TABLE} WHERE content_id = ?",
-        [content_id],
+        f"SELECT table_name FROM {SQLITE_CONTENTS_TABLE} WHERE fingerprint = ?",
+        [table_fingerprint],
     ).fetchone()
     if existing is not None:
-        return content_id, cast(str, existing[0]), db_columns, "reused"
+        return table_fingerprint, cast(str, existing[0]), db_columns, "reused"
 
     _create_sqlite_table(
         connection,
@@ -420,18 +398,18 @@ def _load_or_reuse_content_table(
     connection.execute(
         f"""
         INSERT INTO {SQLITE_CONTENTS_TABLE}
-        (content_id, table_name, source_format, row_count, column_schema_json)
+        (fingerprint, table_name, source_format, row_count, column_schema_json)
         VALUES (?, ?, ?, ?, ?)
         """,
         [
-            content_id,
+            table_fingerprint,
             table_name,
             source_format,
             len(rows),
             _content_schema_json(columns, db_columns),
         ],
     )
-    return content_id, table_name, db_columns, "loaded"
+    return table_fingerprint, table_name, db_columns, "loaded"
 
 
 def _register_sqlite_source(
@@ -442,14 +420,13 @@ def _register_sqlite_source(
     source_sheet_name: str,
     source_table_name: str,
     fingerprint: str,
-    content_id: str,
 ) -> None:
     """Record how a source artifact maps to extracted content."""
     connection.execute(
         f"""
         INSERT OR REPLACE INTO {SQLITE_SOURCES_TABLE}
-        (source_path, source_format, source_sheet_name, source_table_name, fingerprint, content_id)
-        VALUES (?, ?, ?, ?, ?, ?)
+        (source_path, source_format, source_sheet_name, source_table_name, fingerprint)
+        VALUES (?, ?, ?, ?, ?)
         """,
         [
             source_path,
@@ -457,7 +434,6 @@ def _register_sqlite_source(
             source_sheet_name,
             source_table_name,
             fingerprint,
-            content_id,
         ],
     )
 
@@ -474,7 +450,6 @@ def load_tables_into_sqlite(
     recovered: dict[str, Any],
     *,
     root_dir: str | Path | None = None,
-    fingerprint: str,
 ) -> dict[str, Any]:
     """Load recovered tables into a shared SQLite database."""
     database_path = sqlite_database_path(root_dir=root_dir)
@@ -492,7 +467,7 @@ def load_tables_into_sqlite(
                 source_table_name = _required_metadata_text(table.get("name"), "tables[].name")
                 columns = list(table["columns"])
                 rows = list(table["rows"])
-                content_id, table_name, db_columns, load_status = _load_or_reuse_content_table(
+                table_fingerprint, table_name, db_columns, load_status = _load_or_reuse_content_table(
                     connection,
                     columns=columns,
                     rows=rows,
@@ -512,14 +487,13 @@ def load_tables_into_sqlite(
                     source_format=source_format,
                     source_sheet_name=source_sheet_name,
                     source_table_name=source_table_name,
-                    fingerprint=fingerprint,
-                    content_id=content_id,
+                    fingerprint=table_fingerprint,
                 )
 
                 loaded_tables.append(
                     {
                         "source_name": source_table_name,
-                        "content_id": content_id,
+                        "fingerprint": table_fingerprint,
                         "table_name": table_name,
                         "typed_view_name": typed_view_name,
                         "row_count": len(rows),

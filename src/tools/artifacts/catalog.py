@@ -25,7 +25,7 @@ from .database import (
     zip_exact,
 )
 
-MAX_DESCRIBE_SAMPLE_ROWS = 5
+MAX_DESCRIBE_SAMPLE_ROWS = 20
 MAX_TEXT_VALUE_HINTS = 5
 MAX_SUGGESTED_SQL_ARTIFACTS = 5
 DEFAULT_CLI_ARTIFACT_LIST_LIMIT = 20
@@ -470,7 +470,7 @@ def describe_sql_artifact(
     *,
     root_dir: str | Path | None = None,
     database_path: str | Path | None = None,
-    sample_rows: int = 3,
+    sample_rows: int = 10,
     text_value_hints: int = 3,
 ) -> dict[str, Any]:
     """Describe a single SQLite table or view."""
@@ -527,7 +527,7 @@ def describe_sql_artifact(
                 "sample_rows": sample_row_items,
                 "text_value_hints": text_value_hint_map,
                 "create_sql": artifact_info["create_sql"],
-                "content_id": artifact_info["content_id"],
+                "fingerprint": artifact_info["fingerprint"],
                 "content_schema": artifact_info["content_schema"],
                 "source_mappings": source_mappings,
                 "source_path_count": len(source_paths),

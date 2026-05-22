@@ -100,7 +100,6 @@ def make_tabular_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
     @tool(parse_docstring=True)
     def extract_tabular(
         path: str,
-        sample_rows: int = MAX_SAMPLE_ROWS,
         metadata_rows: int = MAX_METADATA_ROWS,
         sheet: str | None = None,
     ) -> dict[str, Any]:
@@ -108,14 +107,12 @@ def make_tabular_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
 
         Args:
             path: Path to the CSV or XLSX file to extract.
-            sample_rows: Maximum number of rows to inspect while preparing extraction.
             metadata_rows: Maximum number of metadata rows to inspect while preparing extraction.
             sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
         return extract_tabular_file(
             _workspace_source_path(path, root_dir=resolved_root_dir),
             root_dir=resolved_root_dir,
-            sample_rows=sample_rows,
             metadata_rows=metadata_rows,
             sheet=sheet,
         )

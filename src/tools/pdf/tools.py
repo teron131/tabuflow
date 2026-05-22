@@ -8,7 +8,7 @@ from typing import Any
 
 import pymupdf
 
-from ..tabular.storage import fingerprint, load_tables_into_sqlite, resolve_root_dir
+from ..tabular.storage import load_tables_into_sqlite, resolve_root_dir
 
 DEFAULT_PAGES_PER_CHUNK = 3
 DEFAULT_DPI = 192
@@ -99,16 +99,6 @@ def _normalized_pdf_tables(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return normalized_tables
 
 
-def _pdf_tables_fingerprint(tables: list[dict[str, Any]]) -> str:
-    """Build a deterministic fingerprint for recovered PDF tables."""
-    rows: list[list[str]] = []
-    for table in tables:
-        rows.append([str(table["name"])])
-        rows.append([str(column) for column in table["columns"]])
-        rows.extend([str(cell) for cell in row] for row in table["rows"])
-    return fingerprint(rows, max_sample_rows=max(len(rows), 1), header_candidates=[])
-
-
 def extract_pdf_file(
     path: str | Path,
     *,
@@ -169,7 +159,6 @@ def extract_pdf_file(
     loaded = load_tables_into_sqlite(
         recovered,
         root_dir=resolved_root_dir,
-        fingerprint=_pdf_tables_fingerprint(recovered_tables),
     )
 
     return {
