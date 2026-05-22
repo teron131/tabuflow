@@ -28,7 +28,14 @@ from .tools.pdf import (
     extract_pdf_file,
     inspect_pdf_file,
 )
-from .tools.tabular import MAX_METADATA_ROWS, MAX_SAMPLE_ROWS, extract_tabular_file, inspect_tabular_file, profile_tabular_file
+from .tools.tabular import (
+    MAX_METADATA_ROWS,
+    MAX_SAMPLE_ROWS,
+    extract_tabular_file,
+    inspect_tabular_file,
+    profile_tabular_file,
+    profile_tabular_workbook_sheets,
+)
 
 
 def print_json(payload: Any) -> None:
@@ -119,11 +126,19 @@ def add_tabular_commands(subparsers: Any) -> None:
     profile.add_argument("path")
     profile.add_argument("--max-sample-rows", type=int, default=MAX_SAMPLE_ROWS)
     profile.add_argument("--sheet", default=None)
+    profile.add_argument("--all-sheets", action="store_true", help="Profile every worksheet in an XLS/XLSX workbook.")
     profile.set_defaults(
-        handler=lambda args: profile_tabular_file(
-            resolve_cli_path(args.path, args),
-            max_sample_rows=args.max_sample_rows,
-            sheet=args.sheet,
+        handler=lambda args: (
+            profile_tabular_workbook_sheets(
+                resolve_cli_path(args.path, args),
+                max_sample_rows=args.max_sample_rows,
+            )
+            if args.all_sheets
+            else profile_tabular_file(
+                resolve_cli_path(args.path, args),
+                max_sample_rows=args.max_sample_rows,
+                sheet=args.sheet,
+            )
         )
     )
 

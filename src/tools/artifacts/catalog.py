@@ -370,13 +370,14 @@ def _matched_source_mappings(
 
 def _source_match_artifact(artifact: dict[str, Any], matched_mappings: list[dict[str, Any]]) -> dict[str, Any]:
     """Return one source-match artifact payload."""
+    artifact_name = cast(str, artifact["name"])
     kind = cast(str, artifact["kind"])
     columns = cast(list[dict[str, Any]], artifact["columns"])
     column_names = [cast(str, column["name"]) for column in columns]
     column_preview, columns_truncated = _preview_list(column_names, max_items=MAX_COLUMN_PREVIEW)
     row_count = cast(int | None, artifact["row_count"])
     return {
-        "name": artifact["name"],
+        "name": artifact_name,
         "type": artifact["type"],
         "kind": kind,
         "row_count": row_count,
@@ -384,10 +385,14 @@ def _source_match_artifact(artifact: dict[str, Any], matched_mappings: list[dict
         "column_preview": column_preview,
         "columns_truncated": columns_truncated,
         "size_label": _artifact_size_label(row_count=row_count, column_count=len(column_names)),
+        "query_hint": {
+            "sql_artifact_name": artifact_name,
+            "select_preview_sql": f"SELECT * FROM {quote_identifier(artifact_name)} LIMIT 20;",
+        },
         "source_mappings": matched_mappings,
         "source_sql_artifact_names": artifact["source_sql_artifact_names"],
         "summary": _artifact_summary(
-            name=cast(str, artifact["name"]),
+            name=artifact_name,
             sqlite_type=cast(str, artifact["type"]),
             kind=kind,
             row_count=row_count,
@@ -670,6 +675,7 @@ def artifacts_from_source(
 
         source_matches.sort(key=lambda item: (cast(str, item["kind"]) != "typed_content_view", cast(str, item["name"])))
         source_match_preview, source_matches_truncated = _preview_list(source_matches, max_items=MAX_SOURCE_MATCH_PREVIEW)
+        preferred_artifact = source_matches[0] if source_matches else None
         return {
             "database_path": str(resolved_path),
             "status": "ok",
@@ -677,6 +683,7 @@ def artifacts_from_source(
             "source_path": source_path,
             "source_format": source_format,
             "artifact_count": len(source_matches),
+            "preferred_artifact": preferred_artifact,
             "artifacts": source_match_preview,
             "artifacts_truncated": source_matches_truncated,
             "summary": f"Found {len(source_matches)} artifact(s) for source `{source_path}`.",
