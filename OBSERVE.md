@@ -2,7 +2,7 @@
 
 ## Current Direction: Command-First, Tool-Layer First
 
-Tabuflow should stay centered on reusable local data tools, not on a custom agent graph. The useful product is a small command/Python toolbelt for messy business files: inspect them, extract recoverable tables, keep source lineage, query artifacts, and write reviewable outputs.
+Tabuflow should stay centered on reusable local data tools, not on a custom agent graph. The useful product is a small command/Python toolbelt for messy business files: inspect them, extract recoverable tables, keep source lineage, query artifacts, write reusable SQL artifacts, and write reviewable outputs.
 
 Any Coding Agent means a normal coding agent such as Codex, Pi, OpenCode, or another shell/read/edit-capable agent. It should be able to use Tabuflow without learning LangGraph state, LangChain transcripts, or Tabuflow-specific orchestration internals.
 
@@ -12,7 +12,7 @@ Any Coding Agent means a normal coding agent such as Codex, Pi, OpenCode, or ano
 - `src/cli.py` is a small preset surface over the useful standalone operations. It should wrap robust data workflows, not generic file reading/editing that coding agents already have.
 - `src/agents` owns custom Tabuflow workbench behavior: prep agents, Query Stage SQL reuse/history, SQL-file edits, validation retries, fixer, orchestration state, and graph routing.
 - `src/agents/tool_adapter.py` is a compatibility adapter for LangChain. LangChain is a consumer of the tool layer, not the foundation.
-- `src/tools/artifacts` owns concrete run outputs and SQLite-backed artifact metadata. Skills are separate: they are guidance contracts about desired outcomes, validation, and failure modes.
+- `src/tools/artifacts` owns concrete run outputs and SQLite-backed artifact metadata. SQL files should also live with artifacts because they are produced/reusable project work, while skills stay as guidance contracts about desired outcomes, validation, and failure modes.
 
 ## Generic Tool Bar
 
@@ -46,6 +46,8 @@ The latest tabular improvement made the useful hints explicit:
 
 The artifact tools are useful because they turn extracted data into a repeatable query boundary: `list`, `from-source`, `describe`, bounded read-only `query`, SQL repair hints, and saved views. `artifacts from-source` now returns a preferred artifact plus quoted preview SQL so agents can start from source lineage instead of memorizing generated table names.
 
+The artifact database is the working data warehouse for prepared files. Users may already have many source files loaded into SQLite, so normal analysis should begin by listing/describing artifacts and writing ordinary SQL files against the database, not by asking an agent to remember file names or table names from chat history. Agents can author and run SQL, but the reusable unit should be the `.sql` artifact and the saved view/output it proves.
+
 PDF tools are useful when deterministic text/image inspection or model-backed visual table extraction saves manual page work. They should report ambiguity instead of pretending OCR/layout output is complete.
 
 Email inspection is reference context only. Emails can explain approvals, periods, account IDs, attachments, and reporting context, but they are not billing-table truth unless the task explicitly asks for email-derived data.
@@ -67,7 +69,9 @@ Keep these because they came from real files and still guide the generic tool de
 
 - The tabular extractor is an extraction layer, not a full-fidelity read layer. It should recover usable table blocks, keep uncertain/non-table blocks as metadata, and avoid semantic invention.
 - A future read/render layer can preserve fuller visual context, ordering, and surrounding text. That should not be forced into the extraction contract.
-- Extracted tables should be queryable through SQLite artifacts with source lineage, row counts, content identity, typed views, and enough catalog metadata to rediscover outputs later.
+- Extracted tables should be queryable through SQLite artifacts with source lineage, row counts, exact content fingerprints, typed views, and enough catalog metadata to rediscover outputs later.
+- `fingerprint` is the single table-content identity. It is a SHA-256 hash over ordered columns plus all stored rows, and it is the uniqueness key for deduping table artifacts. Do not reintroduce a second `content_id` concept or a sampled fingerprint for storage.
+- Preview limits belong to inspect/profile/describe surfaces only. `tabular inspect`, `tabular profile`, and `artifacts describe` should show enough rows to orient a human or coding agent without dumping the dataset; extraction should always store the full recovered table in SQLite.
 - Footer rows such as `Rounding error` and `Total` should be excluded from loaded table bodies when they are clearly footers, but reported through `excluded_row_hints` so the agent can reconcile totals honestly.
 
 ### Real-file pressure tests
@@ -118,7 +122,9 @@ Adjacent `.eml` and `.msg` files are supporting reference context, not default s
 
 4. Keep generated artifact names out of business logic. Use `from-source`, `describe`, catalog metadata, saved views, and recipe-level stable names to bridge generic extraction to repeatable outputs.
 
-5. Keep the app/workbench generic. UI and API defaults should expose prepared sources, artifacts, saved views, and output files without baking GCP/AWS-specific result columns into the core product.
+5. Add a first-class artifact file structure for SQL. The expected direction is `artifacts/sql/` for reusable query files and `artifacts/outputs/` for validated CSV/XLSX-style outputs, with SQLite catalog/run metadata indexing those files instead of hiding SQL in chat or graph state.
+
+6. Keep the app/workbench generic. UI and API defaults should expose prepared sources, artifacts, saved views, SQL files, and output files without baking GCP/AWS-specific result columns into the core product.
 
 ## Code Improvements Landed
 
@@ -128,6 +134,8 @@ Adjacent `.eml` and `.msg` files are supporting reference context, not default s
 - Workbook profiling can run across all sheets with `--all-sheets`.
 - Extraction reports footer-like rows it left outside the loaded table.
 - `artifacts from-source` returns a preferred typed target and a ready `SELECT ... LIMIT 20` query hint.
+- SQLite tabular catalog identity is fingerprint-only: `_tabular_contents.fingerprint` is the primary key and `_tabular_sources.fingerprint` is the lineage key. The old `content_id` path was removed rather than shimmed.
+- Extraction no longer exposes `sample_rows`; it stores full recovered tables. Preview defaults were raised so inspect/profile/describe are more useful without changing ingest: `tabular inspect` defaults to 20 rows, tabular profile uses 20 sample rows, and `artifacts describe` defaults to 10 sample rows with a 20-row cap.
 
 Recent verification used:
 
@@ -136,6 +144,12 @@ Recent verification used:
 - `uv run python -m pytest tests/test_cli.py tests/test_tabular_xls.py tests/test_sql_artifact_reuse.py`
 - `uv run tabuflow tabular profile examples/gcp/cost_table.csv --max-sample-rows 3`
 - `uv run tabuflow tabular profile examples/gcp/IBS_ChargeItemUploadTemplate_Cloud_GCP_20260312.xls --all-sheets --max-sample-rows 2`
+- `uv run ruff check src/tools/tabular/storage.py src/tools/tabular/tools.py src/tools/artifacts/catalog_metadata.py src/tools/artifacts/catalog.py src/tools/pdf/tools.py src/cli.py src/agents/tool_adapter.py tests/test_cli.py`
+- `uv run python -m pytest`
+- `uv run tabuflow tabular inspect examples/gcp/cost_table.csv`
+- `uv run tabuflow tabular profile examples/gcp/cost_table.csv`
+- `uv run tabuflow artifacts --root-dir . describe billing-account-23ac1d_typed`
+- `uv run tabuflow artifacts --root-dir . list --max-items 3 --detail compact`
 
 ## Decision Rule
 
