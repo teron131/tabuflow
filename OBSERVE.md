@@ -8,7 +8,7 @@ Any Coding Agent means a normal coding agent such as Codex, Pi, OpenCode, or ano
 
 ## Boundary
 
-- `src/tabuflow` is the reusable layer. It should expose ordinary Python functions for tabular inspection/extraction, PDF inspection/extraction, email reference inspection, artifact catalog/query/view operations, and deterministic repair hints.
+- `src/tabuflow` is the reusable layer. It should expose ordinary Python functions for tabular inspection/extraction, PDF inspection/preparation, email reference inspection, artifact catalog/query/view operations, and deterministic repair hints.
 - `src/tabuflow/cli.py` is a small preset surface over the useful standalone operations. It should wrap robust data workflows, not generic file reading/editing that coding agents already have.
 - `src/backend/agents` owns custom Tabuflow workbench behavior: prep agents, Query Stage SQL reuse/history, SQL-file edits, validation retries, fixer, orchestration state, and graph routing.
 - `src/backend/agents/tool_adapter.py` is a compatibility adapter for LangChain. LangChain is a consumer of the tool layer, not the foundation.
@@ -48,7 +48,7 @@ The artifact tools are useful because they turn extracted data into a repeatable
 
 The artifact database is the working data warehouse for prepared files. Users may already have many source files loaded into SQLite, so normal analysis should begin by listing/describing artifacts and writing ordinary SQL files against the database, not by asking an agent to remember file names or table names from chat history. Agents can author and run SQL, but the reusable unit should be the `.sql` artifact and the saved view/output it proves.
 
-PDF tools are useful when deterministic text/image inspection or model-backed visual table extraction saves manual page work. They should report ambiguity instead of pretending OCR/layout output is complete.
+PDF tools are useful when they produce durable text/image evidence for page-level review. `pdf prepare` renders every page and creates a resumable artifact folder with `source.pdf`, rendered page images, extracted page text, and empty `work/` plus `import/` directories. The default render DPI is 150, with a 72-300 DPI guard and a default 300-page safety cap. The database is the committed/queryable layer; the PDF artifact folder is the scratch workspace where recovered tables can be written and revised before import.
 
 Email inspection is reference context only. Emails can explain approvals, periods, account IDs, attachments, and reporting context, but they are not billing-table truth unless the task explicitly asks for email-derived data.
 
@@ -122,7 +122,7 @@ Adjacent `.eml` and `.msg` files are supporting reference context, not default s
 
 4. Keep generated artifact names out of business logic. Use `from-source`, `describe`, catalog metadata, saved views, and recipe-level stable names to bridge generic extraction to repeatable outputs.
 
-5. Add a first-class artifact file structure for SQL. The expected direction is `artifacts/sql/` for reusable query files and `artifacts/outputs/` for validated CSV/XLSX-style outputs, with SQLite catalog/run metadata indexing those files instead of hiding SQL in chat or graph state.
+5. Add first-class artifact file structures for SQL and PDF work. The expected direction is `artifacts/sql/` for reusable query files, `artifacts/pdf/` for PDF evidence and table drafts, and `artifacts/outputs/` for validated CSV/XLSX-style outputs, with SQLite catalog/run metadata indexing those files instead of hiding SQL in chat or graph state.
 
 6. Keep the app/workbench generic. UI and API defaults should expose prepared sources, artifacts, saved views, SQL files, and output files without baking GCP/AWS-specific result columns into the core product.
 

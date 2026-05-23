@@ -40,7 +40,7 @@ flowchart LR
 The reusable tools are intentionally small:
 
 - `tabuflow.tabular`: inspect/profile/extract CSV, XLS, and XLSX files.
-- `tabuflow.pdf`: inspect PDF text/images and extract PDF tables.
+- `tabuflow.pdf`: inspect PDF text/images and prepare PDF artifact workspaces.
 - `tabuflow.mail`: inspect EML/MSG as reference context.
 - `tabuflow.artifacts`: list, rediscover, describe, query, repair, and save SQLite-backed artifacts.
 
@@ -52,7 +52,7 @@ tabuflow tabular profile path/to/file.xlsx
 tabuflow tabular profile path/to/file.xlsx --all-sheets
 tabuflow tabular extract path/to/file.csv
 tabuflow pdf inspect path/to/file.pdf
-tabuflow pdf extract path/to/file.pdf
+tabuflow pdf prepare path/to/file.pdf
 tabuflow email inspect path/to/message.msg
 tabuflow artifacts from-source path/to/file.xlsx
 tabuflow artifacts describe artifact_name

@@ -71,14 +71,13 @@ tabuflow pdf inspect path/to/file.pdf
 tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3 --include-images
 ```
 
-2. Use the full model-backed visual extraction route when the inspected text/images show useful tables and visual layout is needed to preserve table boundaries.
+2. Prepare a durable PDF artifact workspace when visual table recovery needs more than a quick preview.
 
 ```bash
-tabuflow pdf extract path/to/file.pdf
-tabuflow pdf extract path/to/file.pdf --max-chunks 2
+tabuflow pdf prepare path/to/file.pdf
 ```
 
-`pdf inspect` is the non-LLM route. `pdf extract` is the LLM route and may run OCR plus table cleanup when configured. If extraction is incomplete, report the ambiguous pages or layout gaps instead of pretending the artifact is complete.
+`pdf inspect` is the quick bounded preview route. `pdf prepare` renders every page and creates `source.pdf`, `pages/*.jpg`, `text/*.txt`, `work/`, `import/`, and `manifest.json` under `artifacts/pdf/...`. It defaults to 150 DPI and stops above the page-count guard unless `--max-pages` is raised. Write recovered tables into the work directory and import them only when ready. If extraction is incomplete, report the ambiguous pages or layout gaps instead of pretending the artifact is complete.
 
 ## Email Reference Workflow
 
@@ -108,7 +107,7 @@ tabuflow artifacts save-view saved_view_name @query.sql
 
 Write non-trivial SQL in an ordinary `.sql` file and pass it with `@query.sql`. This keeps SQL reviewable and avoids hiding logic inside chat history.
 
-Use `from-source` after extraction to find the reusable artifacts produced by a specific input. For PDFs that have repeated model-backed runs, filter with `--source-format pdf_ocr` before choosing which artifact to query.
+Use `from-source` after extraction to find the reusable artifacts produced by a specific input. For PDFs, prepare the visual/text workspace first, then import reviewed table artifacts into SQLite before querying.
 
 Generated artifact names often contain hyphens. Quote them as SQLite identifiers in SQL, for example:
 
@@ -121,7 +120,7 @@ select * from "service-usage-1cca2e" limit 20;
 When CLI JSON is awkward, call the standalone Python functions directly from repo code:
 
 - `tabuflow.tabular`: tabular inspection, profiling, and extraction,
-- `tabuflow.pdf`: PDF inspection and extraction,
+- `tabuflow.pdf`: PDF inspection and preparation,
 - `tabuflow.artifacts`: artifact listing, description, read-only query, and saved views.
 
 ## Boundaries

@@ -24,9 +24,12 @@ from .pdf import (
     DEFAULT_INSPECT_PAGE_LIMIT,
     DEFAULT_INSPECT_TEXT_CHARS,
     DEFAULT_MAX_CONCURRENCY,
+    DEFAULT_MAX_PREPARE_PAGES,
     DEFAULT_PAGES_PER_CHUNK,
+    DEFAULT_PDF_PREPARE_OUTPUT_DIR,
     extract_pdf_file,
     inspect_pdf_file,
+    prepare_pdf_file,
 )
 from .tabular import (
     MAX_METADATA_ROWS,
@@ -169,7 +172,7 @@ def add_tabular_commands(subparsers: Any) -> None:
 
 
 def add_pdf_commands(subparsers: Any) -> None:
-    """Add PDF inspection and extraction commands."""
+    """Add PDF inspection, preparation, and extraction-boundary commands."""
     pdf = subparsers.add_parser("pdf", help="Inspect or extract PDF files.")
     add_root_argument(pdf)
     pdf_subparsers = pdf.add_subparsers(dest="pdf_command", required=True)
@@ -192,7 +195,24 @@ def add_pdf_commands(subparsers: Any) -> None:
         )
     )
 
-    extract = pdf_subparsers.add_parser("extract", help="Extract PDF tables into the shared SQLite cache.")
+    prepare = pdf_subparsers.add_parser("prepare", help="Render a PDF into a resumable artifact workspace.")
+    prepare.add_argument("path")
+    prepare.add_argument("--output-dir", default=str(DEFAULT_PDF_PREPARE_OUTPUT_DIR))
+    prepare.add_argument("--dpi", type=int, default=DEFAULT_DPI)
+    prepare.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PREPARE_PAGES)
+    prepare.add_argument("--no-copy-source", action="store_true")
+    prepare.set_defaults(
+        handler=lambda args: prepare_pdf_file(
+            args.path,
+            root_dir=resolve_cli_root(args),
+            output_dir=args.output_dir,
+            dpi=args.dpi,
+            max_pages=args.max_pages,
+            copy_source=not args.no_copy_source,
+        )
+    )
+
+    extract = pdf_subparsers.add_parser("extract", help="Report the agent-managed PDF extraction boundary.")
     extract.add_argument("path")
     extract.add_argument("--model", default=None)
     extract.add_argument("--pages-per-chunk", type=int, default=DEFAULT_PAGES_PER_CHUNK)

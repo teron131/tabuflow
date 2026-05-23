@@ -21,11 +21,14 @@ from tabuflow.fs import (
 )
 from tabuflow.fs.workspace import resolve_workspace_file
 from tabuflow.pdf import (
+    DEFAULT_DPI,
     DEFAULT_INSPECT_PAGE_LIMIT,
     DEFAULT_INSPECT_TEXT_CHARS,
+    DEFAULT_MAX_PREPARE_PAGES,
     DEFAULT_PAGES_PER_CHUNK,
     extract_pdf_file,
     inspect_pdf_file,
+    prepare_pdf_file,
 )
 from tabuflow.tabular import (
     MAX_METADATA_ROWS,
@@ -153,6 +156,29 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
         )
 
     @tool(parse_docstring=True)
+    def prepare_pdf(
+        path: str,
+        dpi: int = DEFAULT_DPI,
+        max_pages: int = DEFAULT_MAX_PREPARE_PAGES,
+    ) -> dict[str, Any]:
+        """Render every page of a PDF into a resumable artifact workspace.
+
+        Args:
+            path: Path to the PDF file to prepare.
+            dpi: Rendering DPI for page images.
+            max_pages: Safety cap on page count before rendering.
+        """
+        return prepare_pdf_file(
+            _workspace_source_path(
+                path,
+                root_dir=resolved_root_dir,
+            ),
+            root_dir=resolved_root_dir,
+            dpi=dpi,
+            max_pages=max_pages,
+        )
+
+    @tool(parse_docstring=True)
     def extract_pdf(
         path: str,
         pages_per_chunk: int = DEFAULT_PAGES_PER_CHUNK,
@@ -160,14 +186,14 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
         fix_bridges: bool = True,
         fix_overall: bool = True,
     ) -> dict[str, Any]:
-        """Extract visual tables from a PDF into the shared SQLite cache.
+        """Report the agent-managed PDF extraction boundary.
 
         Args:
             path: Path to the PDF file to extract.
-            pages_per_chunk: Number of PDF pages rendered into each OCR request.
-            max_chunks: Optional cap on rendered chunks for bounded trial runs.
-            fix_bridges: Whether to repair tables that cross chunk boundaries.
-            fix_overall: Whether to run a final full-document table cleanup.
+            pages_per_chunk: Legacy option preserved for callers.
+            max_chunks: Legacy option preserved for bounded trial callers.
+            fix_bridges: Legacy option preserved for callers.
+            fix_overall: Legacy option preserved for callers.
         """
         return extract_pdf_file(
             _workspace_source_path(
@@ -181,7 +207,7 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             fix_overall=fix_overall,
         )
 
-    return [inspect_pdf, extract_pdf]
+    return [inspect_pdf, prepare_pdf, extract_pdf]
 
 
 def make_fs_tools(
