@@ -1,9 +1,9 @@
 """LangGraph Agent Server entrypoint for visible agent graphs."""
 
-from src.agents.orchestrator.graph import build_query_stage_graph
-from src.agents.orchestrator.orchestrator import Orchestrator
-from src.agents.prep_csv import PrepCsv
-from src.agents.prep_pdf import PrepPdf
+from backend.agents.orchestrator.graph import build_query_stage_graph
+from backend.agents.orchestrator.orchestrator import Orchestrator
+from backend.agents.prep_csv import PrepCsv
+from backend.agents.prep_pdf import PrepPdf
 
 orchestrator = Orchestrator()
 graph = orchestrator.build_orchestrator_agent()

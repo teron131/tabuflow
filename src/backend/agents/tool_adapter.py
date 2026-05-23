@@ -8,8 +8,8 @@ from typing import Any
 from langchain.tools import tool
 from langchain_core.tools import BaseTool
 
-from ..tools import create_skill_package as create_skill_package_core, load_skill as load_skill_core, search_skills as search_skills_core
-from ..tools.fs import (
+from tabuflow import create_skill_package as create_skill_package_core, load_skill as load_skill_core, search_skills as search_skills_core
+from tabuflow.fs import (
     DEFAULT_WRITE_DENIED_MESSAGE,
     FSWritePredicate,
     HashlineEdit,
@@ -19,22 +19,22 @@ from ..tools.fs import (
     search_text,
     write_text,
 )
-from ..tools.fs.workspace import resolve_workspace_file
-from ..tools.pdf import (
+from tabuflow.fs.workspace import resolve_workspace_file
+from tabuflow.pdf import (
     DEFAULT_INSPECT_PAGE_LIMIT,
     DEFAULT_INSPECT_TEXT_CHARS,
     DEFAULT_PAGES_PER_CHUNK,
     extract_pdf_file,
     inspect_pdf_file,
 )
-from ..tools.tabular import (
+from tabuflow.tabular import (
     MAX_METADATA_ROWS,
     MAX_SAMPLE_ROWS,
     extract_tabular_file,
     inspect_tabular_file,
     profile_tabular_file,
 )
-from ..tools.tabular.storage import resolve_root_dir
+from tabuflow.tabular.storage import resolve_root_dir
 
 
 def _workspace_source_path(

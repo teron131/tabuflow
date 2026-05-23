@@ -4,7 +4,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "bash start.sh",
-		"dev:api": "uv run uvicorn src.api:app --host localhost --port ${API_PORT:-8017} --reload",
+		"dev:api": "uv run uvicorn backend.api:app --host localhost --port ${API_PORT:-8017} --reload",
 		"dev:frontend": "cd frontend && pnpm dev --hostname localhost --port ${UI_PORT:-5174}",
 		"build": "cd frontend && pnpm build"
 	}

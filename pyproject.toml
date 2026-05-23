@@ -26,14 +26,14 @@ dependencies = [
 ]
 
 [project.scripts]
-tabuflow = "src.cli:main"
+tabuflow = "tabuflow.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src"]
+packages = ["src/backend", "src/tabuflow"]
 
 [tool.ruff]
 line-length = 180
@@ -61,7 +61,7 @@ ignore = [
 unfixable = ["DTZ", "S"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["src", "tabuflow"]
+known-first-party = ["backend", "tabuflow"]
 combine-as-imports = true
 force-sort-within-sections = true
 

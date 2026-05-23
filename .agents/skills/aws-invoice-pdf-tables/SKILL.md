@@ -81,7 +81,7 @@ Set `parent_label` for child rows to the nearest preceding parent row in the sam
 5. Escalate pages to OCR/visual extraction only when direct text extraction is empty, obviously incomplete, or visually ambiguous.
 6. If OCR/visual output is used, visual evidence wins for table names, table boundaries, row order, indentation, parent/child hierarchy, and totals.
 7. Produce SQLite-ready tabular data with stable columns.
-8. Keep provenance metadata out of importable table columns. If metadata is needed internally, keep it in sidecar JSON or graph state.
+8. Keep provenance metadata out of importable table columns. If metadata is needed internally, keep it in sidecar JSON or metadata tables.
 9. Validate:
    - text-derived amount-row count is plausible for the PDF page count and invoice type,
    - summary/detail rows are not collapsed into one total,

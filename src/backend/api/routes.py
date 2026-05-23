@@ -26,10 +26,10 @@ from ..config import (
     update_llm_settings,
 )
 from ..pipelines.explainer import MissingExplainerModelError, explain_file
-from ..tools import create_skill_package, list_skills, load_skill
-from ..tools.artifacts import describe_sql_artifact, list_sql_artifacts, run_query
-from ..tools.tabular.storage import quote_identifier
-from ..tools.tabular.tools import extract_tabular_file, inspect_tabular_file
+from tabuflow import create_skill_package, list_skills, load_skill
+from tabuflow.artifacts import describe_sql_artifact, list_sql_artifacts, run_query
+from tabuflow.tabular.storage import quote_identifier
+from tabuflow.tabular.tools import extract_tabular_file, inspect_tabular_file
 from .chat import ChatConfigurationError, ChatRuntimeError, run_chat, stream_chat_chunks
 from .constants import (
     DEFAULT_SQL,

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from ...tools.artifacts import name_sql_artifact, save_view
+from tabuflow.artifacts import name_sql_artifact, save_view
 from ..trace_utils import SAVE_STAGE, append_stage_trace
 from .payloads import build_result_artifact, build_result_message
 from .state import OrchestratorState, latest_user_message

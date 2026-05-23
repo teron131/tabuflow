@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from ...tools.artifacts import suggest_sql_error_repair_from_schema
+from tabuflow.artifacts import suggest_sql_error_repair_from_schema
 from .state import QueryStageState
 
 

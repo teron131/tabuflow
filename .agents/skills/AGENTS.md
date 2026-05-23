@@ -1,8 +1,8 @@
 # Tabuflow Skill Context
 
-These repo skills are for Any Coding Agent: OpenCode, Pi, Codex, or another agent that already has shell/read/edit abilities. Use them to choose the right Tabuflow data tools and domain workflow; do not turn the coding agent into Tabuflow's custom LangChain/LangGraph agent.
+These repo skills are for choosing the right Tabuflow data tools and domain workflow.
 
-The most important boundary is: `src/tools` and the `tabuflow` CLI are the reusable tool layer; `src/agents` is the custom Tabuflow agent layer. Use the tool layer for direct data inspection, extraction, artifact lookup, SQL querying, and saved views. Use the custom agent layer only when you are intentionally changing or debugging the workbench orchestration.
+The important boundary is simple: `src/tabuflow` and the `tabuflow` CLI are the reusable tool layer. Use them for direct data inspection, extraction, artifact lookup, SQL querying, and saved views.
 
 ## Skill Routing
 
@@ -72,30 +72,22 @@ uv run tabuflow artifacts save-view saved_view_name @query.sql
 
 Use `artifacts from-source` to find outputs for a specific input file. Use `describe` before writing SQL. Start with a small `limit` query. Put non-trivial SQL in a normal `.sql` file and pass it as `@query.sql` so the logic stays reviewable. Quote generated artifact names that contain hyphens: `select * from "service-usage-1cca2e" limit 20;`.
 
-## Use Native Agent Tools For Ordinary Work
+## Use Ordinary Tools For Ordinary Work
 
-Keep the coding agent responsible for normal repo work: `rg`, focused file reads, code edits, SQL drafts, reports, tests, diffs, and verification. Do not wrap ordinary filesystem reading, writing, searching, or shell work in Tabuflow just because a helper exists.
+Keep normal repo work in ordinary shell/editor tools: `rg`, focused file reads, code edits, SQL drafts, reports, tests, diffs, and verification. Do not wrap ordinary filesystem reading, writing, searching, or shell work in Tabuflow just because a helper exists.
 
 Use Tabuflow when it adds domain value: robust spreadsheet/PDF inspection, conservative extraction, artifact catalog lookup, read-only SQLite querying, saved views, and schema-aware SQL repair hints. Use plain shell/editor tools for everything else.
 
-Do not ask the model to choose artifact storage roots or database paths. Tabuflow resolves those from local runtime configuration. The agent may choose source paths, sheet/page options, bounded limits, and SQL text.
+Do not ask the model to choose artifact storage roots or database paths. Tabuflow resolves those from local runtime configuration. The caller may choose source paths, sheet/page options, bounded limits, and SQL text.
 
 ## Python Tool Layer
 
 When the CLI JSON shape is awkward, call the standalone Python functions directly from repo code or a scratch script. Import from:
 
-- `src.tools.tabular` for tabular inspection, profiling, and extraction.
-- `src.tools.pdf` for PDF inspection and extraction.
-- `src.tools.mail` for EML/MSG inspection.
-- `src.tools.artifacts` for artifact listing, description, read-only queries, saved views, artifact lookup, and SQL repair hints.
-
-Avoid importing from `src.agents` unless the task is explicitly about the custom Tabuflow agent, workbench orchestration, LangChain wrappers, query-stage behavior, validation retries, fixer behavior, or graph state.
-
-## Custom Agent Boundary
-
-Keep custom-agent-only behavior under `src/agents`: orchestration state, graph routing, LangChain tool adapters, Query Stage SQL history/reuse, validation retry loops, fixer behavior, trace messages, and workbench multi-stage flows.
-
-`src/agents/tool_adapter.py` may wrap standalone functions as LangChain tools, but the standalone functions should not depend on LangChain message objects, graph state, tool-call transcripts, or orchestrator payloads.
+- `tabuflow.tabular` for tabular inspection, profiling, and extraction.
+- `tabuflow.pdf` for PDF inspection and extraction.
+- `tabuflow.mail` for EML/MSG inspection.
+- `tabuflow.artifacts` for artifact listing, description, read-only queries, saved views, artifact lookup, and SQL repair hints.
 
 ## Validation Bar
 

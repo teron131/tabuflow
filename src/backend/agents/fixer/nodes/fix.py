@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
 
 from ....clients.openai import ChatOpenAI
-from ....tools.fs.hashline import HashlineEdit, HashlineEditResponse, HashlineReferenceError, edit_hashline
+from tabuflow.fs.hashline import HashlineEdit, HashlineEditResponse, HashlineReferenceError, edit_hashline
 from ..prompts import (
     CLEAN_TASK_LOG,
     DEFAULT_FIXER_SYSTEM_PROMPT,

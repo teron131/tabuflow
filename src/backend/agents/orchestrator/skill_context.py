@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ...config import SKILLS_DIR
-from ...tools import load_skill, search_skills
+from tabuflow import load_skill, search_skills
 
 SKILLS_PATH = str(SKILLS_DIR)
 MAX_SKILL_REF_PREVIEW = 8

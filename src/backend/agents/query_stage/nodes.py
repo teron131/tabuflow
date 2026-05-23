@@ -10,7 +10,7 @@ from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain_core.language_models import BaseChatModel
 
-from ...tools.artifacts import (
+from tabuflow.artifacts import (
     ArtifactNamerFn,
     run_query,
 )

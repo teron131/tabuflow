@@ -89,7 +89,7 @@ Reference workbooks can be used for shape and reconciliation intent, not for raw
 
 ## IBS Charge-Item Output
 
-The IBS output should produce rows shaped like the `Bill Item` sheet in the IBS upload template. This file is fixed enough that the skill should babysit it closely rather than leave agents to infer formatting.
+The IBS output should produce rows shaped like the `Bill Item` sheet in the IBS upload template. This file is fixed enough that the skill should specify the formatting closely rather than leave it to inference.
 
 Expected fields visible in the reference:
 

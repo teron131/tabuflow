@@ -20,7 +20,7 @@ Keep backend changes minimal and additive:
 
 - add a FastAPI app as a transport shell over current code,
 - expose health, chat, SQL execution, target listing, target description, skills listing, and UI bootstrap endpoints,
-- reuse `src.tools.sql.query` for read-only SQL execution and target navigation,
+- reuse `tabuflow.sql.query` for read-only SQL execution and target navigation,
 - reuse current orchestrator entrypoints for chat when environment credentials exist,
 - fail chat requests clearly when model credentials are unavailable,
 - serve the built frontend from FastAPI for a one-process preview path.
@@ -74,7 +74,7 @@ Default local ports:
 ### Implementation Steps
 
 1. Add the FastAPI app.
-   - Create a small API package under `src/api/`.
+   - Create a small API package under `src/backend/api/`.
    - Add request/response schemas near the API boundary.
    - Reuse SQL helpers and current config defaults.
    - Keep prepared local data server-side and expose only redacted source metadata to the browser.
@@ -117,9 +117,9 @@ Default local ports:
 
 Backend:
 
-- `uv run ruff check src/agents src/tools src/api`
-- `uv run python -m py_compile src/api/*.py`
-- `uv run python -c "from fastapi.testclient import TestClient; from src.api import app; c=TestClient(app); print(c.get('/api/health').json()['status']); print(c.post('/api/sql/run', json={'sql':'select 1 as ok'}).json()['status'])"`
+- `uv run ruff check src/backend/agents src/tabuflow src/backend/api`
+- `uv run python -m py_compile src/backend/api/*.py`
+- `uv run python -c "from fastapi.testclient import TestClient; from backend.api import app; c=TestClient(app); print(c.get('/api/health').json()['status']); print(c.post('/api/sql/run', json={'sql':'select 1 as ok'}).json()['status'])"`
 
 Frontend:
 
@@ -176,11 +176,11 @@ The fixed `data_workflow` graph runs the same stage sequence directly:
 
 Current stage packages:
 
-- `src/agents/orchestrator/`: user-facing agent, data-workflow graph, stage tool wrappers, payload shaping, skill context, runtime helpers, shared state.
-- `src/agents/prep_csv/`: ReAct-style prep_csv stage for inspect/profile/extract tabular data.
-- `src/agents/prep_pdf/`: ReAct-style prep_pdf stage for inspect/extract PDF table data.
-- `src/agents/query_stage/`: SQL drafting, execution, runtime repair, and query-stage state.
-- `src/agents/validation_stage/`: deterministic and model-backed validation for query results.
+- `src/backend/agents/orchestrator/`: user-facing agent, data-workflow graph, stage tool wrappers, payload shaping, skill context, runtime helpers, shared state.
+- `src/backend/agents/prep_csv/`: ReAct-style prep_csv stage for inspect/profile/extract tabular data.
+- `src/backend/agents/prep_pdf/`: ReAct-style prep_pdf stage for inspect/extract PDF table data.
+- `src/backend/agents/query_stage/`: SQL drafting, execution, runtime repair, and query-stage state.
+- `src/backend/agents/validation_stage/`: deterministic and model-backed validation for query results.
 
 LangGraph entrypoints in `langgraph.json`:
 
@@ -192,7 +192,7 @@ LangGraph entrypoints in `langgraph.json`:
 
 ## State Model
 
-`src/agents/orchestrator/state.py` is the shared state source.
+`src/backend/agents/orchestrator/state.py` is the shared state source.
 
 Keep these public schemas:
 
@@ -225,10 +225,10 @@ Avoid adding wrapper schemas that only group one or two orchestrator-only fields
 
 Primary files:
 
-- `src/agents/prep_csv/prep_csv.py`
-- `src/agents/prep_csv/prompts.py`
-- `src/agents/prep_csv/payloads.py`
-- `src/agents/prep_csv/state.py`
+- `src/backend/agents/prep_csv/prep_csv.py`
+- `src/backend/agents/prep_csv/prompts.py`
+- `src/backend/agents/prep_csv/payloads.py`
+- `src/backend/agents/prep_csv/state.py`
 
 Responsibilities:
 
@@ -243,10 +243,10 @@ Prep CSV does not search skills on its own.
 
 Primary files:
 
-- `src/agents/prep_pdf/prep_pdf.py`
-- `src/agents/prep_pdf/prompts.py`
-- `src/agents/prep_pdf/payloads.py`
-- `src/agents/prep_pdf/state.py`
+- `src/backend/agents/prep_pdf/prep_pdf.py`
+- `src/backend/agents/prep_pdf/prompts.py`
+- `src/backend/agents/prep_pdf/payloads.py`
+- `src/backend/agents/prep_pdf/state.py`
 
 Responsibilities:
 
@@ -262,9 +262,9 @@ Prep PDF does not profile PDFs. PDF table extraction is table-aware and visual, 
 
 Primary files:
 
-- `src/agents/query_stage/nodes.py`
-- `src/agents/query_stage/prompts.py`
-- `src/agents/query_stage/state.py`
+- `src/backend/agents/query_stage/nodes.py`
+- `src/backend/agents/query_stage/prompts.py`
+- `src/backend/agents/query_stage/state.py`
 
 Responsibilities:
 
@@ -280,10 +280,10 @@ The query stage does not own validation or final answering. The orchestrator que
 
 Primary files:
 
-- `src/agents/validation_stage/validation_stage.py`
-- `src/agents/validation_stage/nodes.py`
-- `src/agents/validation_stage/prompts.py`
-- `src/agents/validation_stage/state.py`
+- `src/backend/agents/validation_stage/validation_stage.py`
+- `src/backend/agents/validation_stage/nodes.py`
+- `src/backend/agents/validation_stage/prompts.py`
+- `src/backend/agents/validation_stage/state.py`
 
 Responsibilities:
 
@@ -324,7 +324,7 @@ Keep config propagation through nested graph/model calls so traces stay connecte
 
 Primary checks:
 
-- `uv run ruff check src/agents test_sql_files.py test_agent.py`
+- `uv run ruff check src/backend/agents test_sql_files.py test_agent.py`
 - `uv run pytest test_sql_files.py`
 - `LLM_API_KEY=test LLM_BASE_URL=http://localhost:1 uv run langgraph validate`
 

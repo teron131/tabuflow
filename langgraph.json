@@ -1,10 +1,10 @@
 {
 	"dependencies": ["."],
 	"graphs": {
-		"orchestrator": "./src/agents/orchestrator/app.py:graph",
-		"prep_csv": "./src/agents/orchestrator/app.py:prep_csv_graph",
-		"prep_pdf": "./src/agents/orchestrator/app.py:prep_pdf_graph",
-		"query": "./src/agents/orchestrator/app.py:query_graph"
+		"orchestrator": "./src/backend/agents/orchestrator/app.py:graph",
+		"prep_csv": "./src/backend/agents/orchestrator/app.py:prep_csv_graph",
+		"prep_pdf": "./src/backend/agents/orchestrator/app.py:prep_pdf_graph",
+		"query": "./src/backend/agents/orchestrator/app.py:query_graph"
 	},
 	"env": "./.env"
 }

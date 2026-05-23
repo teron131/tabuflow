@@ -8,11 +8,11 @@ Any Coding Agent means a normal coding agent such as Codex, Pi, OpenCode, or ano
 
 ## Boundary
 
-- `src/tools` is the reusable layer. It should expose ordinary Python functions for tabular inspection/extraction, PDF inspection/extraction, email reference inspection, artifact catalog/query/view operations, and deterministic repair hints.
-- `src/cli.py` is a small preset surface over the useful standalone operations. It should wrap robust data workflows, not generic file reading/editing that coding agents already have.
-- `src/agents` owns custom Tabuflow workbench behavior: prep agents, Query Stage SQL reuse/history, SQL-file edits, validation retries, fixer, orchestration state, and graph routing.
-- `src/agents/tool_adapter.py` is a compatibility adapter for LangChain. LangChain is a consumer of the tool layer, not the foundation.
-- `src/tools/artifacts` owns concrete run outputs and SQLite-backed artifact metadata. SQL files should also live with artifacts because they are produced/reusable project work, while skills stay as guidance contracts about desired outcomes, validation, and failure modes.
+- `src/tabuflow` is the reusable layer. It should expose ordinary Python functions for tabular inspection/extraction, PDF inspection/extraction, email reference inspection, artifact catalog/query/view operations, and deterministic repair hints.
+- `src/tabuflow/cli.py` is a small preset surface over the useful standalone operations. It should wrap robust data workflows, not generic file reading/editing that coding agents already have.
+- `src/backend/agents` owns custom Tabuflow workbench behavior: prep agents, Query Stage SQL reuse/history, SQL-file edits, validation retries, fixer, orchestration state, and graph routing.
+- `src/backend/agents/tool_adapter.py` is a compatibility adapter for LangChain. LangChain is a consumer of the tool layer, not the foundation.
+- `src/tabuflow/artifacts` owns concrete run outputs and SQLite-backed artifact metadata. SQL files should also live with artifacts because they are produced/reusable project work, while skills stay as guidance contracts about desired outcomes, validation, and failure modes.
 
 ## Generic Tool Bar
 
@@ -128,7 +128,7 @@ Adjacent `.eml` and `.msg` files are supporting reference context, not default s
 
 ## Code Improvements Landed
 
-- `src/cli.py` accepts `--root-dir` on `tabular`, `pdf`, `email`, and `artifacts` command groups.
+- `src/tabuflow/cli.py` accepts `--root-dir` on `tabular`, `pdf`, `email`, and `artifacts` command groups.
 - `artifacts` accepts `--database-path`, with relative database paths resolved under `--root-dir`.
 - `tabular inspect/profile` expose likely header and data-start hints directly.
 - Workbook profiling can run across all sheets with `--all-sheets`.
@@ -139,12 +139,12 @@ Adjacent `.eml` and `.msg` files are supporting reference context, not default s
 
 Recent verification used:
 
-- `uv run ruff check src/tools/tabular src/tools/artifacts src/cli.py --fix`
-- `uv run ruff format src/tools/tabular src/tools/artifacts src/cli.py`
+- `uv run ruff check src/tabuflow/tabular src/tabuflow/artifacts src/tabuflow/cli.py --fix`
+- `uv run ruff format src/tabuflow/tabular src/tabuflow/artifacts src/tabuflow/cli.py`
 - `uv run python -m pytest tests/test_cli.py tests/test_tabular_xls.py tests/test_sql_artifact_reuse.py`
 - `uv run tabuflow tabular profile examples/gcp/cost_table.csv --max-sample-rows 3`
 - `uv run tabuflow tabular profile examples/gcp/IBS_ChargeItemUploadTemplate_Cloud_GCP_20260312.xls --all-sheets --max-sample-rows 2`
-- `uv run ruff check src/tools/tabular/storage.py src/tools/tabular/tools.py src/tools/artifacts/catalog_metadata.py src/tools/artifacts/catalog.py src/tools/pdf/tools.py src/cli.py src/agents/tool_adapter.py tests/test_cli.py`
+- `uv run ruff check src/tabuflow/tabular/storage.py src/tabuflow/tabular/tools.py src/tabuflow/artifacts/catalog_metadata.py src/tabuflow/artifacts/catalog.py src/tabuflow/pdf/tools.py src/tabuflow/cli.py src/backend/agents/tool_adapter.py tests/test_cli.py`
 - `uv run python -m pytest`
 - `uv run tabuflow tabular inspect examples/gcp/cost_table.csv`
 - `uv run tabuflow tabular profile examples/gcp/cost_table.csv`

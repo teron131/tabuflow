@@ -9,7 +9,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from ...tools.artifacts import build_sql_artifact_namer
+from tabuflow.artifacts import build_sql_artifact_namer
 from ..prep_csv import PrepCsv, PrepCsvOutput
 from ..prep_csv.prep_csv import collect_prep_csv_trial_result
 from ..prep_csv.state import PrepCsvDecision

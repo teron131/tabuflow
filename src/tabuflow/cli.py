@@ -8,7 +8,7 @@ from pathlib import Path
 import sys
 from typing import Any
 
-from .tools.artifacts import (
+from .artifacts import (
     DEFAULT_CLI_ARTIFACT_LIST_LIMIT,
     SQL_ARTIFACT_LIST_DETAILS,
     artifacts_from_source,
@@ -18,8 +18,8 @@ from .tools.artifacts import (
     save_artifact_view,
     suggest_sql_artifacts,
 )
-from .tools.mail import inspect_email_file
-from .tools.pdf import (
+from .mail import inspect_email_file
+from .pdf import (
     DEFAULT_DPI,
     DEFAULT_INSPECT_PAGE_LIMIT,
     DEFAULT_INSPECT_TEXT_CHARS,
@@ -28,7 +28,7 @@ from .tools.pdf import (
     extract_pdf_file,
     inspect_pdf_file,
 )
-from .tools.tabular import (
+from .tabular import (
     MAX_METADATA_ROWS,
     MAX_SAMPLE_ROWS,
     extract_tabular_file,

@@ -8,9 +8,9 @@ Tabuflow should not become a giant custom agent. The useful part is the tool lay
 
 ## Core Boundary
 
-`src/tools` is the reusable layer. It should expose ordinary Python functions and CLI commands that work without LangGraph state, chat messages, or LangChain tool-call transcripts.
+`src/tabuflow` is the reusable layer. It should expose ordinary Python functions and CLI commands that work without LangGraph state, chat messages, or LangChain tool-call transcripts.
 
-`src/agents` is the custom Tabuflow agent layer. It can orchestrate multi-step workbench flows, validation, trace messages, SQL reuse, and fixer behavior, but it should not define the shape of the reusable tools.
+`src/backend/agents` is the custom Tabuflow agent layer. It can orchestrate multi-step workbench flows, validation, trace messages, SQL reuse, and fixer behavior, but it should not define the shape of the reusable tools.
 
 LangChain is an adapter, not the foundation.
 
@@ -18,8 +18,8 @@ LangChain is an adapter, not the foundation.
 flowchart LR
     AnyAgent[Any Coding Agent] --> CLI[tabuflow CLI]
     AnyAgent --> Python[Python APIs]
-    Workbench[Workbench UI] --> Agent[src/agents]
-    Agent --> Tools[src/tools]
+    Workbench[Workbench UI] --> Agent[src/backend/agents]
+    Agent --> Tools[src/tabuflow]
     CLI --> Tools
     Python --> Tools
     Tools --> Artifacts[SQLite artifacts and output files]
@@ -39,10 +39,10 @@ flowchart LR
 
 The reusable tools are intentionally small:
 
-- `tools.tabular`: inspect/profile/extract CSV, XLS, and XLSX files.
-- `tools.pdf`: inspect PDF text/images and extract PDF tables.
-- `tools.mail`: inspect EML/MSG as reference context.
-- `tools.artifacts`: list, rediscover, describe, query, repair, and save SQLite-backed artifacts.
+- `tabuflow.tabular`: inspect/profile/extract CSV, XLS, and XLSX files.
+- `tabuflow.pdf`: inspect PDF text/images and extract PDF tables.
+- `tabuflow.mail`: inspect EML/MSG as reference context.
+- `tabuflow.artifacts`: list, rediscover, describe, query, repair, and save SQLite-backed artifacts.
 
 The CLI mirrors those useful presets:
 

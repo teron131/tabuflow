@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 
 from ..config import PREPARED_DATABASE_PATH, UPLOADS_DIR, WORKBENCH_SOURCE_ROOT
-from ..tools.tabular.storage import SQLITE_SOURCES_TABLE
+from tabuflow.tabular.storage import SQLITE_SOURCES_TABLE
 from .constants import (
     UPLOAD_EXTENSIONS,
 )

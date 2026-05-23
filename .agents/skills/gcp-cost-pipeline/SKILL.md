@@ -100,7 +100,7 @@ Output 2: IBS charge-item upload.
 5. Produce both outputs.
    - The aggregated result should expose summary, category, and account/customer rows with semantic columns.
    - The IBS result should expose `Bill Item` rows in the upload-template shape.
-   - Produce a reviewable aggregated file and a template-like IBS upload workbook or CSV. The exact implementation is up to the agent, but the output contract is not.
+   - Produce a reviewable aggregated file and a template-like IBS upload workbook or CSV. The exact implementation can vary, but the output contract cannot.
 
 6. Validate before treating the output as done.
    - Aggregated totals should reconcile to the raw cost table after footer rows such as `Rounding error` and `Total` are excluded.

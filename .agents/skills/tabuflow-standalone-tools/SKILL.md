@@ -1,13 +1,13 @@
 ---
 name: tabuflow-standalone-tools
-description: Use when a coding agent needs to inspect, extract, or query messy CSV, XLS, XLSX, or PDF business data with Tabuflow's standalone CLI or Python tool layer instead of relying on the custom LangChain/LangGraph agent.
+description: Use when inspecting, extracting, or querying messy CSV, XLS, XLSX, EML, MSG, or PDF business data with Tabuflow's standalone CLI or Python tool layer.
 ---
 
 # Tabuflow Standalone Tools
 
-Use this skill when you are an Any Coding Agent such as OpenCode, Pi, Codex, or another agent with normal shell/read/edit abilities, and you need Tabuflow's robust data-file presets without entering Tabuflow's custom agent graph.
+Use this skill when you need Tabuflow's robust data-file presets for local business files.
 
-The useful boundary is simple: use Tabuflow for best-fit presets around messy data preparation and artifact queries; use your native coding-agent tools for ordinary file reading, editing, shell commands, reports, SQL draft files, and one-off brute-force exploration. Do not hardcode generated names, row counts, months, or vendor-specific layouts as if they were stable contracts.
+The useful boundary is simple: use Tabuflow for best-fit presets around messy data preparation and artifact queries; use ordinary shell/editor tools for file reading, editing, reports, SQL draft files, and one-off exploration. Do not hardcode generated names, row counts, months, or vendor-specific layouts as if they were stable contracts.
 
 ## Goal
 
@@ -78,7 +78,7 @@ tabuflow pdf extract path/to/file.pdf
 tabuflow pdf extract path/to/file.pdf --max-chunks 2
 ```
 
-`pdf inspect` is the non-LLM route. `pdf extract` is the LLM route and may run OCR plus table cleanup when configured, but it still does not require the custom Tabuflow agent. If extraction is incomplete, report the ambiguous pages or layout gaps instead of pretending the artifact is complete.
+`pdf inspect` is the non-LLM route. `pdf extract` is the LLM route and may run OCR plus table cleanup when configured. If extraction is incomplete, report the ambiguous pages or layout gaps instead of pretending the artifact is complete.
 
 ## Email Reference Workflow
 
@@ -89,7 +89,7 @@ tabuflow email inspect path/to/message.eml
 tabuflow email inspect path/to/message.msg
 ```
 
-Treat `reference_only: true` as a boundary. The generic payload gives message metadata, body preview, body length, and attachment names. Use your normal coding-agent reasoning or a domain skill to interpret the body; do not replace PDF or spreadsheet billing rows with email text unless the user explicitly asks for email reconciliation data.
+Treat `reference_only: true` as a boundary. The generic payload gives message metadata, body preview, body length, and attachment names. Use a domain skill or project-specific logic to interpret the body; do not replace PDF or spreadsheet billing rows with email text unless the user explicitly asks for email reconciliation data.
 
 ## Artifact Query Workflow
 
@@ -106,7 +106,7 @@ tabuflow artifacts save-view saved_view_name @query.sql
 
 `artifacts list` returns a compact, bounded index by default. Use `--max-items`, `--all`, or `--detail full` when the compact index is not enough; use `describe` for a focused schema/sample payload before writing SQL.
 
-Write non-trivial SQL in an ordinary `.sql` file and pass it with `@query.sql`. This keeps SQL reviewable by any coding agent and avoids hiding logic inside chat history.
+Write non-trivial SQL in an ordinary `.sql` file and pass it with `@query.sql`. This keeps SQL reviewable and avoids hiding logic inside chat history.
 
 Use `from-source` after extraction to find the reusable artifacts produced by a specific input. For PDFs that have repeated model-backed runs, filter with `--source-format pdf_ocr` before choosing which artifact to query.
 
@@ -118,21 +118,18 @@ select * from "service-usage-1cca2e" limit 20;
 
 ## Python API Option
 
-When CLI JSON is awkward, call the standalone Python functions directly from repo code instead of importing custom agent modules:
+When CLI JSON is awkward, call the standalone Python functions directly from repo code:
 
-- `src.tools.tabular`: tabular inspection, profiling, and extraction,
-- `src.tools.pdf`: PDF inspection and extraction,
-- `src.tools.artifacts`: artifact listing, description, read-only query, and saved views.
-
-Avoid importing from `src.agents` unless you are intentionally working on Tabuflow's custom LangChain/LangGraph agent.
+- `tabuflow.tabular`: tabular inspection, profiling, and extraction,
+- `tabuflow.pdf`: PDF inspection and extraction,
+- `tabuflow.artifacts`: artifact listing, description, read-only query, and saved views.
 
 ## Boundaries
 
-- Do not use Tabuflow as a generic filesystem wrapper. Any Coding Agent already has shell/read/edit tools.
+- Do not use Tabuflow as a generic filesystem wrapper. Ordinary shell/read/edit tools are better for that.
 - Do not ask the model to choose artifact storage roots or database paths. Tabuflow resolves those from local runtime configuration.
-- Do not rely on graph state, message reducers, LangChain tool-call transcripts, or `src/agents/query_stage` internals for standalone workflows.
 - Do not treat generated table names, content hashes, page chunk names, row counts, or one run's view names as durable business concepts.
-- Keep source paths and SQL text under agent/user control; keep artifact storage configuration outside model-editable arguments.
+- Keep source paths and SQL text under caller/user control; keep artifact storage configuration outside model-editable arguments.
 
 ## Validation Bar
 
