@@ -40,7 +40,7 @@ trap cleanup EXIT INT TERM
 stop_port_listener "$API_PORT"
 stop_port_listener "$UI_PORT"
 
-uv run uvicorn backend.api:app --host "$API_HOST" --port "$API_PORT" --reload &
+uv run python -m uvicorn backend.api:app --host "$API_HOST" --port "$API_PORT" --reload &
 API_PID=$!
 
 (
