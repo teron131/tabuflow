@@ -26,7 +26,6 @@ from .pdf import (
     DEFAULT_MAX_CONCURRENCY,
     DEFAULT_MAX_PREPARE_PAGES,
     DEFAULT_PAGES_PER_CHUNK,
-    DEFAULT_PDF_PREPARE_OUTPUT_DIR,
     extract_pdf_file,
     inspect_pdf_file,
     prepare_pdf_file,
@@ -197,7 +196,6 @@ def add_pdf_commands(subparsers: Any) -> None:
 
     prepare = pdf_subparsers.add_parser("prepare", help="Render a PDF into a resumable artifact workspace.")
     prepare.add_argument("path")
-    prepare.add_argument("--output-dir", default=str(DEFAULT_PDF_PREPARE_OUTPUT_DIR))
     prepare.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     prepare.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PREPARE_PAGES)
     prepare.add_argument("--copy-source", action="store_true", help="Also copy the PDF source into the prepared artifact folder.")
@@ -205,7 +203,6 @@ def add_pdf_commands(subparsers: Any) -> None:
         handler=lambda args: prepare_pdf_file(
             args.path,
             root_dir=resolve_cli_root(args),
-            output_dir=args.output_dir,
             dpi=args.dpi,
             max_pages=args.max_pages,
             copy_source=args.copy_source,

@@ -77,7 +77,7 @@ tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3 --include-im
 tabuflow pdf prepare path/to/file.pdf
 ```
 
-`pdf inspect` is for bounded page text and optional rendered images. `pdf prepare` renders every page and creates a lean normalized-filename workspace with `manifest.json`, `pages/*.jpg`, and `work/` under `artifacts/pdf/...`. It defaults to 150 DPI and stops above the page-count guard unless `--max-pages` is raised. Write recovered tables into the work directory and import them only when ready. If extraction is incomplete, report the ambiguous pages or layout gaps instead of pretending the artifact is complete.
+`pdf inspect` is for bounded page text and optional rendered images. `pdf prepare` renders every page and creates a lean normalized-filename workspace with `manifest.json`, `pages/*.jpg`, and `work/` under the root-owned `artifacts/pdf/...` path. It defaults to 150 DPI and stops above the page-count guard unless `--max-pages` is raised. Write recovered tables into the work directory and import them only when ready. If extraction is incomplete, report the ambiguous pages or layout gaps instead of pretending the artifact is complete.
 
 ## Email Reference Workflow
 

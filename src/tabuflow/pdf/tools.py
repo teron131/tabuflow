@@ -167,7 +167,6 @@ def prepare_pdf_file(
     path: str | Path,
     *,
     root_dir: str | Path | None = None,
-    output_dir: str | Path = DEFAULT_PDF_PREPARE_OUTPUT_DIR,
     dpi: int = DEFAULT_DPI,
     max_pages: int | None = DEFAULT_MAX_PREPARE_PAGES,
     copy_source: bool = False,
@@ -181,9 +180,7 @@ def prepare_pdf_file(
     if not pdf_path.is_file():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    output_path = Path(output_dir)
-    if not output_path.is_absolute():
-        output_path = resolved_root_dir / output_path
+    output_path = resolved_root_dir / DEFAULT_PDF_PREPARE_OUTPUT_DIR
     source_fingerprint = pdf_source_fingerprint(pdf_path)
     normalized_filename = normalize_source_filename(pdf_path.name)
     normalized_stem = normalize_source_stem(pdf_path.name)
