@@ -4,7 +4,8 @@ from pathlib import Path
 from typing import Any
 
 from tabuflow.artifacts.naming import name_sql_artifact
-from tabuflow.fs.workspace import (
+
+from ...tools.fs.workspace import (
     WorkspaceFile,
     edit_workspace_hashlines,
     read_workspace_hashlines,

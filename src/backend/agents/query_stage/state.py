@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel, Field
 
-from tabuflow.fs import HashlineEdit
+from ...tools.fs import HashlineEdit
 from ..orchestrator.state import (
     OrchestratorInput,
     PreparedDataState,

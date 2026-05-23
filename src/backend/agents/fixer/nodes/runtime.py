@@ -9,7 +9,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from tabuflow.fs.fs_tools import SandboxFS
+from ....tools.fs.fs_tools import SandboxFS
 from ..state import FixerState
 
 logger = logging.getLogger(__name__)

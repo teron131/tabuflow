@@ -1,4 +1,4 @@
-"""Standalone sandboxed filesystem operations.
+"""Agent-owned sandboxed filesystem operations.
 
 Sandbox-oriented with root_dir + traversal protection.
 """

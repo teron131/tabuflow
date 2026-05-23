@@ -12,9 +12,9 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
 
-from tabuflow import list_skills
-from tabuflow.fs import allow_sql_or_skill_write
-from tabuflow.fs.hashline import HashlineReferenceError
+from ...tools.fs import allow_sql_or_skill_write
+from ...tools.fs.hashline import HashlineReferenceError
+from ...tools.skills import list_skills
 from ..base import ApplicationAgent
 from ..prep_csv import PrepCsv
 from ..prep_pdf import PrepPdf

@@ -1,4 +1,4 @@
-"""LangChain tool adapters for the standalone Tabuflow tool layer."""
+"""LangChain tool adapters for reusable Tabuflow tools and backend agent helpers."""
 
 from __future__ import annotations
 
@@ -8,18 +8,6 @@ from typing import Any
 from langchain.tools import tool
 from langchain_core.tools import BaseTool
 
-from tabuflow import create_skill_package as create_skill_package_core, load_skill as load_skill_core, search_skills as search_skills_core
-from tabuflow.fs import (
-    DEFAULT_WRITE_DENIED_MESSAGE,
-    FSWritePredicate,
-    HashlineEdit,
-    SandboxFS,
-    edit_hashline_text,
-    list_files,
-    search_text,
-    write_text,
-)
-from tabuflow.fs.workspace import resolve_workspace_file
 from tabuflow.pdf import (
     DEFAULT_DPI,
     DEFAULT_INSPECT_PAGE_LIMIT,
@@ -38,6 +26,23 @@ from tabuflow.tabular import (
     profile_tabular_file,
 )
 from tabuflow.tabular.storage import resolve_root_dir
+
+from ..tools.fs import (
+    DEFAULT_WRITE_DENIED_MESSAGE,
+    FSWritePredicate,
+    HashlineEdit,
+    SandboxFS,
+    edit_hashline_text,
+    list_files,
+    search_text,
+    write_text,
+)
+from ..tools.fs.workspace import resolve_workspace_file
+from ..tools.skills import (
+    create_skill_package as create_skill_package_core,
+    load_skill as load_skill_core,
+    search_skills as search_skills_core,
+)
 
 
 def _workspace_source_path(
@@ -218,7 +223,7 @@ def make_fs_tools(
     can_write: FSWritePredicate | None = None,
     write_denied_message: str = DEFAULT_WRITE_DENIED_MESSAGE,
 ) -> list[BaseTool]:
-    """Create LangChain adapters for standalone sandboxed filesystem operations."""
+    """Create LangChain adapters for agent-owned sandboxed filesystem operations."""
     fs = SandboxFS(Path(root_dir).resolve())
 
     @tool(parse_docstring=True)
@@ -333,7 +338,7 @@ def make_fs_tools(
 
 
 def make_skill_tools(*, skills_path: str | Path = "skills") -> list[BaseTool]:
-    """Create LangChain adapters for standalone workspace-skill operations."""
+    """Create LangChain adapters for agent-owned workspace-skill operations."""
     resolved_skills_path = str(skills_path)
 
     @tool("create_skill_package", parse_docstring=True)

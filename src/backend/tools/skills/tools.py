@@ -1,4 +1,4 @@
-"""Workspace skills tools."""
+"""Workspace skill package helpers for the backend agents."""
 
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ class SkillScript:
 
 @dataclass(frozen=True)
 class LoadedSkill:
-    """Structured loaded skill payload used by the skill tools."""
+    """Structured loaded skill payload used by the skill package helpers."""
 
     path: str
     name: str

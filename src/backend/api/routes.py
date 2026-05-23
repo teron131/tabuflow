@@ -14,6 +14,10 @@ from typing import Any
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
+from tabuflow.artifacts import describe_sql_artifact, list_sql_artifacts, run_query
+from tabuflow.tabular.storage import quote_identifier
+from tabuflow.tabular.tools import extract_tabular_file, inspect_tabular_file
+
 from ..config import (
     MISSING_LLM_CONFIG_MESSAGE,
     REPO_ROOT,
@@ -26,10 +30,7 @@ from ..config import (
     update_llm_settings,
 )
 from ..pipelines.explainer import MissingExplainerModelError, explain_file
-from tabuflow import create_skill_package, list_skills, load_skill
-from tabuflow.artifacts import describe_sql_artifact, list_sql_artifacts, run_query
-from tabuflow.tabular.storage import quote_identifier
-from tabuflow.tabular.tools import extract_tabular_file, inspect_tabular_file
+from ..tools.skills import create_skill_package, list_skills, load_skill
 from .chat import ChatConfigurationError, ChatRuntimeError, run_chat, stream_chat_chunks
 from .constants import (
     DEFAULT_SQL,

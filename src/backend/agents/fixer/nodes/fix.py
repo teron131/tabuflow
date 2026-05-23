@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from pydantic import BaseModel
 
 from ....clients.openai import ChatOpenAI
-from tabuflow.fs.hashline import HashlineEdit, HashlineEditResponse, HashlineReferenceError, edit_hashline
+from ....tools.fs.hashline import HashlineEdit, HashlineEditResponse, HashlineReferenceError, edit_hashline
 from ..prompts import (
     CLEAN_TASK_LOG,
     DEFAULT_FIXER_SYSTEM_PROMPT,
@@ -21,9 +21,9 @@ from ..prompts import (
 from ..state import FixerState
 from .runtime import (
     EMPTY_EDIT_SENTINEL,
+    EditPassResult,
     FixerProgress,
     FixerRuntime,
-    EditPassResult,
     WriteResult,
     add_usage,
     append_write_note,

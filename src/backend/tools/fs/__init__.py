@@ -1,4 +1,4 @@
-"""Sandboxed filesystem tool exports."""
+"""Agent-owned sandboxed filesystem helper exports."""
 
 from .fs_tools import (
     DEFAULT_WRITE_DENIED_MESSAGE,

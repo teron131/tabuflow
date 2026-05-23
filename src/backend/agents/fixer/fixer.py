@@ -9,7 +9,7 @@ from tempfile import TemporaryDirectory
 from langchain_core.runnables import RunnableConfig
 
 from ...config import resolve_agent_model
-from tabuflow.fs.fs_tools import SandboxFS
+from ...tools.fs.fs_tools import SandboxFS
 from .graph import create_fixer_graph
 from .prompts import DEFAULT_FIXER_SYSTEM_PROMPT
 from .state import DEFAULT_FIXER_MAX_ITERATIONS, FixerInput

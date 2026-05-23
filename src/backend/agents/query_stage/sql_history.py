@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 from typing import Any
 
-from tabuflow.fs.workspace import (
+from ...tools.fs.workspace import (
     WorkspaceFile,
     read_workspace_text,
     resolve_workspace_file,
