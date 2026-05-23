@@ -8,7 +8,7 @@ import re
 import sqlite3
 from typing import Any, cast
 
-from ..tabular.storage import quote_identifier
+from ..workspace_db import quote_identifier
 from .catalog_metadata import (
     CatalogMetadataError,
     database_catalog,
@@ -24,6 +24,7 @@ from .database import (
     resolve_db_path,
     zip_exact,
 )
+from .relationships import artifact_relationship_metadata
 
 MAX_DESCRIBE_SAMPLE_ROWS = 20
 MAX_TEXT_VALUE_HINTS = 5
@@ -512,6 +513,11 @@ def describe_sql_artifact(
                 max_columns=text_value_hints,
                 max_values=MAX_TEXT_VALUE_HINTS,
             )
+            relationship_metadata = artifact_relationship_metadata(
+                connection,
+                artifact_name=name,
+                source_mappings=source_mappings,
+            )
 
             return {
                 "database_path": str(resolved_path),
@@ -533,6 +539,7 @@ def describe_sql_artifact(
                 "source_path_count": len(source_paths),
                 "source_path_preview": source_paths[:MAX_SOURCE_PATH_PREVIEW],
                 "source_sql_artifact_names": artifact_info["source_sql_artifact_names"],
+                **relationship_metadata,
                 "summary": _artifact_summary(
                     name=name,
                     sqlite_type=sqlite_type,

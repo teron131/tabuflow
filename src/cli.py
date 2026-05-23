@@ -49,12 +49,24 @@ def read_sql_argument(
     root_dir: Path | None = None,
 ) -> str:
     """Return inline SQL or the text from an @file argument."""
-    if not sql.startswith("@"):
+    sql_path = resolve_sql_argument_path(sql, root_dir=root_dir)
+    if sql_path is None:
         return sql
+    return sql_path.read_text(encoding="utf-8")
+
+
+def resolve_sql_argument_path(
+    sql: str,
+    *,
+    root_dir: Path | None = None,
+) -> Path | None:
+    """Return the resolved @file path for a SQL argument when present."""
+    if not sql.startswith("@"):
+        return None
     sql_path = Path(sql[1:]).expanduser()
     if not sql_path.is_absolute() and root_dir is not None:
         sql_path = root_dir / sql_path
-    return sql_path.read_text(encoding="utf-8")
+    return sql_path.resolve()
 
 
 def resolve_cli_root(args: argparse.Namespace) -> Path | None:
@@ -235,6 +247,7 @@ def add_artifact_commands(subparsers: Any) -> None:
             args.view_name,
             root_dir=resolve_cli_root(args),
             database_path=resolve_cli_database_path(args),
+            sql_file_path=resolve_sql_argument_path(args.sql, root_dir=resolve_cli_root(args)),
             replace=args.replace,
         )
     )

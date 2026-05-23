@@ -3,23 +3,27 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from contextlib import contextmanager
 import hashlib
 from itertools import islice
 import json
-import os
 from pathlib import Path
 import re
 import sqlite3
 import time
 from typing import Any, cast
 
-SQLITE_FILENAME = "tabular.sqlite"
-SQLITE_CONTENTS_TABLE = "_tabular_contents"
-SQLITE_SOURCES_TABLE = "_tabular_sources"
+from ..artifacts.relationships import ensure_artifact_relationship_tables, register_source_table_relationships
+from ..workspace_db import (
+    SQLITE_CONTENTS_TABLE as SQLITE_CONTENTS_TABLE,
+    SQLITE_FILENAME as SQLITE_FILENAME,
+    SQLITE_SOURCES_TABLE as SQLITE_SOURCES_TABLE,
+    quote_identifier as quote_identifier,
+    resolve_root_dir as resolve_root_dir,
+    sqlite_database_path as sqlite_database_path,
+    sqlite_write_lock as sqlite_write_lock,
+)
+
 INSERT_BATCH_SIZE = 1000
-LOCK_POLL_SECONDS = 0.1
-LOCK_TIMEOUT_SECONDS = 10.0
 DATE_PATTERNS = ("%Y-%m-%d", "%Y/%m/%d")
 DATETIME_PATTERNS = (
     "%Y-%m-%d %H:%M",
@@ -76,47 +80,6 @@ def fingerprint(columns: list[str], rows: list[list[str]]) -> str:
     hasher.update(b"\x1a")
     _update_hash_rows(hasher, rows, row_limit=len(rows))
     return hasher.hexdigest()
-
-
-def resolve_root_dir(*, root_dir: str | Path | None = None) -> Path:
-    """Resolve the tabular workspace root, defaulting to the current working directory."""
-    return Path.cwd().resolve() if root_dir is None else Path(root_dir).expanduser().resolve()
-
-
-def sqlite_database_path(*, root_dir: str | Path | None = None) -> Path:
-    """Return the shared SQLite path for extracted tabular data."""
-    resolved_root = resolve_root_dir(root_dir=root_dir)
-    data_dir = resolved_root / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir / SQLITE_FILENAME
-
-
-@contextmanager
-def sqlite_write_lock(database_path: Path):
-    """Serialize SQLite writers with a lightweight lock file."""
-    lock_path = database_path.with_suffix(f"{database_path.suffix}.lock")
-    start_time = time.monotonic()
-
-    while True:
-        try:
-            descriptor = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            break
-        except FileExistsError as error:
-            if time.monotonic() - start_time >= LOCK_TIMEOUT_SECONDS:
-                raise TimeoutError(f"Timed out waiting for SQLite lock: {lock_path}") from error
-            time.sleep(LOCK_POLL_SECONDS)
-
-    try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            handle.write(str(os.getpid()))
-        yield
-    finally:
-        lock_path.unlink(missing_ok=True)
-
-
-def quote_identifier(identifier: str) -> str:
-    """Quote a SQL identifier safely."""
-    return '"' + identifier.replace('"', '""') + '"'
 
 
 def _db_column_names(columns: list[str]) -> list[str]:
@@ -229,6 +192,8 @@ def _ensure_sqlite_catalog(connection: sqlite3.Connection) -> None:
     _ensure_sqlite_contents_table_schema(connection)
     _ensure_sqlite_sources_table_schema(connection)
 
+    ensure_artifact_relationship_tables(connection)
+
 
 def _clean_numeric_text(value: str) -> str:
     """Normalize a numeric-looking string for safe SQL casting."""
@@ -335,17 +300,6 @@ def _content_table_name(
     return name_sql_artifact(" ".join(description_parts), identifier=table_fingerprint)
 
 
-def _content_schema_json(columns: list[str], db_columns: list[str]) -> str:
-    """Serialize source and database column mappings for catalog storage."""
-    return json.dumps(
-        {
-            "source_columns": columns,
-            "db_columns": db_columns,
-        },
-        separators=(",", ":"),
-    )
-
-
 def _create_sqlite_table(
     connection: sqlite3.Connection,
     *,
@@ -406,36 +360,16 @@ def _load_or_reuse_content_table(
             table_name,
             source_format,
             len(rows),
-            _content_schema_json(columns, db_columns),
+            json.dumps(
+                {
+                    "source_columns": columns,
+                    "db_columns": db_columns,
+                },
+                separators=(",", ":"),
+            ),
         ],
     )
     return table_fingerprint, table_name, db_columns, "loaded"
-
-
-def _register_sqlite_source(
-    connection: sqlite3.Connection,
-    *,
-    source_path: str,
-    source_format: str,
-    source_sheet_name: str,
-    source_table_name: str,
-    fingerprint: str,
-) -> None:
-    """Record how a source artifact maps to extracted content."""
-    connection.execute(
-        f"""
-        INSERT OR REPLACE INTO {SQLITE_SOURCES_TABLE}
-        (source_path, source_format, source_sheet_name, source_table_name, fingerprint)
-        VALUES (?, ?, ?, ?, ?)
-        """,
-        [
-            source_path,
-            source_format,
-            source_sheet_name,
-            source_table_name,
-            fingerprint,
-        ],
-    )
 
 
 def _required_metadata_text(value: Any, field_name: str) -> str:
@@ -481,13 +415,29 @@ def load_tables_into_sqlite(
                     db_columns=db_columns,
                     rows=rows,
                 )
-                _register_sqlite_source(
+                connection.execute(
+                    f"""
+                    INSERT OR REPLACE INTO {SQLITE_SOURCES_TABLE}
+                    (source_path, source_format, source_sheet_name, source_table_name, fingerprint)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    [
+                        source_path,
+                        source_format,
+                        source_sheet_name,
+                        source_table_name,
+                        table_fingerprint,
+                    ],
+                )
+                register_source_table_relationships(
                     connection,
                     source_path=source_path,
                     source_format=source_format,
                     source_sheet_name=source_sheet_name,
                     source_table_name=source_table_name,
                     fingerprint=table_fingerprint,
+                    table_name=table_name,
+                    typed_view_name=typed_view_name,
                 )
 
                 loaded_tables.append(

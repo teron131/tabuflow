@@ -6,12 +6,12 @@ from contextlib import closing
 from functools import lru_cache
 import json
 from pathlib import Path
-import re
 import sqlite3
 from typing import Any, cast
 
-from ..tabular.storage import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, quote_identifier
+from ..workspace_db import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, quote_identifier
 from .database import open_read_only_connection
+from .relationships import ARTIFACT_RELATION_TABLES, referenced_artifact_names
 
 _SQL_ARTIFACT_MASTER_SQL = """
 SELECT name, type, sql
@@ -116,7 +116,7 @@ def classify_sql_artifact(
     content_table_names: set[str] | None = None,
 ) -> str:
     """Classify a SQLite artifact using current naming conventions."""
-    if name in (SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE):
+    if name in (SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE) or name in ARTIFACT_RELATION_TABLES:
         return "internal_catalog"
     content_tables = content_table_names or set()
     if name in content_tables:
@@ -203,29 +203,6 @@ def path_match_reason(
     return None
 
 
-ARTIFACT_REFERENCE_PATTERN = re.compile(
-    r'\b(?:FROM|JOIN)\s+(?:"([^"]+)"|`([^`]+)`|\[([^\]]+)\]|([A-Za-z_][\w$]*))',
-    re.IGNORECASE,
-)
-
-
-def _referenced_artifact_names(
-    create_sql: str | None,
-    *,
-    available_artifact_names: set[str],
-    current_artifact_name: str,
-) -> list[str]:
-    """Return known SQLite artifacts referenced by a stored SQL artifact."""
-    if not create_sql:
-        return []
-    references: list[str] = []
-    for match in ARTIFACT_REFERENCE_PATTERN.finditer(create_sql):
-        reference = next((value for value in match.groups() if value), "")
-        if reference and reference != current_artifact_name and reference in available_artifact_names:
-            references.append(reference)
-    return list(dict.fromkeys(references))
-
-
 def _dedupe_source_mappings(source_mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Deduplicate source mappings while preserving first-seen order."""
     seen: set[tuple[str, str, str]] = set()
@@ -285,10 +262,15 @@ def _attach_reference_lineage(
     """Attach SQL references and inherited source mappings to cached artifact metadata."""
     available_artifact_names = set(artifacts_by_name)
     for artifact_info in artifacts:
-        source_artifact_names = _referenced_artifact_names(
-            cast(str | None, artifact_info["create_sql"]),
-            available_artifact_names=available_artifact_names,
-            current_artifact_name=cast(str, artifact_info["name"]),
+        create_sql = cast(str | None, artifact_info["create_sql"])
+        source_artifact_names = (
+            []
+            if create_sql is None
+            else referenced_artifact_names(
+                create_sql,
+                available_artifact_names=available_artifact_names,
+                current_artifact_name=cast(str, artifact_info["name"]),
+            )
         )
         artifact_info["source_sql_artifact_names"] = source_artifact_names
 

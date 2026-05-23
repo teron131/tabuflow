@@ -11,7 +11,8 @@ import re
 import sqlite3
 from typing import Any, cast
 
-from ..tabular.storage import quote_identifier, sqlite_database_path, sqlite_write_lock
+from ..workspace_db import quote_identifier, sqlite_database_path, sqlite_write_lock
+from .relationships import referenced_artifact_names, register_saved_view_relationships
 
 MAX_QUERY_ROWS = 200
 MISSING_VALUE = object()
@@ -279,6 +280,7 @@ def save_view(
     *,
     root_dir: str | Path | None = None,
     database_path: str | Path | None = None,
+    sql_file_path: str | Path | None = None,
     replace: bool = False,
 ) -> dict[str, Any]:
     """Save one read-only SQL query as a named SQLite view."""
@@ -360,6 +362,29 @@ def save_view(
                 connection.execute(f"DROP VIEW IF EXISTS {quote_identifier(normalized_view_name)}")
 
             connection.execute(f"CREATE VIEW {quote_identifier(normalized_view_name)} AS {query_sql}")
+            available_artifact_names = {
+                cast(str, row[0])
+                for row in connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type IN ('table', 'view')
+                      AND name NOT LIKE 'sqlite_%'
+                    """
+                ).fetchall()
+            }
+            dependency_names = referenced_artifact_names(
+                query_sql,
+                available_artifact_names=available_artifact_names,
+                current_artifact_name=normalized_view_name,
+            )
+            register_saved_view_relationships(
+                connection,
+                view_name=normalized_view_name,
+                sql=query_sql,
+                sql_file_path=sql_file_path,
+                dependency_names=dependency_names,
+            )
             connection.commit()
 
         from .catalog import describe_sql_artifact
@@ -375,6 +400,7 @@ def save_view(
             "view_name": normalized_view_name,
             "replace": replace,
             "saved_sql": query_sql,
+            "sql_file_path": None if sql_file_path is None else str(sql_file_path),
             "sql_artifact": description,
         }
     except ValueError as exc:
@@ -417,6 +443,7 @@ def save_artifact_view(
     *,
     root_dir: str | Path | None = None,
     database_path: str | Path | None = None,
+    sql_file_path: str | Path | None = None,
     replace: bool = False,
 ) -> dict[str, Any]:
     """Save a read-only artifact-cache query as a named SQLite view."""
@@ -425,5 +452,6 @@ def save_artifact_view(
         view_name,
         root_dir=root_dir,
         database_path=database_path,
+        sql_file_path=sql_file_path,
         replace=replace,
     )

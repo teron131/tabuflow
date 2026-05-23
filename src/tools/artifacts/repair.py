@@ -6,7 +6,7 @@ from pathlib import Path
 import re
 from typing import Any, cast
 
-from ..tabular.storage import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, quote_identifier
+from ..workspace_db import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, quote_identifier
 from .database import open_read_only_connection, resolve_db_path
 
 MAX_REPAIR_CANDIDATES = 3
