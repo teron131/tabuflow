@@ -65,7 +65,6 @@ The tool output should help a coding agent avoid dumb mistakes:
 - `structure_hints` points to likely header and data-start rows.
 - `excluded_row_hints` reports footer-like rows left outside extracted tables.
 - `artifacts from-source` returns a preferred artifact and quoted preview SQL.
-- Generated SQL artifact names may contain hyphens, so quote them: `select * from "service-usage-1cca2e" limit 20;`.
 
 Use `--root-dir` and artifact `--database-path` for repeatable local runs across working directories. Workbench and adapter paths should still bind workspace/storage outside model-visible schemas.
 

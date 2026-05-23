@@ -12,6 +12,7 @@ import sqlite3
 import time
 from typing import Any, cast
 
+from ..artifacts.naming import normalize_source_stem
 from ..artifacts.relationships import ensure_artifact_relationship_tables, register_source_table_relationships
 from ..workspace_db import (
     SQLITE_CONTENTS_TABLE as SQLITE_CONTENTS_TABLE,
@@ -282,22 +283,27 @@ def _create_typed_sqlite_view(
     return typed_view_name, inferred_types
 
 
-def _content_table_name(
+def _available_content_table_name(
     *,
-    table_fingerprint: str,
-    columns: list[str],
     source_path: str,
-    source_table_name: str,
+    connection: sqlite3.Connection,
 ) -> str:
-    """Build the physical SQLite table name with the shared artifact namer."""
-    from ..artifacts.naming import name_sql_artifact
+    """Return an unused normalized filename-based table name."""
+    base_name = normalize_source_stem(source_path)
+    used_names = {
+        cast(str, row[0])
+        for row in connection.execute(
+            f"SELECT table_name FROM {SQLITE_CONTENTS_TABLE}",
+        ).fetchall()
+    }
+    used_names.update(cast(str, row[0]) for row in connection.execute("SELECT name FROM sqlite_master WHERE name IS NOT NULL").fetchall())
 
-    description_parts = [
-        *columns[:8],
-        Path(source_path).stem,
-        source_table_name,
-    ]
-    return name_sql_artifact(" ".join(description_parts), identifier=table_fingerprint)
+    index = 1
+    while True:
+        table_name = base_name if index == 1 else f"{base_name}_{index}"
+        if table_name not in used_names and f"{table_name}_typed" not in used_names:
+            return table_name
+        index += 1
 
 
 def _create_sqlite_table(
@@ -324,17 +330,10 @@ def _load_or_reuse_content_table(
     columns: list[str],
     rows: list[list[str]],
     source_path: str,
-    source_table_name: str,
     source_format: str,
 ) -> tuple[str, str, list[str], str]:
     """Ensure a raw content table exists and return its storage metadata."""
     table_fingerprint = fingerprint(columns, rows)
-    table_name = _content_table_name(
-        table_fingerprint=table_fingerprint,
-        columns=columns,
-        source_path=source_path,
-        source_table_name=source_table_name,
-    )
     db_columns = _db_column_names(columns)
     existing = connection.execute(
         f"SELECT table_name FROM {SQLITE_CONTENTS_TABLE} WHERE fingerprint = ?",
@@ -343,6 +342,10 @@ def _load_or_reuse_content_table(
     if existing is not None:
         return table_fingerprint, cast(str, existing[0]), db_columns, "reused"
 
+    table_name = _available_content_table_name(
+        source_path=source_path,
+        connection=connection,
+    )
     _create_sqlite_table(
         connection,
         table_name=table_name,
@@ -406,7 +409,6 @@ def load_tables_into_sqlite(
                     columns=columns,
                     rows=rows,
                     source_path=source_path,
-                    source_table_name=source_table_name,
                     source_format=source_format,
                 )
                 typed_view_name, typed_columns = _create_typed_sqlite_view(

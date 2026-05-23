@@ -48,7 +48,7 @@ The artifact tools are useful because they turn extracted data into a repeatable
 
 The artifact database is the working data warehouse for prepared files. Users may already have many source files loaded into SQLite, so normal analysis should begin by listing/describing artifacts and writing ordinary SQL files against the database, not by asking an agent to remember file names or table names from chat history. Agents can author and run SQL, but the reusable unit should be the `.sql` artifact and the saved view/output it proves.
 
-PDF tools are useful when they produce durable text/image evidence for page-level review. `pdf prepare` renders every page and creates a resumable artifact folder with `source.pdf`, rendered page images, extracted page text, and empty `work/` plus `import/` directories. The default render DPI is 150, with a 72-300 DPI guard and a default 300-page safety cap. The database is the committed/queryable layer; the PDF artifact folder is the scratch workspace where recovered tables can be written and revised before import.
+PDF tools are useful when they produce durable visual evidence without bloating the workspace. `pdf prepare` renders every page and creates a lean normalized source-name folder with `manifest.json`, rendered page images, and `work/` for recovered table drafts. The default render DPI is 150, with a 72-300 DPI guard and a default 300-page safety cap. The database is the committed/queryable layer; the PDF artifact folder is the scratch workspace where recovered tables can be written and revised before import.
 
 Email inspection is reference context only. Emails can explain approvals, periods, account IDs, attachments, and reporting context, but they are not billing-table truth unless the task explicitly asks for email-derived data.
 
@@ -71,6 +71,7 @@ Keep these because they came from real files and still guide the generic tool de
 - A future read/render layer can preserve fuller visual context, ordering, and surrounding text. That should not be forced into the extraction contract.
 - Extracted tables should be queryable through SQLite artifacts with source lineage, row counts, exact content fingerprints, typed views, and enough catalog metadata to rediscover outputs later.
 - `fingerprint` is the single table-content identity. It is a SHA-256 hash over ordered columns plus all stored rows, and it is the uniqueness key for deduping table artifacts. Do not reintroduce a second `content_id` concept or a sampled fingerprint for storage.
+- User-facing source-backed names should come from normalized filenames, not semantic/random names: `Abc Def.pdf` becomes `abc_def.pdf`, SQLite tables drop the extension, and different content with the same normalized name gets `_2`, `_3`, etc. Fingerprints stay in metadata for identity and dedup.
 - Preview limits belong to inspect/profile/describe surfaces only. `tabular inspect`, `tabular profile`, and `artifacts describe` should show enough rows to orient a human or coding agent without dumping the dataset; extraction should always store the full recovered table in SQLite.
 - Footer rows such as `Rounding error` and `Total` should be excluded from loaded table bodies when they are clearly footers, but reported through `excluded_row_hints` so the agent can reconcile totals honestly.
 
@@ -135,6 +136,7 @@ Adjacent `.eml` and `.msg` files are supporting reference context, not default s
 - Extraction reports footer-like rows it left outside the loaded table.
 - `artifacts from-source` returns a preferred typed target and a ready `SELECT ... LIMIT 20` query hint.
 - SQLite tabular catalog identity is fingerprint-only: `_tabular_contents.fingerprint` is the primary key and `_tabular_sources.fingerprint` is the lineage key. The old `content_id` path was removed rather than shimmed.
+- PDF preparation keeps artifacts lean by default: `manifest.json`, `pages/*.jpg`, and `work/` under a normalized source-name folder. It does not copy `source.pdf` or write `text/*.txt`/`import/` unless a later workflow earns that extra surface.
 - Extraction no longer exposes `sample_rows`; it stores full recovered tables. Preview defaults were raised so inspect/profile/describe are more useful without changing ingest: `tabular inspect` defaults to 20 rows, tabular profile uses 20 sample rows, and `artifacts describe` defaults to 10 sample rows with a 20-row cap.
 
 Recent verification used:

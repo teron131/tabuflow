@@ -6,12 +6,11 @@ from datetime import UTC, datetime
 import hashlib
 import json
 from pathlib import Path
-import re
-import shutil
 from typing import Any
 
 import pymupdf
 
+from ..artifacts.naming import normalize_source_filename, normalize_source_stem
 from ..tabular.storage import resolve_root_dir
 
 DEFAULT_PAGES_PER_CHUNK = 3
@@ -26,14 +25,11 @@ DEFAULT_MAX_PREPARE_PAGES = 300
 MIN_PREPARE_DPI = 72
 MAX_PREPARE_DPI = 300
 PDF_ARTIFACT_VERSION = 1
-PDF_SLUG_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
-def pdf_artifact_slug(path: Path) -> str:
-    """Return a stable artifact folder name for one PDF source file."""
-    stem = PDF_SLUG_PATTERN.sub("-", path.stem.lower()).strip("-") or "pdf"
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()[:12]
-    return f"{stem}-{digest}"
+def pdf_source_fingerprint(path: Path) -> str:
+    """Return the exact source-file fingerprint used for PDF artifact identity."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _relative_to_root(path: Path, root_dir: Path) -> str:
@@ -59,30 +55,55 @@ def _validate_prepare_options(
         raise ValueError(f"PDF has {page_count} pages, above the max_pages guard of {max_pages}. Pass a higher --max-pages if you want to prepare it.")
 
 
+def _manifest_source_fingerprint(artifact_dir: Path) -> str | None:
+    """Return the source fingerprint recorded by an existing PDF artifact manifest."""
+    manifest_path = artifact_dir / "manifest.json"
+    if not manifest_path.is_file():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    value = manifest.get("source_fingerprint") or manifest.get("fingerprint")
+    return str(value) if value else None
+
+
+def _pdf_artifact_dir(
+    *,
+    output_path: Path,
+    source_stem: str,
+    source_fingerprint: str,
+) -> Path:
+    """Return a normalized artifact directory, reusing identical content when present."""
+    index = 1
+    while True:
+        artifact_stem = source_stem if index == 1 else f"{source_stem}_{index}"
+        artifact_dir = output_path / artifact_stem
+        if not artifact_dir.exists() or _manifest_source_fingerprint(artifact_dir) == source_fingerprint:
+            return artifact_dir
+        index += 1
+
+
 def _prepare_page_artifacts(
     *,
     document: pymupdf.Document,
     pages_dir: Path,
-    text_dir: Path,
     root_dir: Path,
     dpi: int,
 ) -> list[dict[str, Any]]:
-    """Render every PDF page and return manifest-ready page entries."""
+    """Render every PDF page image and return manifest-ready page entries."""
     pages: list[dict[str, Any]] = []
     page_width = max(3, len(str(document.page_count)))
     for page_number in range(1, document.page_count + 1):
         page = document[page_number - 1]
         page_name = f"page_{page_number:0{page_width}d}"
         image_path = pages_dir / f"{page_name}.jpg"
-        text_path = text_dir / f"{page_name}.txt"
         text = page.get_text("text").strip()
         image_path.write_bytes(page.get_pixmap(dpi=dpi).tobytes("jpeg"))
-        text_path.write_text(f"{text}\n" if text else "", encoding="utf-8")
         pages.append(
             {
                 "page_number": page_number,
                 "image_path": _relative_to_root(image_path, root_dir),
-                "text_path": _relative_to_root(text_path, root_dir),
                 "text_char_count": len(text),
             }
         )
@@ -125,7 +146,7 @@ def inspect_pdf_file(
                 "text_truncated": len(text) > safe_text_chars,
             }
             if include_images:
-                image_path = output_path / f"{pdf_path.stem}_page_{page_number}.jpg"
+                image_path = output_path / f"{normalize_source_stem(pdf_path.name)}_page_{page_number}.jpg"
                 image_path.write_bytes(page.get_pixmap(dpi=dpi).tobytes("jpeg"))
                 page_payload["image_path"] = str(image_path)
             pages.append(page_payload)
@@ -151,9 +172,9 @@ def prepare_pdf_file(
     output_dir: str | Path = DEFAULT_PDF_PREPARE_OUTPUT_DIR,
     dpi: int = DEFAULT_DPI,
     max_pages: int | None = DEFAULT_MAX_PREPARE_PAGES,
-    copy_source: bool = True,
+    copy_source: bool = False,
 ) -> dict[str, Any]:
-    """Create a resumable PDF artifact workspace with page images, text, and manifest."""
+    """Create a lean PDF artifact workspace with page images, work files, and manifest."""
     resolved_root_dir = resolve_root_dir(root_dir=root_dir)
     pdf_path = Path(path).expanduser()
     if not pdf_path.is_absolute():
@@ -165,11 +186,16 @@ def prepare_pdf_file(
     output_path = Path(output_dir)
     if not output_path.is_absolute():
         output_path = resolved_root_dir / output_path
-    artifact_dir = output_path / pdf_artifact_slug(pdf_path)
+    source_fingerprint = pdf_source_fingerprint(pdf_path)
+    normalized_filename = normalize_source_filename(pdf_path.name)
+    normalized_stem = normalize_source_stem(pdf_path.name)
+    artifact_dir = _pdf_artifact_dir(
+        output_path=output_path,
+        source_stem=normalized_stem,
+        source_fingerprint=source_fingerprint,
+    )
     pages_dir = artifact_dir / "pages"
-    text_dir = artifact_dir / "text"
     work_dir = artifact_dir / "work"
-    import_dir = artifact_dir / "import"
 
     with pymupdf.open(str(pdf_path)) as document:
         page_count = document.page_count
@@ -179,17 +205,18 @@ def prepare_pdf_file(
             max_pages=max_pages,
         )
 
-        for directory in (pages_dir, text_dir, work_dir, import_dir):
+        for directory in (pages_dir, work_dir):
             directory.mkdir(parents=True, exist_ok=True)
 
-        source_artifact_path = artifact_dir / "source.pdf"
+        source_artifact_path = None
         if copy_source:
-            shutil.copy2(pdf_path, source_artifact_path)
+            source_artifact_path = artifact_dir / normalized_filename
+            if not source_artifact_path.exists():
+                source_artifact_path.write_bytes(pdf_path.read_bytes())
 
         pages = _prepare_page_artifacts(
             document=document,
             pages_dir=pages_dir,
-            text_dir=text_dir,
             root_dir=resolved_root_dir,
             dpi=dpi,
         )
@@ -200,19 +227,20 @@ def prepare_pdf_file(
         "status": "prepared",
         "created_at": datetime.now(UTC).isoformat(),
         "source_path": str(pdf_path),
-        "source_artifact_path": _relative_to_root(source_artifact_path, resolved_root_dir) if copy_source else None,
+        "source_filename": pdf_path.name,
+        "normalized_filename": normalized_filename,
+        "source_fingerprint": source_fingerprint,
+        "source_artifact_path": _relative_to_root(source_artifact_path, resolved_root_dir) if source_artifact_path else None,
         "artifact_dir": _relative_to_root(artifact_dir, resolved_root_dir),
         "pages_dir": _relative_to_root(pages_dir, resolved_root_dir),
-        "text_dir": _relative_to_root(text_dir, resolved_root_dir),
         "work_dir": _relative_to_root(work_dir, resolved_root_dir),
-        "import_dir": _relative_to_root(import_dir, resolved_root_dir),
         "dpi": dpi,
         "max_pages": max_pages,
         "page_count": page_count,
         "prepared_page_count": len(pages),
         "pages": pages,
         "next_steps": [
-            "Read pages/*.jpg visually and text/*.txt semantically.",
+            "Read pages/*.jpg visually and use pdf inspect when text preview is needed.",
             "Write recovered tables into work/*.csv or work/*.json.",
             "Import prepared table artifacts into SQLite when ready.",
         ],
@@ -227,11 +255,9 @@ def prepare_pdf_file(
         "route": "deterministic_pdf_prepare",
         "artifact_dir": str(artifact_dir),
         "manifest_path": str(manifest_path),
-        "source_artifact_path": str(source_artifact_path) if copy_source else None,
+        "source_artifact_path": str(source_artifact_path) if source_artifact_path else None,
         "pages_dir": str(pages_dir),
-        "text_dir": str(text_dir),
         "work_dir": str(work_dir),
-        "import_dir": str(import_dir),
         "dpi": dpi,
         "max_pages": max_pages,
         "page_count": page_count,
@@ -279,5 +305,5 @@ def extract_pdf_file(
             "fix_overall": fix_overall,
             "write_markdown": write_markdown,
         },
-        "message": "PDF table extraction is agent-managed. Use prepare_pdf_file to create page image/text artifacts, write recovered tables into the work directory, then import them through the tabular or artifact tools.",
+        "message": "PDF table extraction is agent-managed. Use prepare_pdf_file to create page image artifacts, write recovered tables into the work directory, then import them through the tabular or artifact tools.",
     }

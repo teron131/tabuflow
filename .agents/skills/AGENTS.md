@@ -48,7 +48,7 @@ uv run tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3 --inc
 uv run tabuflow pdf prepare path/to/file.pdf
 ```
 
-`pdf inspect` is the deterministic quick route for bounded page text and optional rendered images. `pdf prepare` renders every page and creates a durable `artifacts/pdf/...` workspace with `source.pdf`, `pages/*.jpg`, `text/*.txt`, `work/`, `import/`, and `manifest.json`. It defaults to 150 DPI and stops above the page-count guard unless `--max-pages` is raised. Write recovered tables into the work directory, then import them through tabular or artifact tooling when ready. If layout, page boundaries, or OCR output are ambiguous, say so instead of presenting the extraction as complete.
+`pdf inspect` is the deterministic quick route for bounded page text and optional rendered images. `pdf prepare` renders every page and creates a lean normalized-filename workspace under `artifacts/pdf/...` with `manifest.json`, `pages/*.jpg`, and `work/`. It defaults to 150 DPI and stops above the page-count guard unless `--max-pages` is raised. Write recovered tables into the work directory, then import them through tabular or artifact tooling when ready. If layout, page boundaries, or OCR output are ambiguous, say so instead of presenting the extraction as complete.
 
 Use email tools only for reference context:
 

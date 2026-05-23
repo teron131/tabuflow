@@ -1,6 +1,7 @@
-"""Naming helpers for generated artifact files and saved views."""
+"""Naming helpers for source-backed artifacts, SQL files, and saved views."""
 
 from collections.abc import Callable
+from pathlib import Path
 import re
 import secrets
 from typing import Any
@@ -8,6 +9,8 @@ from typing import Any
 ARTIFACT_WORD_COUNT = 2
 ARTIFACT_SUFFIX_CHARS = 6
 SLUG_PATTERN = re.compile(r"[a-z0-9]+")
+SOURCE_NAME_UNSAFE_PATTERN = re.compile(r"[^a-z0-9()]+")
+SOURCE_NAME_SEPARATOR_PATTERN = re.compile(r"_+")
 SLUG_STOP_WORDS = {
     "a",
     "an",
@@ -40,6 +43,20 @@ SLUG_STOP_WORDS = {
 }
 SLUG_FALLBACK_WORDS = ("data", "query", "result")
 ArtifactNamerFn = Callable[[str], str]
+
+
+def normalize_source_filename(filename: str | Path) -> str:
+    """Return a compact lowercase filename suitable for source-backed artifacts."""
+    source_name = Path(filename).name
+    source_path = Path(source_name)
+    suffix = "".join(SLUG_PATTERN.findall(source_path.suffix.lower().lstrip(".")))
+    stem = _normalize_source_stem(source_path.stem)
+    return f"{stem}.{suffix}" if suffix else stem
+
+
+def normalize_source_stem(filename: str | Path) -> str:
+    """Return a normalized source filename without its extension."""
+    return normalize_source_filename(filename).rsplit(".", maxsplit=1)[0]
 
 
 def build_sql_artifact_namer(llm: Any | None) -> ArtifactNamerFn | None:
@@ -111,3 +128,10 @@ def _slug_words(words: list[str]) -> list[str]:
         if fallback_word not in slug_tokens:
             slug_tokens.append(fallback_word)
     return slug_tokens
+
+
+def _normalize_source_stem(stem: str) -> str:
+    """Normalize one source filename stem while preserving useful copy suffixes."""
+    normalized = SOURCE_NAME_UNSAFE_PATTERN.sub("_", stem.lower())
+    normalized = SOURCE_NAME_SEPARATOR_PATTERN.sub("_", normalized).strip("_")
+    return normalized or "source"

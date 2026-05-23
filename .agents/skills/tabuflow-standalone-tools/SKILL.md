@@ -77,7 +77,7 @@ tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3 --include-im
 tabuflow pdf prepare path/to/file.pdf
 ```
 
-`pdf inspect` is the quick bounded preview route. `pdf prepare` renders every page and creates `source.pdf`, `pages/*.jpg`, `text/*.txt`, `work/`, `import/`, and `manifest.json` under `artifacts/pdf/...`. It defaults to 150 DPI and stops above the page-count guard unless `--max-pages` is raised. Write recovered tables into the work directory and import them only when ready. If extraction is incomplete, report the ambiguous pages or layout gaps instead of pretending the artifact is complete.
+`pdf inspect` is the quick bounded preview route. `pdf prepare` renders every page and creates a lean normalized-filename workspace with `manifest.json`, `pages/*.jpg`, and `work/` under `artifacts/pdf/...`. It defaults to 150 DPI and stops above the page-count guard unless `--max-pages` is raised. Write recovered tables into the work directory and import them only when ready. If extraction is incomplete, report the ambiguous pages or layout gaps instead of pretending the artifact is complete.
 
 ## Email Reference Workflow
 
@@ -114,6 +114,8 @@ Generated artifact names often contain hyphens. Quote them as SQLite identifiers
 ```sql
 select * from "service-usage-1cca2e" limit 20;
 ```
+
+Source-backed table and PDF workspace names use normalized filenames such as `abc_def` or `abc_def_(2)`. If different content collides on the same normalized name, Tabuflow appends `_2`, `_3`, and so on; identical table content reuses the existing fingerprint-backed table.
 
 ## Python API Option
 

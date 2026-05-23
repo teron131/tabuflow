@@ -200,7 +200,7 @@ def add_pdf_commands(subparsers: Any) -> None:
     prepare.add_argument("--output-dir", default=str(DEFAULT_PDF_PREPARE_OUTPUT_DIR))
     prepare.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     prepare.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PREPARE_PAGES)
-    prepare.add_argument("--no-copy-source", action="store_true")
+    prepare.add_argument("--copy-source", action="store_true", help="Also copy the PDF source into the prepared artifact folder.")
     prepare.set_defaults(
         handler=lambda args: prepare_pdf_file(
             args.path,
@@ -208,7 +208,7 @@ def add_pdf_commands(subparsers: Any) -> None:
             output_dir=args.output_dir,
             dpi=args.dpi,
             max_pages=args.max_pages,
-            copy_source=not args.no_copy_source,
+            copy_source=args.copy_source,
         )
     )
 
