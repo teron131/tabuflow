@@ -155,8 +155,6 @@ def inspect_pdf_file(
         "path": str(pdf_path),
         "format": "pdf",
         "status": "ok",
-        "route": "deterministic_pdf_inspect",
-        "llm_required": False,
         "page_count": page_count,
         "page_start": safe_page_start,
         "page_end": pages[-1]["page_number"] if pages else safe_page_start - 1,
@@ -252,7 +250,6 @@ def prepare_pdf_file(
         "path": str(pdf_path),
         "format": "pdf",
         "status": "prepared",
-        "route": "deterministic_pdf_prepare",
         "artifact_dir": str(artifact_dir),
         "manifest_path": str(manifest_path),
         "source_artifact_path": str(source_artifact_path) if source_artifact_path else None,
@@ -289,8 +286,7 @@ def extract_pdf_file(
     return {
         "path": str(pdf_path),
         "format": "pdf",
-        "status": "agent_required",
-        "route": "agent_managed_pdf_extraction",
+        "status": "prepared_tables_required",
         "artifact_backend": "sqlite",
         "database_path": "",
         "tables": [],
@@ -305,5 +301,5 @@ def extract_pdf_file(
             "fix_overall": fix_overall,
             "write_markdown": write_markdown,
         },
-        "message": "PDF table extraction is agent-managed. Use prepare_pdf_file to create page image artifacts, write recovered tables into the work directory, then import them through the tabular or artifact tools.",
+        "message": "Use prepare_pdf_file to create page image artifacts, write recovered tables into the work directory, then import them through the tabular or artifact tools.",
     }
