@@ -260,7 +260,7 @@ def add_artifact_commands(subparsers: Any) -> None:
     from_source.add_argument("--include-internal", action="store_true")
     from_source.set_defaults(
         handler=lambda args: artifacts_from_source(
-            args.path,
+            str(resolve_cli_path(args.path, args)),
             root_dir=resolve_cli_root(args),
             database_path=resolve_cli_database_path(args),
             include_internal=args.include_internal,

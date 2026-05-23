@@ -35,6 +35,7 @@ WORKBOOK_SHEET_PROFILE_FIELDS = {
     "structure_hints",
     "header_candidates",
     "regions",
+    "sample_rows",
 }
 
 
