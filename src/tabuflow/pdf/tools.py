@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
 import pymupdf
 
-from ..tabular.storage import load_tables_into_sqlite, resolve_root_dir
+from ..tabular.storage import resolve_root_dir
 
 DEFAULT_PAGES_PER_CHUNK = 3
 DEFAULT_DPI = 192
@@ -74,31 +73,6 @@ def inspect_pdf_file(
     }
 
 
-def _normalized_pdf_tables(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """Return PDF OCR tables in the shared tabular-loader shape."""
-    normalized_tables: list[dict[str, Any]] = []
-    for table_index, table in enumerate(payload.get("tables", []), start=1):
-        if not isinstance(table, dict):
-            continue
-        columns = [str(column or "").strip() or f"column_{idx}" for idx, column in enumerate(table.get("columns", []), start=1)]
-        rows = table.get("rows", [])
-        if not columns or not isinstance(rows, list):
-            continue
-        width = len(columns)
-        normalized_rows = [[str(cell or "") for cell in row[:width]] + [""] * max(0, width - len(row)) for row in rows if isinstance(row, list)]
-        if not normalized_rows:
-            continue
-        table_name = str(table.get("title") or "").strip() or f"table_{table_index:03d}"
-        normalized_tables.append(
-            {
-                "name": table_name,
-                "columns": columns,
-                "rows": normalized_rows,
-            }
-        )
-    return normalized_tables
-
-
 def extract_pdf_file(
     path: str | Path,
     *,
@@ -113,68 +87,30 @@ def extract_pdf_file(
     fix_overall: bool = True,
     write_markdown: bool = True,
 ) -> dict[str, Any]:
-    """Extract visual PDF tables and load them into the shared SQLite cache."""
+    """Return the agent-managed PDF extraction boundary without running an LLM."""
     resolved_root_dir = resolve_root_dir(root_dir=root_dir)
     pdf_path = Path(path).expanduser()
     if not pdf_path.is_absolute():
         pdf_path = resolved_root_dir / pdf_path
     pdf_path = pdf_path.resolve()
-
-    from .llm_ocr_tables import extract_pdf_tables
-
-    ocr_result = extract_pdf_tables(
-        pdf_path,
-        output_dir=output_dir,
-        model=model,
-        pages_per_chunk=pages_per_chunk,
-        max_concurrency=max_concurrency,
-        dpi=dpi,
-        max_chunks=max_chunks,
-        fix_bridges=fix_bridges,
-        fix_overall=fix_overall,
-        write_markdown=write_markdown,
-    )
-    ocr_payload = json.loads(ocr_result.json_path.read_text(encoding="utf-8"))
-    recovered_tables = _normalized_pdf_tables(ocr_payload)
-    if not recovered_tables:
-        return {
-            "path": str(pdf_path),
-            "format": "pdf_ocr",
-            "status": "empty",
-            "artifact_backend": "sqlite",
-            "database_path": "",
-            "ocr_sqlite_path": str(ocr_result.sqlite_path),
-            "result_json_path": str(ocr_result.json_path),
-            "markdown_path": None if ocr_result.markdown_path is None else str(ocr_result.markdown_path),
-            "recovered_table_count": 0,
-            "tables": [],
-            "message": "PDF OCR completed but did not recover importable tables.",
-        }
-
-    recovered = {
-        "path": str(pdf_path),
-        "format": "pdf_ocr",
-        "tables": recovered_tables,
-    }
-    loaded = load_tables_into_sqlite(
-        recovered,
-        root_dir=resolved_root_dir,
-    )
-
     return {
         "path": str(pdf_path),
-        "format": "pdf_ocr",
-        "status": "loaded",
+        "format": "pdf",
+        "status": "agent_required",
+        "route": "agent_managed_pdf_extraction",
         "artifact_backend": "sqlite",
-        "database_path": loaded["database_path"],
-        "ocr_sqlite_path": str(ocr_result.sqlite_path),
-        "result_json_path": str(ocr_result.json_path),
-        "markdown_path": None if ocr_result.markdown_path is None else str(ocr_result.markdown_path),
-        "recovered_table_count": len(recovered_tables),
-        "tables": loaded["tables"],
-        "usage": {
-            "input_tokens": ocr_result.usage.input_tokens,
-            "output_tokens": ocr_result.usage.output_tokens,
-            "cost": ocr_result.usage.cost,
+        "database_path": "",
+        "tables": [],
+        "requested_options": {
+            "output_dir": str(output_dir),
+            "model": model,
+            "pages_per_chunk": pages_per_chunk,
+            "max_concurrency": max_concurrency,
+            "dpi": dpi,
+            "max_chunks": max_chunks,
+            "fix_bridges": fix_bridges,
+            "fix_overall": fix_overall,
+            "write_markdown": write_markdown,
         },
+        "message": "PDF table extraction is agent-managed. Use inspect_pdf_file to inspect or render pages, write recovered tables as artifacts, then import them through the tabular or artifact tools.",
     }

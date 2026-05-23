@@ -666,7 +666,7 @@ def _run_bridge_text_fix(
     config: RunnableConfig | None = None,
 ) -> tuple[TableOcrPayload, OcrUsage]:
     """Repair one adjacent chunk boundary using seam OCR as evidence."""
-    from ...agents.fixer import fix_file
+    from ..fixer import fix_file
 
     bridge_text = json.dumps(
         _build_bridge_payload(
@@ -700,7 +700,7 @@ def _run_overall_fix(
     config: RunnableConfig | None = None,
 ) -> tuple[TableOcrPayload, OcrUsage]:
     """Repair full-document table artifacts using the generic file fixer."""
-    from ...agents.fixer import fix_file
+    from ..fixer import fix_file
 
     overall_text = json.dumps(_build_overall_payload(tables), indent=2, ensure_ascii=False)
     with TemporaryDirectory(prefix="pdf_table_overall_") as overall_dir:
