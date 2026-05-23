@@ -11,7 +11,7 @@ DEFAULT_LOG_LEVEL = "INFO"
 FILE_HANDLER_NAME = "tabuflow-file"
 LOG_LEVEL_ENV = "TABUFLOW_LOG_LEVEL"
 LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 STARTED_AT = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
 
 
