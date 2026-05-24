@@ -8,6 +8,7 @@ from pathlib import Path
 import time
 
 SQLITE_FILENAME = "tabular.sqlite"
+ARTIFACTS_DIRNAME = "artifacts"
 SQLITE_CONTENTS_TABLE = "_tabular_contents"
 SQLITE_SOURCES_TABLE = "_tabular_sources"
 LOCK_POLL_SECONDS = 0.1
@@ -22,9 +23,9 @@ def resolve_root_dir(*, root_dir: str | Path | None = None) -> Path:
 def sqlite_database_path(*, root_dir: str | Path | None = None) -> Path:
     """Return the shared SQLite path for extracted tabular data."""
     resolved_root = resolve_root_dir(root_dir=root_dir)
-    data_dir = resolved_root / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return data_dir / SQLITE_FILENAME
+    artifacts_dir = resolved_root / ARTIFACTS_DIRNAME
+    artifacts_dir.mkdir(parents=True, exist_ok=True)
+    return artifacts_dir / SQLITE_FILENAME
 
 
 @contextmanager

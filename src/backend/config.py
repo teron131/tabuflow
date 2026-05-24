@@ -7,9 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from ..tabuflow.workspace_db import sqlite_database_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = REPO_ROOT / ".env"
@@ -35,7 +36,7 @@ def configured_path(env_name: str, default: Path) -> Path:
 
 PREPARED_DATABASE_PATH = configured_path(
     "TABUFLOW_PREPARED_DATABASE_PATH",
-    REPO_ROOT / "data" / "tabular.sqlite",
+    sqlite_database_path(root_dir=REPO_ROOT),
 )
 UPLOADS_DIR = configured_path(
     "TABUFLOW_UPLOADS_DIR",
