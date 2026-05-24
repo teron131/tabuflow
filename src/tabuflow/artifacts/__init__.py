@@ -15,8 +15,6 @@ from .database import (
     query_artifacts,
     resolve_db_path,
     run_query,
-    save_artifact_view,
-    save_view,
 )
 from .naming import ArtifactNamerFn, build_sql_artifact_namer, name_sql_artifact, normalize_source_filename, normalize_source_stem
 from .repair import (
@@ -24,6 +22,7 @@ from .repair import (
     suggest_sql_error_repair,
     suggest_sql_error_repair_from_schema,
 )
+from .views import save_artifact_view, save_view
 
 __all__ = [
     "DEFAULT_CLI_ARTIFACT_LIST_LIMIT",

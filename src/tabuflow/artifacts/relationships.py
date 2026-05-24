@@ -220,19 +220,13 @@ def referenced_artifact_names(
     return list(dict.fromkeys(references))
 
 
-def register_saved_view_relationships(
+def _delete_saved_view_definition_metadata(
     connection: sqlite3.Connection,
     *,
     view_name: str,
-    sql: str,
-    sql_file_path: str | Path | None,
-    dependency_names: list[str],
+    sql_file_path: str | None,
 ) -> None:
-    """Register SQL file, view, and dependency relationships for a saved view."""
-    ensure_artifact_relationship_tables(connection)
-    sql_hash = hashlib.sha256(sql.encode("utf-8")).hexdigest()
-    updated_at = datetime.now(UTC).isoformat(timespec="seconds")
-    normalized_file_path = None if sql_file_path is None else str(Path(sql_file_path).expanduser())
+    """Remove stale SQL-file definition metadata for one saved view."""
     connection.execute(
         f"""
         DELETE FROM {quote_identifier(ARTIFACT_RELATIONS_TABLE)}
@@ -242,7 +236,7 @@ def register_saved_view_relationships(
         """,
         [view_name],
     )
-    if normalized_file_path is None:
+    if sql_file_path is None:
         connection.execute(
             f"""
             DELETE FROM {quote_identifier(ARTIFACT_SQL_FILES_TABLE)}
@@ -250,15 +244,26 @@ def register_saved_view_relationships(
             """,
             [view_name],
         )
-    else:
-        connection.execute(
-            f"""
-            DELETE FROM {quote_identifier(ARTIFACT_SQL_FILES_TABLE)}
-            WHERE defines_artifact_name = ?
-              AND path != ?
-            """,
-            [view_name, normalized_file_path],
-        )
+        return
+    connection.execute(
+        f"""
+        DELETE FROM {quote_identifier(ARTIFACT_SQL_FILES_TABLE)}
+        WHERE defines_artifact_name = ?
+          AND path != ?
+        """,
+        [view_name, sql_file_path],
+    )
+
+
+def _upsert_saved_view_metadata(
+    connection: sqlite3.Connection,
+    *,
+    view_name: str,
+    sql_hash: str,
+    sql_file_path: str | None,
+    updated_at: str,
+) -> None:
+    """Record the current SQL definition metadata for one saved view."""
     connection.execute(
         f"""
         INSERT INTO {quote_identifier(ARTIFACT_VIEWS_TABLE)}
@@ -269,46 +274,68 @@ def register_saved_view_relationships(
             sql_file_path = excluded.sql_file_path,
             updated_at = excluded.updated_at
         """,
-        [view_name, sql_hash, normalized_file_path, updated_at],
+        [view_name, sql_hash, sql_file_path, updated_at],
     )
 
-    if normalized_file_path is not None:
-        _upsert_artifact_file(
-            connection,
-            path=normalized_file_path,
-            kind="sql",
-            file_hash=sql_hash,
-            description=f"Defines SQLite artifact {view_name}",
-        )
-        connection.execute(
-            f"""
-            INSERT INTO {quote_identifier(ARTIFACT_SQL_FILES_TABLE)}
-            (path, sql_hash, defines_artifact_name, description, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(path) DO UPDATE SET
-                sql_hash = excluded.sql_hash,
-                defines_artifact_name = excluded.defines_artifact_name,
-                description = excluded.description,
-                updated_at = excluded.updated_at
-            """,
-            [
-                normalized_file_path,
-                sql_hash,
-                view_name,
-                f"Defines SQLite artifact {view_name}",
-                updated_at,
-            ],
-        )
-        _upsert_relation(
-            connection,
-            from_kind="file",
-            from_id=normalized_file_path,
-            relation="defines",
-            to_kind="artifact",
-            to_id=view_name,
-            metadata={"sql_hash": sql_hash},
-        )
 
+def _upsert_saved_view_sql_file(
+    connection: sqlite3.Connection,
+    *,
+    view_name: str,
+    sql_hash: str,
+    sql_file_path: str | None,
+    updated_at: str,
+) -> None:
+    """Record the SQL file that defines a saved view when one is available."""
+    if sql_file_path is None:
+        return
+
+    description = f"Defines SQLite artifact {view_name}"
+    _upsert_artifact_file(
+        connection,
+        path=sql_file_path,
+        kind="sql",
+        file_hash=sql_hash,
+        description=description,
+    )
+    connection.execute(
+        f"""
+        INSERT INTO {quote_identifier(ARTIFACT_SQL_FILES_TABLE)}
+        (path, sql_hash, defines_artifact_name, description, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(path) DO UPDATE SET
+            sql_hash = excluded.sql_hash,
+            defines_artifact_name = excluded.defines_artifact_name,
+            description = excluded.description,
+            updated_at = excluded.updated_at
+        """,
+        [
+            sql_file_path,
+            sql_hash,
+            view_name,
+            description,
+            updated_at,
+        ],
+    )
+    _upsert_relation(
+        connection,
+        from_kind="file",
+        from_id=sql_file_path,
+        relation="defines",
+        to_kind="artifact",
+        to_id=view_name,
+        metadata={"sql_hash": sql_hash},
+    )
+
+
+def _replace_saved_view_dependencies(
+    connection: sqlite3.Connection,
+    *,
+    view_name: str,
+    sql_hash: str,
+    dependency_names: list[str],
+) -> None:
+    """Replace dependency relationships for one saved view."""
     connection.execute(
         f"""
         DELETE FROM {quote_identifier(ARTIFACT_RELATIONS_TABLE)}
@@ -328,6 +355,47 @@ def register_saved_view_relationships(
             to_id=dependency_name,
             metadata={"sql_hash": sql_hash},
         )
+
+
+def register_saved_view_relationships(
+    connection: sqlite3.Connection,
+    *,
+    view_name: str,
+    sql: str,
+    sql_file_path: str | Path | None,
+    dependency_names: list[str],
+) -> None:
+    """Register SQL file, view, and dependency relationships for a saved view."""
+    ensure_artifact_relationship_tables(connection)
+    sql_hash = hashlib.sha256(sql.encode("utf-8")).hexdigest()
+    updated_at = datetime.now(UTC).isoformat(timespec="seconds")
+    normalized_file_path = None if sql_file_path is None else str(Path(sql_file_path).expanduser())
+
+    _delete_saved_view_definition_metadata(
+        connection,
+        view_name=view_name,
+        sql_file_path=normalized_file_path,
+    )
+    _upsert_saved_view_metadata(
+        connection,
+        view_name=view_name,
+        sql_hash=sql_hash,
+        sql_file_path=normalized_file_path,
+        updated_at=updated_at,
+    )
+    _upsert_saved_view_sql_file(
+        connection,
+        view_name=view_name,
+        sql_hash=sql_hash,
+        sql_file_path=normalized_file_path,
+        updated_at=updated_at,
+    )
+    _replace_saved_view_dependencies(
+        connection,
+        view_name=view_name,
+        sql_hash=sql_hash,
+        dependency_names=dependency_names,
+    )
 
 
 def artifact_relationship_metadata(

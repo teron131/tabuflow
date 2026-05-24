@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from .hints import structure_hints
 from .ingestion import (
     MAX_SAMPLE_ROWS,
     load_rows,
@@ -13,7 +14,7 @@ from .ingestion import (
     tabular_dimensions,
     tabular_summary_from_counts,
 )
-from .profiling import _structure_hints, profile_tabular_file
+from .profiling import profile_tabular_file
 from .segmentation import compute_region_boxes, header_candidates, profile_region_boxes
 
 
@@ -88,7 +89,7 @@ def inspect_tabular_file(
         "end_row": safe_start + preview_row_count - 1 if selected_rows else safe_start - 1,
         "start_col": safe_start_col,
         "end_col": safe_start_col + preview_column_count - 1 if selected_rows else safe_start_col - 1,
-        "structure_hints": _structure_hints(
+        "structure_hints": structure_hints(
             header_candidate_rows=header_candidate_rows,
             regions=regions,
             sheet_names=summary_payload.get("sheet_names", []),

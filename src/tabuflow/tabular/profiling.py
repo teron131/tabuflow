@@ -6,6 +6,7 @@ from pathlib import Path
 import statistics
 from typing import Any
 
+from .hints import structure_hints
 from .ingestion import (
     MAX_FULL_PROFILE_BYTES,
     MAX_SAMPLE_ROWS,
@@ -31,26 +32,6 @@ WORKBOOK_SHEET_PROFILE_FIELDS = {
 }
 
 
-def _structure_hints(
-    *,
-    header_candidate_rows: list[dict[str, Any]],
-    regions: list[dict[str, Any]],
-    sheet_names: list[str] | None = None,
-) -> dict[str, Any]:
-    """Build compact hints for agents before they inspect raw rows manually."""
-    stable_candidates = [candidate for candidate in header_candidate_rows if not candidate.get("has_stronger_header_ahead")]
-    header_pool = stable_candidates or header_candidate_rows
-    best_header = max(header_pool, key=lambda candidate: (candidate.get("non_empty_cells", 0), -candidate.get("row", 0))) if header_pool else None
-    suggested_start_row = best_header["row"] if best_header else None
-    return {
-        "likely_header_row": suggested_start_row,
-        "suggested_data_start_row": suggested_start_row + 1 if suggested_start_row else None,
-        "header_candidate_count": len(header_candidate_rows),
-        "region_count": len(regions),
-        "sheet_names": sheet_names or [],
-    }
-
-
 def profile_tabular_file(
     path: str | Path,
     *,
@@ -66,7 +47,7 @@ def profile_tabular_file(
         return {
             "path": str(path),
             **{key: value for key, value in summary.items() if key not in {"top_rows", "bottom_rows"}},
-            "structure_hints": _structure_hints(
+            "structure_hints": structure_hints(
                 header_candidate_rows=header_candidate_rows,
                 regions=regions,
                 sheet_names=summary.get("sheet_names", []),
@@ -87,7 +68,7 @@ def profile_tabular_file(
         "max_non_empty_cells_in_row": max(non_empty_counts, default=0),
         "median_non_empty_cells_per_non_blank_row": statistics.median(non_empty_counts) if non_empty_counts else 0,
         "sample_rows": rows[:max_sample_rows],
-        "structure_hints": _structure_hints(
+        "structure_hints": structure_hints(
             header_candidate_rows=detected_header_candidates,
             regions=regions,
             sheet_names=format_info.get("sheet_names", []),
