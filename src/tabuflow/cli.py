@@ -8,6 +8,8 @@ from pathlib import Path
 import sys
 from typing import Any
 
+import yaml
+
 from .artifacts import (
     DEFAULT_CLI_ARTIFACT_LIST_LIMIT,
     SQL_ARTIFACT_LIST_DETAILS,
@@ -23,9 +25,7 @@ from .pdf import (
     DEFAULT_DPI,
     DEFAULT_INSPECT_PAGE_LIMIT,
     DEFAULT_INSPECT_TEXT_CHARS,
-    DEFAULT_MAX_CONCURRENCY,
     DEFAULT_MAX_PREPARE_PAGES,
-    DEFAULT_PAGES_PER_CHUNK,
     extract_pdf_file,
     inspect_pdf_file,
     prepare_pdf_file,
@@ -105,6 +105,245 @@ def resolve_cli_database_path(args: argparse.Namespace) -> Path | None:
     if root_dir is None:
         return path
     return (root_dir / path).resolve()
+
+
+def parse_comma_list(value: str | None) -> list[str]:
+    """Return a comma-separated CLI value as a clean list."""
+    if not value:
+        return []
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def parse_field_mappings(values: list[str] | None) -> dict[str, str]:
+    """Return repeated FIELD=OUTPUT arguments as a mapping."""
+    fields: dict[str, str] = {}
+    for value in values or []:
+        if "=" not in value:
+            raise ValueError(f"Field mappings must use FIELD=OUTPUT: {value}")
+        field, output = value.split("=", 1)
+        if not field.strip() or not output.strip():
+            raise ValueError(f"Field mappings must use FIELD=OUTPUT: {value}")
+        fields[field.strip()] = output.strip()
+    return fields
+
+
+def parse_coordinate_column(value: str) -> dict[str, str | float]:
+    """Return NAME:X_MIN:X_MAX as a coordinate column config."""
+    parts = value.split(":")
+    if len(parts) != 3 or not parts[0].strip():
+        raise ValueError(f"Coordinate columns must use NAME:X_MIN:X_MAX: {value}")
+    return {
+        "name": parts[0].strip(),
+        "x_min": float(parts[1]),
+        "x_max": float(parts[2]),
+    }
+
+
+def parse_clip_rect(value: str) -> list[float]:
+    """Return X0,Y0,X1,Y1 as a clip rectangle value."""
+    parts = [part.strip() for part in value.split(",") if part.strip()]
+    if len(parts) != 4:
+        raise ValueError(f"Clip rectangles must use X0,Y0,X1,Y1: {value}")
+    return [float(part) for part in parts]
+
+
+def parse_named_pattern(value: str, *, label: str) -> dict[str, str]:
+    """Return FIELD=REGEX as a named line-pattern config."""
+    if "=" not in value:
+        raise ValueError(f"{label} must use FIELD=REGEX: {value}")
+    name, pattern = value.split("=", 1)
+    if not name.strip() or not pattern.strip():
+        raise ValueError(f"{label} must use FIELD=REGEX: {value}")
+    return {"name": name.strip(), "pattern": pattern.strip()}
+
+
+def read_pdf_rules(path: str, *, root_dir: Path | None = None) -> dict[str, Any]:
+    """Read a YAML PDF extraction rules file."""
+    rules_path = Path(path).expanduser()
+    if not rules_path.is_absolute() and root_dir is not None:
+        rules_path = root_dir / rules_path
+    payload = yaml.safe_load(rules_path.read_text(encoding="utf-8")) or {}
+    if not isinstance(payload, dict):
+        raise ValueError(f"PDF rules must be a mapping: {rules_path}")
+    return payload
+
+
+def merge_pdf_rules(table: dict[str, Any], rules: dict[str, Any]) -> None:
+    """Merge reusable PDF extraction rules into a table config."""
+    list_fields = (
+        "skip_lines",
+        "skip_prefixes",
+        "stop_prefixes",
+        "contexts",
+        "clear_contexts",
+        "columns",
+        "required_columns",
+        "output_columns",
+    )
+    scalar_fields = (
+        "section",
+        "value_pattern",
+        "value_preset",
+        "split_by",
+        "drop_empty_split",
+        "include_page",
+        "label_column",
+        "value_column",
+        "field_column",
+        "fields",
+        "collect_until_next_field",
+        "min_rows",
+        "min_filled_cells",
+        "require_header",
+        "merge_tables",
+        "strategy",
+        "vertical_strategy",
+        "horizontal_strategy",
+        "clip",
+        "y_min",
+        "y_max",
+        "y_tolerance",
+        "anchor_y_slop",
+        "continuation_column",
+        "pages",
+        "page_start",
+        "page_end",
+    )
+    for key in list_fields:
+        if values := rules.get(key):
+            if not isinstance(values, list):
+                raise ValueError(f"PDF rules field must be a list: {key}")
+            table.setdefault(key, [])
+            table[key].extend(values)
+    for key in scalar_fields:
+        if key in rules and key not in table:
+            table[key] = rules[key]
+
+
+PDF_TABLE_STRATEGIES = ["lines", "lines-strict", "text"]
+PDF_VALUE_PRESETS = {
+    "money": r"^-?[A-Z]{3}\s+[0-9][0-9,]*\.[0-9]{2}$",
+    "number": r"^-?[0-9][0-9,]*(?:\.[0-9]+)?$",
+}
+
+PDF_TABLE_PRESET_MODES = {
+    "detected": "pymupdf_tables",
+    "coordinate": "coordinate_table",
+    "field-value": "field_value",
+    "line-value": "line_value",
+}
+
+
+def pdf_extract_spec_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    """Build the internal PDF table extraction spec from preset CLI arguments."""
+    rules = read_pdf_rules(args.rules, root_dir=resolve_cli_root(args)) if args.rules else {}
+    target = str(args.target or rules.get("target", "tables"))
+    if target != "tables":
+        raise ValueError(f"Unsupported PDF extraction target: {target}")
+    preset = str(args.preset or rules.get("preset", ""))
+    if preset not in PDF_TABLE_PRESET_MODES:
+        raise ValueError("PDF extraction requires a preset argument or a rules file with preset.")
+    internal_mode = PDF_TABLE_PRESET_MODES[preset]
+    table: dict[str, Any] = {
+        "name": args.name or str(rules.get("name") or ("detected_tables" if preset == "detected" else "table")),
+        "preset": preset,
+        "mode": internal_mode,
+        "number": args.number,
+    }
+    if args.pages:
+        table["pages"] = [int(page) for page in parse_comma_list(args.pages)]
+    if args.page_start is not None:
+        table["page_start"] = args.page_start
+    if args.page_end is not None:
+        table["page_end"] = args.page_end
+    if args.include_page:
+        table["include_page"] = True
+    if rules:
+        merge_pdf_rules(table, rules)
+    for key in ("skip_lines", "skip_prefixes", "stop_prefixes"):
+        values = getattr(args, key)
+        if values:
+            table[key] = values
+    if args.section:
+        table.setdefault("contexts", [])
+        table["contexts"].append({"name": "section", "pattern": args.section})
+    elif section := table.pop("section", None):
+        table.setdefault("contexts", [])
+        table["contexts"].append({"name": "section", "pattern": str(section)})
+    if args.context:
+        table.setdefault("contexts", [])
+        table["contexts"].extend(parse_named_pattern(value, label="--context") for value in args.context)
+    if args.clear_context:
+        table["clear_contexts"] = [parse_named_pattern(value, label="--clear-context") for value in args.clear_context]
+    if args.split_by or args.split_sections:
+        table["split_by"] = args.split_by or "section"
+    if args.drop_empty_split:
+        table["drop_empty_split"] = True
+
+    if preset == "detected":
+        table["min_rows"] = int(table.get("min_rows", args.min_rows))
+        table["merge_tables"] = args.merge_tables or str(table.get("merge_tables", "auto"))
+        if args.min_filled_cells is not None:
+            table["min_filled_cells"] = args.min_filled_cells
+        if args.require_header or table.get("require_header"):
+            table["require_header"] = True
+        if args.strategy:
+            table["vertical_strategy"] = args.strategy.replace("-", "_")
+            table["horizontal_strategy"] = args.strategy.replace("-", "_")
+        if args.vertical_strategy:
+            table["vertical_strategy"] = args.vertical_strategy.replace("-", "_")
+        if args.horizontal_strategy:
+            table["horizontal_strategy"] = args.horizontal_strategy.replace("-", "_")
+        if args.clip:
+            table["clip"] = parse_clip_rect(args.clip)
+    elif preset == "line-value":
+        value_preset = args.value_preset or table.get("value_preset")
+        value_pattern = args.value_pattern or table.get("value_pattern") or PDF_VALUE_PRESETS.get(str(value_preset))
+        if not value_pattern:
+            raise ValueError("tables line-value preset requires --value-pattern or --value-preset.")
+        table.update(
+            {
+                "value_pattern": value_pattern,
+                "label_column": args.label_column or str(table.get("label_column", "label")),
+                "value_column": args.value_column or str(table.get("value_column", "value")),
+            }
+        )
+        if value_preset:
+            table["value_preset"] = value_preset
+    elif preset == "field-value":
+        fields = parse_field_mappings(args.fields) if args.fields else dict(table.get("fields", {}))
+        if not fields:
+            raise ValueError("tables field-value preset requires at least one --field FIELD=OUTPUT.")
+        table.update(
+            {
+                "fields": fields,
+                "field_column": args.field_column or str(table.get("field_column", "field")),
+                "value_column": args.value_column or str(table.get("value_column", "value")),
+                "collect_until_next_field": args.collect_until_next_field or bool(table.get("collect_until_next_field")),
+            }
+        )
+    elif preset == "coordinate":
+        if args.columns:
+            table["columns"] = [parse_coordinate_column(value) for value in args.columns]
+        if not table.get("columns"):
+            raise ValueError("tables coordinate preset requires at least one --column NAME:X_MIN:X_MAX.")
+        table.update(
+            {
+                "y_min": table.get("y_min", args.y_min),
+                "y_max": table.get("y_max", args.y_max),
+                "y_tolerance": table.get("y_tolerance", args.y_tolerance),
+            }
+        )
+        if args.anchor_y_slop is not None:
+            table["anchor_y_slop"] = args.anchor_y_slop
+        if args.continuation_column:
+            table["continuation_column"] = args.continuation_column
+        if required_columns := parse_comma_list(args.required_columns):
+            table["required_columns"] = required_columns
+    if output_columns := parse_comma_list(args.output_columns):
+        table["output_columns"] = output_columns
+
+    return {"tables": [table]}
 
 
 def add_root_argument(parser: argparse.ArgumentParser) -> None:
@@ -198,39 +437,84 @@ def add_pdf_commands(subparsers: Any) -> None:
     prepare.add_argument("path")
     prepare.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     prepare.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PREPARE_PAGES)
-    prepare.add_argument("--copy-source", action="store_true", help="Also copy the PDF source into the prepared artifact folder.")
     prepare.set_defaults(
         handler=lambda args: prepare_pdf_file(
             args.path,
             root_dir=resolve_cli_root(args),
             dpi=args.dpi,
             max_pages=args.max_pages,
-            copy_source=args.copy_source,
         )
     )
 
-    extract = pdf_subparsers.add_parser("extract", help="Report the agent-managed PDF extraction boundary.")
+    extract = pdf_subparsers.add_parser("extract", help="Extract PDF artifacts with narrow PyMuPDF-backed presets.")
     extract.add_argument("path")
-    extract.add_argument("--model", default=None)
-    extract.add_argument("--pages-per-chunk", type=int, default=DEFAULT_PAGES_PER_CHUNK)
-    extract.add_argument("--max-concurrency", type=int, default=DEFAULT_MAX_CONCURRENCY)
-    extract.add_argument("--dpi", type=int, default=DEFAULT_DPI)
-    extract.add_argument("--max-chunks", type=int, default=None)
-    extract.add_argument("--no-fix-bridges", action="store_true")
-    extract.add_argument("--no-fix-overall", action="store_true")
-    extract.add_argument("--no-markdown", action="store_true")
+    extract.add_argument("target", nargs="?", choices=["tables"], metavar="tables", help="Artifact kind to extract.")
+    extract.add_argument(
+        "preset",
+        nargs="?",
+        choices=sorted(PDF_TABLE_PRESET_MODES),
+        metavar="{detected,coordinate,field-value,line-value}",
+        help="PyMuPDF-backed extraction preset.",
+    )
+    extract.add_argument("--name", default=None)
+    extract.add_argument("--number", type=int, default=1)
+    extract.add_argument("--pages", default=None, help="Comma-separated 1-based pages, for example 1,3,5.")
+    extract.add_argument("--page-start", type=int, default=None)
+    extract.add_argument("--page-end", type=int, default=None)
+    extract.add_argument("--include-page", action="store_true")
+    extract.add_argument("--rules", default=None, help="YAML rules file for reusable PDF extraction options.")
+    extract.add_argument("--skip-line", dest="skip_lines", action="append", default=[])
+    extract.add_argument("--skip-prefix", dest="skip_prefixes", action="append", default=[])
+    extract.add_argument("--stop-prefix", dest="stop_prefixes", action="append", default=[])
+    extract.add_argument("--section", default=None, help="tables line-value/field-value: regex for section heading lines; stored as the section context.")
+    extract.add_argument(
+        "--context",
+        action="append",
+        default=[],
+        help="tables line-value/field-value: FIELD=REGEX. Matching lines update a carried context column.",
+    )
+    extract.add_argument(
+        "--clear-context",
+        action="append",
+        default=[],
+        help="tables line-value/field-value: FIELD=REGEX. Matching lines clear a carried context column.",
+    )
+    extract.add_argument("--split-by", default=None, help="tables line-value/field-value/coordinate: write one CSV per distinct FIELD value.")
+    extract.add_argument("--split-sections", action="store_true", help="tables line-value/field-value: shortcut for --split-by section.")
+    extract.add_argument("--drop-empty-split", action="store_true", help="tables split outputs: omit rows where the split field is empty.")
+    extract.add_argument("--output-columns", default=None, help="Comma-separated output columns.")
+    extract.add_argument("--min-rows", type=int, default=1, help="tables detected: minimum detected rows.")
+    extract.add_argument("--min-filled-cells", type=int, default=None, help="tables detected: minimum non-empty cells in a forced-column data row.")
+    extract.add_argument("--strategy", choices=PDF_TABLE_STRATEGIES, default=None, help="tables detected: set both PyMuPDF table strategies.")
+    extract.add_argument("--vertical-strategy", choices=PDF_TABLE_STRATEGIES, default=None, help="tables detected: PyMuPDF vertical strategy.")
+    extract.add_argument("--horizontal-strategy", choices=PDF_TABLE_STRATEGIES, default=None, help="tables detected: PyMuPDF horizontal strategy.")
+    extract.add_argument("--clip", default=None, help="tables detected: clip rectangle X0,Y0,X1,Y1 in PDF points.")
+    extract.add_argument("--require-header", action="store_true", help="tables detected: skip tables without useful PyMuPDF header metadata.")
+    extract.add_argument(
+        "--merge-tables",
+        choices=["auto", "always", "never"],
+        default=None,
+        help="tables detected: merge same-schema detected tables by continuation geometry, always, or never.",
+    )
+    extract.add_argument("--value-preset", choices=sorted(PDF_VALUE_PRESETS), default=None, help="tables line-value: built-in value regex preset.")
+    extract.add_argument("--value-pattern", default=None, help="tables line-value: regex matching value lines.")
+    extract.add_argument("--label-column", default=None, help="tables line-value: output column for label text.")
+    extract.add_argument("--value-column", default=None, help="tables line-value/field-value: output column for extracted values.")
+    extract.add_argument("--field-column", default=None, help="tables field-value: output column for field names.")
+    extract.add_argument("--field", dest="fields", action="append", default=[], help="tables field-value: FIELD=OUTPUT mapping. Repeat for each field.")
+    extract.add_argument("--collect-until-next-field", action="store_true", help="tables field-value: collect multiline values until another configured field.")
+    extract.add_argument("--column", dest="columns", action="append", default=[], help="tables coordinate: NAME:X_MIN:X_MAX. Repeat for each column.")
+    extract.add_argument("--y-min", type=float, default=0)
+    extract.add_argument("--y-max", type=float, default=10_000)
+    extract.add_argument("--y-tolerance", type=float, default=4)
+    extract.add_argument("--anchor-y-slop", type=float, default=None)
+    extract.add_argument("--required-columns", default=None, help="tables coordinate: comma-separated columns required for a row.")
+    extract.add_argument("--continuation-column", default=None, help="tables coordinate: column whose wrapped text joins anchored rows.")
     extract.set_defaults(
         handler=lambda args: extract_pdf_file(
-            args.path,
+            resolve_cli_path(args.path, args),
+            extraction=pdf_extract_spec_from_args(args),
             root_dir=resolve_cli_root(args),
-            model=args.model,
-            pages_per_chunk=args.pages_per_chunk,
-            max_concurrency=args.max_concurrency,
-            dpi=args.dpi,
-            max_chunks=args.max_chunks,
-            fix_bridges=not args.no_fix_bridges,
-            fix_overall=not args.no_fix_overall,
-            write_markdown=not args.no_markdown,
         )
     )
 

@@ -28,7 +28,7 @@ If it is not on PATH, use the project runner:
 uv run tabuflow --help
 ```
 
-All CLI commands print JSON. Treat a nonzero exit or a payload with `status: "error"` as a real failure. Inspect the message, fix the source path/options/config problem, and rerun the smallest relevant command.
+All CLI commands print JSON. Treat a nonzero exit or a payload with `status: "error"` as a real failure. Inspect the message, fix the source path or options, and rerun the smallest relevant command.
 
 Use tabular tools for CSV, XLS, and XLSX:
 
@@ -46,9 +46,16 @@ Use PDF tools in two passes:
 uv run tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3
 uv run tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3 --include-images
 uv run tabuflow pdf prepare path/to/file.pdf
+uv run tabuflow pdf extract path/to/file.pdf tables detected --page-start 1 --min-rows 2
+uv run tabuflow pdf extract path/to/file.pdf tables detected --strategy text --require-header --page-start 2 --page-end 3 --min-rows 2
+uv run tabuflow pdf extract path/to/file.pdf tables detected --vertical-strategy text --horizontal-strategy lines --page-start 3 --page-end 13 --output-columns model,organization,score --min-filled-cells 2 --merge-tables auto
+uv run tabuflow pdf extract path/to/file.pdf tables line-value --value-pattern '^\d+\s*$' --label-column device --value-column score --output-columns device,score
+uv run tabuflow pdf extract path/to/file.pdf tables coordinate --pages 2 --y-min 180 --y-max 760 --column model:50:190 --column score:190:260 --required-columns model,score
 ```
 
-`pdf inspect` is for bounded page text and optional rendered images. `pdf prepare` renders every page and creates a lean normalized-filename workspace under the root-owned `artifacts/pdf/...` path with `manifest.json`, `pages/*.jpg`, and `work/`. It defaults to 150 DPI and stops above the page-count guard unless `--max-pages` is raised. Write recovered tables into the work directory, then import them through tabular or artifact tooling when ready. If layout or page boundaries are ambiguous, say so instead of presenting the extraction as complete.
+`pdf inspect` is for bounded page text and optional rendered images. `pdf prepare` copies the source PDF, renders every page, and creates a normalized-filename workspace under the root-owned `artifacts/pdf/...` path with `manifest.json`, `pages/*.jpg`, `text/*.txt`, and `work/`.
+
+Use `pdf extract` only after the layout mechanics are understood. It is an LLM-free, argument-driven preset layer over PyMuPDF: `tables detected` uses PyMuPDF table detection, `tables coordinate` groups words into configured x-coordinate bands, `tables field-value` collects configured fields from extracted text, and `tables line-value` pairs text lines with matching value lines. The command owns source-specific context such as page ranges, stop/skip lines, value patterns, output columns, x-coordinate bands, PyMuPDF table strategies, and optional clip rectangles, but not output paths. Outputs always go to `artifacts/pdf/<normalized-source>/work/tables` under the selected root, and the manifest records the effective extraction arguments. For text-positioned tables without ruling lines, try `tables detected --strategy text`; when detector noise creates generic `column_1` tables, use `--require-header`; for page chrome or footers around the table, constrain the detector with `--clip X0,Y0,X1,Y1`. For one continuing table whose detected headers drift across pages, pass `--output-columns` and, when useful, `--min-filled-cells`; page-leading first-column continuations join the previous row before chunks are merged by `--merge-tables auto`. Use `--merge-tables never` for repeated same-schema tables that are visually separate, and `--merge-tables always` when inspection shows one logical table split into fragments. For field/value specs with multiline values, pass `--collect-until-next-field`. For coordinate tables with wrapped labels, pass `--continuation-column` so stable required columns anchor each row and nearby wrapped text joins the right row; tune `--anchor-y-slop` when continuations drift between adjacent rows. `tables detected` records source pages/tables/bounding boxes in the manifest. Empty outputs include diagnostics so no-table text PDFs can be distinguished from PDFs with no extractable text. Use images as verification evidence when text order or column bands are ambiguous, not as the default input.
 
 Use email tools only for reference context:
 

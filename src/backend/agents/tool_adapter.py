@@ -13,7 +13,6 @@ from tabuflow.pdf import (
     DEFAULT_INSPECT_PAGE_LIMIT,
     DEFAULT_INSPECT_TEXT_CHARS,
     DEFAULT_MAX_PREPARE_PAGES,
-    DEFAULT_PAGES_PER_CHUNK,
     extract_pdf_file,
     inspect_pdf_file,
     prepare_pdf_file,
@@ -186,30 +185,60 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
     @tool(parse_docstring=True)
     def extract_pdf(
         path: str,
-        pages_per_chunk: int = DEFAULT_PAGES_PER_CHUNK,
-        max_chunks: int | None = None,
-        fix_bridges: bool = True,
-        fix_overall: bool = True,
+        preset: str = "detected",
+        page_start: int = 1,
+        page_end: int | None = None,
+        min_rows: int = 1,
+        min_filled_cells: int | None = None,
+        strategy: str | None = None,
+        clip: list[float] | None = None,
+        require_header: bool = False,
+        output_columns: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Report the agent-managed PDF extraction boundary.
+        """Extract PDF tables with a narrow PyMuPDF-backed preset.
 
         Args:
             path: Path to the PDF file to extract.
-            pages_per_chunk: Legacy option preserved for callers.
-            max_chunks: Legacy option preserved for bounded trial callers.
-            fix_bridges: Legacy option preserved for callers.
-            fix_overall: Legacy option preserved for callers.
+            preset: Extraction preset. Use detected for generic PyMuPDF table detection.
+            page_start: First 1-based page to inspect.
+            page_end: Last 1-based page to inspect.
+            min_rows: Minimum detected rows for the detected preset.
+            min_filled_cells: Optional minimum non-empty cells in a forced-column data row.
+            strategy: Optional PyMuPDF strategy to use for both axes, such as text.
+            clip: Optional X0,Y0,X1,Y1 clip rectangle in PDF points.
+            require_header: Whether to skip detected tables without useful header metadata.
+            output_columns: Optional fixed schema for continuing tables whose detected headers drift.
         """
+        if preset != "detected":
+            raise ValueError(f"Unsupported PDF table preset: {preset}")
+        table_config: dict[str, Any] = {
+            "name": "detected_tables",
+            "preset": preset,
+            "mode": "pymupdf_tables",
+            "number": 1,
+            "page_start": page_start,
+            "min_rows": min_rows,
+        }
+        if page_end is not None:
+            table_config["page_end"] = page_end
+        if min_filled_cells is not None:
+            table_config["min_filled_cells"] = min_filled_cells
+        if strategy:
+            table_config["vertical_strategy"] = strategy
+            table_config["horizontal_strategy"] = strategy
+        if clip is not None:
+            table_config["clip"] = clip
+        if require_header:
+            table_config["require_header"] = True
+        if output_columns:
+            table_config["output_columns"] = output_columns
         return extract_pdf_file(
             _workspace_source_path(
                 path,
                 root_dir=resolved_root_dir,
             ),
+            extraction={"tables": [table_config]},
             root_dir=resolved_root_dir,
-            pages_per_chunk=pages_per_chunk,
-            max_chunks=max_chunks,
-            fix_bridges=fix_bridges,
-            fix_overall=fix_overall,
         )
 
     return [inspect_pdf, prepare_pdf, extract_pdf]

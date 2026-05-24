@@ -1,0 +1,43 @@
+target: tables
+preset: line-value
+name: amount_lines
+label_column: label
+value_column: amount
+value_preset: money
+section: ^(Summary|Detail for Consolidated Bill|Activity By Account|Summary for Linked Account|Detail for Linked Account)$
+contexts:
+  - name: account
+    pattern: ^(?P<value>.+ \([0-9]{12}\))$
+clear_contexts:
+  - name: account
+    pattern: ^(Summary|Detail for Consolidated Bill|Activity By Account)$
+split_by: section
+drop_empty_split: true
+include_page: true
+output_columns:
+  - section
+  - account
+  - label
+  - amount
+  - page
+skip_lines:
+  - Account number
+  - LINKED ACCOUNT ALLOCATION
+skip_prefixes:
+  - To learn more about how charges are allocated
+  - https://docs.aws.amazon.com/
+  - This invoice is for the billing period
+  - Greetings from Amazon Web Services
+  - your bill, individual service charge details
+  - Email or talk to us
+  - Submit feedback
+  - Please include this invoice number
+stop_prefixes:
+  - For line item details
+  - "* May include"
+  - Amazon Web Services, Inc. is registered
+  - AWS, Inc. is a
+  - "** This is not"
+  - "**** Please reference"
+  - † Usage and recurring
+  - All charges and prices

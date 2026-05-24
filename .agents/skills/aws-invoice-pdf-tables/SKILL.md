@@ -26,26 +26,46 @@ Use the result's subject, sender/date, attachments, and body preview to understa
 
 ## First-Pass Text Extraction
 
-Use the bundled helper script for text-based AWS invoice PDFs. It extracts text-derived label/amount rows into CSV/JSON sidecars with these columns:
+Use Tabuflow's generic PyMuPDF line/value extractor for text-based AWS invoice PDFs. This is a domain skill command shape, not generic tool logic. It extracts text-derived label/amount rows into section-sized CSV tables with these columns:
 
-- `page`
 - `section`
+- `account`
 - `label`
 - `amount`
-- `row_role`
-- `parent_label`
-- `account_number`
-- `invoice_number`
-- `invoice_date`
+- `page`
 
 Run shape from the repo root:
 
 ```bash
 uv run tabuflow pdf inspect <invoice.pdf>
-uv run python .agents/skills/aws-invoice-pdf-tables/scripts/extract_aws_pdf_text_tables.py <invoice.pdf> --output-dir artifacts/aws_text
+uv run tabuflow pdf extract <invoice.pdf> tables line-value \
+  --name amount_lines \
+  --value-preset money \
+  --label-column label \
+  --value-column amount \
+  --section '^(Summary|Detail for Consolidated Bill|Activity By Account|Summary for Linked Account|Detail for Linked Account)$' \
+  --context 'account=^(?P<value>.+ \([0-9]{12}\))$' \
+  --clear-context 'account=^(Summary|Detail for Consolidated Bill|Activity By Account)$' \
+  --split-sections \
+  --drop-empty-split \
+  --include-page
 ```
 
-The script reports `llm_required: false`, `visual_table_verified: false`, `text_layer_page_count`, `ocr_page_count`, `extracted_amount_row_count`, `text_line_count`, per-page `extracted_amount_row_count`, and `pages_needing_ocr`. These are direct PDF text-layer counts, not visually verified table-row counts. Treat `pages_needing_ocr` as the handoff point to OCR or visual extraction, not as a failure. Keep this as an AWS skill helper rather than a generic Tabuflow PDF CLI method.
+If a specific AWS invoice family needs reusable cleanup rules, use the optional sidecar:
+
+```bash
+uv run tabuflow pdf extract <invoice.pdf> --rules .agents/skills/aws-invoice-pdf-tables/rules/aws_invoice_text.yaml
+```
+
+Expected common section outputs:
+
+- `amount_lines_summary`
+- `amount_lines_detail_for_consolidated_bill`
+- `amount_lines_activity_by_account`
+- `amount_lines_summary_for_linked_account`
+- `amount_lines_detail_for_linked_account`
+
+These are direct PDF text-layer tables, not visually verified OCR tables. Treat missing sections, obviously tiny row counts, or missing text as the handoff point to visual inspection/OCR, not as permission to invent rows.
 
 ## Final Tables
 
