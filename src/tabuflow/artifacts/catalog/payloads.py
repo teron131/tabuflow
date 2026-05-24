@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, cast
 
-from ..workspace_db import quote_identifier
-from .catalog_metadata import path_match_reason, source_paths_from_mappings
+from ...workspace_db import quote_identifier
+from .metadata import path_match_reason, source_paths_from_mappings
 
 MAX_SOURCE_PATH_PREVIEW = 3
 MAX_COLUMN_PREVIEW = 8
@@ -15,7 +15,7 @@ MAX_SOURCE_MATCH_PREVIEW = 12
 SUGGESTION_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "how", "in", "is", "me", "of", "on", "show", "the", "to", "what", "which", "with"}
 
 
-def preview_list(
+def preview_items(
     items: list[Any],
     *,
     max_items: int,
@@ -25,7 +25,7 @@ def preview_list(
     return items[:safe_max_items], len(items) > safe_max_items
 
 
-def artifact_summary(
+def sql_artifact_summary(
     *,
     name: str,
     sqlite_type: str,
@@ -46,7 +46,7 @@ def artifact_summary(
     return "; ".join(summary_parts)
 
 
-def artifact_size_label(
+def sql_artifact_size_label(
     *,
     row_count: int | None,
     column_count: int,
@@ -62,7 +62,7 @@ def tokenize_query(text: str) -> list[str]:
     return [token for token in tokens if token not in SUGGESTION_STOP_WORDS]
 
 
-def artifact_search_text(
+def sql_artifact_search_text(
     *,
     name: str,
     sqlite_type: str,
@@ -83,7 +83,7 @@ def artifact_search_text(
     return " ".join(parts).lower()
 
 
-def artifact_score(
+def sql_artifact_score(
     *,
     tokens: list[str],
     name: str,
@@ -122,7 +122,7 @@ def artifact_score(
     return score, reasons
 
 
-def kind_bias(kind: str) -> int:
+def sql_artifact_kind_bias(kind: str) -> int:
     """Prefer stable views over raw storage artifacts during sql_artifact suggestion."""
     if kind == "typed_content_view":
         return 3
@@ -135,7 +135,7 @@ def kind_bias(kind: str) -> int:
     return 0
 
 
-def compact_artifact_listing(artifact_listing: dict[str, Any]) -> dict[str, Any]:
+def compact_sql_artifact_listing(artifact_listing: dict[str, Any]) -> dict[str, Any]:
     """Return the compact artifact listing shape."""
     return {
         "name": artifact_listing["name"],
@@ -147,12 +147,11 @@ def compact_artifact_listing(artifact_listing: dict[str, Any]) -> dict[str, Any]
         "source_path_count": artifact_listing["source_path_count"],
         "source_path_preview": artifact_listing["source_path_preview"],
         "source_paths_truncated": artifact_listing["source_paths_truncated"],
-        "source_sql_artifact_names": artifact_listing["source_sql_artifact_names"],
         "summary": artifact_listing["summary"],
     }
 
 
-def visible_artifacts(
+def visible_sql_artifacts(
     catalog: dict[str, Any],
     *,
     include_internal: bool,
@@ -164,15 +163,15 @@ def visible_artifacts(
     return [artifact for artifact in artifacts if artifact["kind"] != "internal_catalog"]
 
 
-def artifact_listing(artifact: dict[str, Any]) -> dict[str, Any]:
+def sql_artifact_listing(artifact: dict[str, Any]) -> dict[str, Any]:
     """Return the full artifact listing shape."""
     kind = cast(str, artifact["kind"])
     source_paths = cast(list[str], artifact["source_paths"])
     source_mappings = cast(list[dict[str, Any]], artifact["source_mappings"])
-    source_path_preview, source_paths_truncated = preview_list(source_paths, max_items=MAX_SOURCE_PATH_PREVIEW)
+    source_path_preview, source_paths_truncated = preview_items(source_paths, max_items=MAX_SOURCE_PATH_PREVIEW)
     columns = cast(list[dict[str, Any]], artifact["columns"])
     column_names = [cast(str, column["name"]) for column in columns]
-    column_preview, columns_truncated = preview_list(columns, max_items=MAX_COLUMN_PREVIEW)
+    column_preview, columns_truncated = preview_items(columns, max_items=MAX_COLUMN_PREVIEW)
     row_count = cast(int | None, artifact["row_count"])
     column_count = len(column_names)
     return {
@@ -183,13 +182,12 @@ def artifact_listing(artifact: dict[str, Any]) -> dict[str, Any]:
         "column_count": column_count,
         "column_preview": column_preview,
         "columns_truncated": columns_truncated,
-        "size_label": artifact_size_label(row_count=row_count, column_count=column_count),
+        "size_label": sql_artifact_size_label(row_count=row_count, column_count=column_count),
         "source_mappings": source_mappings,
         "source_path_count": len(source_paths),
         "source_path_preview": source_path_preview,
         "source_paths_truncated": source_paths_truncated,
-        "source_sql_artifact_names": artifact["source_sql_artifact_names"],
-        "summary": artifact_summary(
+        "summary": sql_artifact_summary(
             name=cast(str, artifact["name"]),
             sqlite_type=cast(str, artifact["type"]),
             kind=kind,
@@ -200,7 +198,7 @@ def artifact_listing(artifact: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def artifact_suggestion(
+def sql_artifact_suggestion(
     artifact: dict[str, Any],
     tokens: list[str],
 ) -> dict[str, Any] | None:
@@ -211,7 +209,7 @@ def artifact_suggestion(
     columns = cast(list[dict[str, Any]], artifact["columns"])
     column_names = [cast(str, column["name"]) for column in columns]
     source_paths = cast(list[str], artifact["source_paths"])
-    search_text = artifact_search_text(
+    search_text = sql_artifact_search_text(
         name=name,
         sqlite_type=sqlite_type,
         kind=kind,
@@ -219,7 +217,7 @@ def artifact_suggestion(
         source_paths=source_paths,
         create_sql=cast(str | None, artifact["create_sql"]),
     )
-    score, reasons = artifact_score(
+    score, reasons = sql_artifact_score(
         tokens=tokens,
         name=name,
         column_names=column_names,
@@ -229,9 +227,9 @@ def artifact_suggestion(
     if score <= 0:
         return None
 
-    score += kind_bias(kind)
-    column_preview, columns_truncated = preview_list(column_names, max_items=MAX_COLUMN_PREVIEW)
-    source_path_preview, source_paths_truncated = preview_list(source_paths, max_items=MAX_SOURCE_PATH_PREVIEW)
+    score += sql_artifact_kind_bias(kind)
+    column_preview, columns_truncated = preview_items(column_names, max_items=MAX_COLUMN_PREVIEW)
+    source_path_preview, source_paths_truncated = preview_items(source_paths, max_items=MAX_SOURCE_PATH_PREVIEW)
     return {
         "name": name,
         "type": sqlite_type,
@@ -245,7 +243,7 @@ def artifact_suggestion(
         "source_path_preview": source_path_preview,
         "source_paths_truncated": source_paths_truncated,
         "row_count": artifact["row_count"],
-        "summary": artifact_summary(
+        "summary": sql_artifact_summary(
             name=name,
             sqlite_type=sqlite_type,
             kind=kind,
@@ -257,7 +255,7 @@ def artifact_suggestion(
     }
 
 
-def matched_source_mappings(
+def matched_source_artifact_mappings(
     artifact: dict[str, Any],
     *,
     requested_source: str,
@@ -275,7 +273,7 @@ def matched_source_mappings(
     return matched_mappings
 
 
-def source_match_artifact(
+def source_match_sql_artifact(
     artifact: dict[str, Any],
     matched_mappings: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -284,7 +282,7 @@ def source_match_artifact(
     kind = cast(str, artifact["kind"])
     columns = cast(list[dict[str, Any]], artifact["columns"])
     column_names = [cast(str, column["name"]) for column in columns]
-    column_preview, columns_truncated = preview_list(column_names, max_items=MAX_COLUMN_PREVIEW)
+    column_preview, columns_truncated = preview_items(column_names, max_items=MAX_COLUMN_PREVIEW)
     row_count = cast(int | None, artifact["row_count"])
     return {
         "name": artifact_name,
@@ -294,14 +292,13 @@ def source_match_artifact(
         "column_count": len(column_names),
         "column_preview": column_preview,
         "columns_truncated": columns_truncated,
-        "size_label": artifact_size_label(row_count=row_count, column_count=len(column_names)),
+        "size_label": sql_artifact_size_label(row_count=row_count, column_count=len(column_names)),
         "query_hint": {
             "sql_artifact_name": artifact_name,
             "select_preview_sql": f"SELECT * FROM {quote_identifier(artifact_name)} LIMIT 20;",
         },
         "source_mappings": matched_mappings,
-        "source_sql_artifact_names": artifact["source_sql_artifact_names"],
-        "summary": artifact_summary(
+        "summary": sql_artifact_summary(
             name=artifact_name,
             sqlite_type=cast(str, artifact["type"]),
             kind=kind,

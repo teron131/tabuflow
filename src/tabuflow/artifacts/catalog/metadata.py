@@ -9,9 +9,9 @@ from pathlib import Path
 import sqlite3
 from typing import Any, cast
 
-from ..workspace_db import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, quote_identifier
-from .database import open_read_only_connection
-from .relationships import ARTIFACT_RELATION_TABLES, referenced_artifact_names
+from ...workspace_db import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, quote_identifier
+from ..database import open_read_only_connection
+from ..relationships import ARTIFACT_RELATION_TABLES, referenced_artifact_names
 
 _SQL_ARTIFACT_MASTER_SQL = """
 SELECT name, type, sql

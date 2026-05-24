@@ -8,26 +8,8 @@ import re
 import sqlite3
 from typing import Any, cast
 
-from ..workspace_db import quote_identifier
-from .catalog_metadata import (
-    CatalogMetadataError,
-    database_catalog,
-)
-from .catalog_payloads import (
-    MAX_SOURCE_MATCH_PREVIEW,
-    MAX_SOURCE_PATH_PREVIEW,
-    artifact_listing,
-    artifact_size_label,
-    artifact_suggestion,
-    artifact_summary,
-    compact_artifact_listing,
-    matched_source_mappings,
-    preview_list,
-    source_match_artifact,
-    tokenize_query,
-    visible_artifacts,
-)
-from .database import (
+from ...workspace_db import quote_identifier
+from ..database import (
     error_result,
     jsonable_value,
     normalized_column_names,
@@ -36,7 +18,25 @@ from .database import (
     resolve_db_path,
     zip_exact,
 )
-from .relationships import artifact_relationship_metadata
+from ..relationships import artifact_relationship_metadata
+from .metadata import (
+    CatalogMetadataError,
+    database_catalog,
+)
+from .payloads import (
+    MAX_SOURCE_MATCH_PREVIEW,
+    MAX_SOURCE_PATH_PREVIEW,
+    compact_sql_artifact_listing,
+    matched_source_artifact_mappings,
+    preview_items,
+    source_match_sql_artifact,
+    sql_artifact_listing,
+    sql_artifact_size_label,
+    sql_artifact_suggestion,
+    sql_artifact_summary,
+    tokenize_query,
+    visible_sql_artifacts,
+)
 
 MAX_DESCRIBE_SAMPLE_ROWS = 20
 MAX_TEXT_VALUE_HINTS = 5
@@ -139,7 +139,7 @@ def list_sql_artifacts(
             database_path=database_path,
         )
         catalog = database_catalog(resolved_path)
-        artifact_listings = [artifact_listing(artifact) for artifact in visible_artifacts(catalog, include_internal=include_internal)]
+        artifact_listings = [sql_artifact_listing(artifact) for artifact in visible_sql_artifacts(catalog, include_internal=include_internal)]
 
         total_count = len(artifact_listings)
         if max_items is not None:
@@ -147,7 +147,7 @@ def list_sql_artifacts(
         truncated = len(artifact_listings) < total_count
         listed_count = len(artifact_listings)
         if detail == "compact":
-            artifact_listings = [compact_artifact_listing(artifact_listing) for artifact_listing in artifact_listings]
+            artifact_listings = [compact_sql_artifact_listing(artifact_listing) for artifact_listing in artifact_listings]
         summary = f"Listed {listed_count} queryable artifact(s)."
         if truncated:
             summary = f"Listed {listed_count} of {total_count} queryable artifact(s)."
@@ -155,7 +155,6 @@ def list_sql_artifacts(
         return {
             "database_path": str(resolved_path),
             "status": "ok",
-            "has_tabular_catalog": catalog["has_catalog"],
             "sql_artifact_count": listed_count,
             "sql_artifact_total_count": total_count,
             "sql_artifacts_truncated": truncated,
@@ -239,13 +238,12 @@ def describe_sql_artifact(
             return {
                 "database_path": str(resolved_path),
                 "status": "ok",
-                "has_tabular_catalog": catalog["has_catalog"],
                 "name": name,
                 "type": sqlite_type,
                 "kind": kind,
                 "row_count": row_count,
                 "column_count": column_count,
-                "size_label": artifact_size_label(row_count=row_count, column_count=column_count),
+                "size_label": sql_artifact_size_label(row_count=row_count, column_count=column_count),
                 "columns": columns,
                 "sample_rows": sample_row_items,
                 "text_value_hints": text_value_hint_map,
@@ -255,9 +253,8 @@ def describe_sql_artifact(
                 "source_mappings": source_mappings,
                 "source_path_count": len(source_paths),
                 "source_path_preview": source_paths[:MAX_SOURCE_PATH_PREVIEW],
-                "source_sql_artifact_names": artifact_info["source_sql_artifact_names"],
                 **relationship_metadata,
-                "summary": artifact_summary(
+                "summary": sql_artifact_summary(
                     name=name,
                     sqlite_type=sqlite_type,
                     kind=kind,
@@ -316,8 +313,8 @@ def suggest_sql_artifacts(
         )
         catalog = database_catalog(resolved_path)
         suggestions = []
-        for artifact in visible_artifacts(catalog, include_internal=include_internal):
-            suggestion = artifact_suggestion(artifact, tokens)
+        for artifact in visible_sql_artifacts(catalog, include_internal=include_internal):
+            suggestion = sql_artifact_suggestion(artifact, tokens)
             if suggestion is not None:
                 suggestions.append(suggestion)
 
@@ -326,7 +323,6 @@ def suggest_sql_artifacts(
         return {
             "database_path": str(resolved_path),
             "status": "ok",
-            "has_tabular_catalog": catalog["has_catalog"],
             "question": question,
             "tokens": tokens,
             "suggestion_count": len(top_suggestions),
@@ -386,8 +382,8 @@ def artifacts_from_source(
         )
         catalog = database_catalog(resolved_path)
         source_matches = []
-        for artifact in visible_artifacts(catalog, include_internal=include_internal):
-            matched_mappings = matched_source_mappings(
+        for artifact in visible_sql_artifacts(catalog, include_internal=include_internal):
+            matched_mappings = matched_source_artifact_mappings(
                 artifact,
                 requested_source=requested_source,
                 requested_source_format=requested_source_format,
@@ -395,15 +391,14 @@ def artifacts_from_source(
             if not matched_mappings:
                 continue
 
-            source_matches.append(source_match_artifact(artifact, matched_mappings))
+            source_matches.append(source_match_sql_artifact(artifact, matched_mappings))
 
         source_matches.sort(key=lambda item: (cast(str, item["kind"]) != "typed_content_view", cast(str, item["name"])))
-        source_match_preview, source_matches_truncated = preview_list(source_matches, max_items=MAX_SOURCE_MATCH_PREVIEW)
+        source_match_preview, source_matches_truncated = preview_items(source_matches, max_items=MAX_SOURCE_MATCH_PREVIEW)
         preferred_artifact = source_matches[0] if source_matches else None
         return {
             "database_path": str(resolved_path),
             "status": "ok",
-            "has_tabular_catalog": catalog["has_catalog"],
             "source_path": source_path,
             "source_format": source_format,
             "artifact_count": len(source_matches),

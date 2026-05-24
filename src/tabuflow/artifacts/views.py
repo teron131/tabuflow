@@ -41,14 +41,12 @@ def save_view(
                 error_type="empty_sql",
                 message="SQL query must not be empty.",
                 view_name=normalized_view_name,
-                replace=replace,
             )
         if not normalized_view_name:
             return error_result(
                 database_path=requested_path,
                 error_type="empty_view_name",
                 message="View name must not be empty.",
-                replace=replace,
             )
         if not VIEW_NAME_PATTERN.fullmatch(normalized_view_name):
             return error_result(
@@ -56,7 +54,6 @@ def save_view(
                 error_type="invalid_view_name",
                 message="View name must start with a letter and contain only letters, digits, and hyphen-separated words.",
                 view_name=normalized_view_name,
-                replace=replace,
             )
         if normalized_view_name.startswith("sqlite_"):
             return error_result(
@@ -64,7 +61,6 @@ def save_view(
                 error_type="reserved_view_name",
                 message="View name must not start with 'sqlite_'.",
                 view_name=normalized_view_name,
-                replace=replace,
             )
         if not is_view_sql(query_sql):
             return error_result(
@@ -72,7 +68,6 @@ def save_view(
                 error_type="disallowed_sql",
                 message="Only read-only SELECT and WITH queries can be saved as views.",
                 view_name=normalized_view_name,
-                replace=replace,
             )
 
         resolved_path = resolve_db_path(
@@ -96,7 +91,6 @@ def save_view(
                         error_type="name_conflict",
                         message=f"SQLite object already exists and is not a view: {normalized_view_name}",
                         view_name=normalized_view_name,
-                        replace=replace,
                     )
                 if not replace:
                     return error_result(
@@ -104,7 +98,6 @@ def save_view(
                         error_type="view_exists",
                         message=f"SQLite view already exists: {normalized_view_name}",
                         view_name=normalized_view_name,
-                        replace=replace,
                     )
                 connection.execute(f"DROP VIEW IF EXISTS {quote_identifier(normalized_view_name)}")
 
@@ -145,9 +138,6 @@ def save_view(
             "database_path": str(resolved_path),
             "status": "ok",
             "view_name": normalized_view_name,
-            "replace": replace,
-            "saved_sql": query_sql,
-            "sql_file_path": None if sql_file_path is None else str(sql_file_path),
             "sql_artifact": description,
         }
     except ValueError as exc:
@@ -156,7 +146,6 @@ def save_view(
             error_type="missing_database",
             message=str(exc),
             view_name=normalized_view_name,
-            replace=replace,
         )
     except (sqlite3.Error, sqlite3.Warning) as exc:
         return error_result(
@@ -164,25 +153,4 @@ def save_view(
             error_type="sql_execution_error",
             message=str(exc),
             view_name=normalized_view_name,
-            replace=replace,
         )
-
-
-def save_artifact_view(
-    sql: str,
-    view_name: str,
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-    sql_file_path: str | Path | None = None,
-    replace: bool = False,
-) -> dict[str, Any]:
-    """Save a read-only artifact-cache query as a named SQLite view."""
-    return save_view(
-        sql,
-        view_name,
-        root_dir=root_dir,
-        database_path=database_path,
-        sql_file_path=sql_file_path,
-        replace=replace,
-    )

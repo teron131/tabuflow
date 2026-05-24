@@ -16,18 +16,6 @@ from .text_values import field_value_rows, line_value_rows
 import pymupdf
 
 
-def table_rows(pdf_path: Path, table_config: dict[str, Any]) -> list[dict[str, str]]:
-    """Extract one configured table."""
-    mode = str(table_config["mode"])
-    if mode == "line_value":
-        return line_value_rows(pdf_path, table_config)
-    if mode == "field_value":
-        return field_value_rows(pdf_path, table_config)
-    if mode == "coordinate_table":
-        return coordinate_rows(pdf_path, table_config)
-    raise ValueError(f"Unsupported PDF config extraction mode: {mode}")
-
-
 def write_csv(
     path: Path,
     rows: list[dict[str, str]],
@@ -130,7 +118,15 @@ def extract_pdf_file(
                     }
                 )
             continue
-        rows = table_rows(pdf_path, table_config)
+        mode = str(table_config["mode"])
+        if mode == "line_value":
+            rows = line_value_rows(pdf_path, table_config)
+        elif mode == "field_value":
+            rows = field_value_rows(pdf_path, table_config)
+        elif mode == "coordinate_table":
+            rows = coordinate_rows(pdf_path, table_config)
+        else:
+            raise ValueError(f"Unsupported PDF config extraction mode: {mode}")
         table_number = int(table_config.get("number", table_index))
         table_name = str(table_config.get("name", f"table_{table_number}"))
         columns = configured_output_columns(table_config)

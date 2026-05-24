@@ -264,19 +264,3 @@ def run_query(
                 database_path=database_path,
             ),
         )
-
-
-def query_artifacts(
-    sql: str,
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-    max_rows: int = MAX_QUERY_ROWS,
-) -> dict[str, Any]:
-    """Run read-only SQL against the artifact cache and return bounded JSON rows."""
-    return run_query(
-        sql,
-        root_dir=root_dir,
-        database_path=database_path,
-        max_rows=max_rows,
-    )

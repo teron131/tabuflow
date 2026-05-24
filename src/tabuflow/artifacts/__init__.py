@@ -5,14 +5,14 @@ from __future__ import annotations
 from .catalog import (
     DEFAULT_CLI_ARTIFACT_LIST_LIMIT,
     SQL_ARTIFACT_LIST_DETAILS,
+    CatalogMetadataError,
     artifacts_from_source,
+    classify_sql_artifact,
     describe_sql_artifact,
     list_sql_artifacts,
     suggest_sql_artifacts,
 )
-from .catalog_metadata import CatalogMetadataError, classify_sql_artifact
 from .database import (
-    query_artifacts,
     resolve_db_path,
     run_query,
 )
@@ -22,7 +22,7 @@ from .repair import (
     suggest_sql_error_repair,
     suggest_sql_error_repair_from_schema,
 )
-from .views import save_artifact_view, save_view
+from .views import save_view
 
 __all__ = [
     "DEFAULT_CLI_ARTIFACT_LIST_LIMIT",
@@ -38,10 +38,8 @@ __all__ = [
     "name_sql_artifact",
     "normalize_source_filename",
     "normalize_source_stem",
-    "query_artifacts",
     "resolve_db_path",
     "run_query",
-    "save_artifact_view",
     "save_view",
     "suggest_sql_artifacts",
     "suggest_sql_error_repair",

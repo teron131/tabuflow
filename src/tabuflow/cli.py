@@ -14,8 +14,8 @@ from .artifacts import (
     artifacts_from_source,
     describe_sql_artifact,
     list_sql_artifacts,
-    query_artifacts,
-    save_artifact_view,
+    run_query,
+    save_view,
     suggest_sql_artifacts,
 )
 from .email import inspect_email_file
@@ -295,7 +295,7 @@ def add_artifact_commands(subparsers: Any) -> None:
     query.add_argument("sql")
     query.add_argument("--max-rows", type=int, default=200)
     query.set_defaults(
-        handler=lambda args: query_artifacts(
+        handler=lambda args: run_query(
             root_dir=resolve_cli_root(args),
             sql=read_sql_argument(args.sql, root_dir=resolve_cli_root(args)),
             database_path=resolve_cli_database_path(args),
@@ -308,7 +308,7 @@ def add_artifact_commands(subparsers: Any) -> None:
     save.add_argument("sql")
     save.add_argument("--replace", action="store_true")
     save.set_defaults(
-        handler=lambda args: save_artifact_view(
+        handler=lambda args: save_view(
             read_sql_argument(args.sql, root_dir=resolve_cli_root(args)),
             args.view_name,
             root_dir=resolve_cli_root(args),
