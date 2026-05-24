@@ -1,10 +1,10 @@
-"""Reusable Tabuflow tool families for tables, PDFs, mail, and artifacts."""
+"""Reusable Tabuflow tool families for tables, PDFs, email, and artifacts."""
 
-from . import artifacts, mail, pdf, tabular
+from . import artifacts, email, pdf, tabular
 
 __all__ = [
     "artifacts",
-    "mail",
+    "email",
     "pdf",
     "tabular",
 ]

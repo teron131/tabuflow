@@ -20,7 +20,7 @@ from .artifacts import (
     save_artifact_view,
     suggest_sql_artifacts,
 )
-from .mail import inspect_email_file
+from .email import inspect_email_file
 from .pdf import (
     DEFAULT_DPI,
     DEFAULT_INSPECT_PAGE_LIMIT,

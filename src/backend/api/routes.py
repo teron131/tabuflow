@@ -15,8 +15,8 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from tabuflow.artifacts import describe_sql_artifact, list_sql_artifacts, run_query
+from tabuflow.tabular import extract_tabular_file, inspect_tabular_file
 from tabuflow.tabular.storage import quote_identifier
-from tabuflow.tabular.tools import extract_tabular_file, inspect_tabular_file
 
 from ..config import (
     MISSING_LLM_CONFIG_MESSAGE,

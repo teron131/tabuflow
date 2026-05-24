@@ -41,7 +41,7 @@ The reusable tools are intentionally small:
 
 - `tabuflow.tabular`: inspect/profile/extract CSV, XLS, and XLSX files.
 - `tabuflow.pdf`: inspect PDF text/images and prepare PDF artifact workspaces.
-- `tabuflow.mail`: inspect EML/MSG as reference context.
+- `tabuflow.email`: inspect EML/MSG as reference context.
 - `tabuflow.artifacts`: list, rediscover, describe, query, repair, and save SQLite-backed artifacts.
 
 The CLI mirrors those useful presets:

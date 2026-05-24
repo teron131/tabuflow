@@ -1,0 +1,128 @@
+"""Tabular profile command implementation."""
+
+from __future__ import annotations
+
+from pathlib import Path
+import statistics
+from typing import Any
+
+from .ingestion import (
+    MAX_FULL_PROFILE_BYTES,
+    MAX_SAMPLE_ROWS,
+    count_non_empty,
+    is_blank,
+    load_rows,
+    stream_csv_profile,
+    tabular_summary,
+)
+from .segmentation import compute_region_boxes, header_candidates, profile_region_boxes
+
+WORKBOOK_SHEET_PROFILE_FIELDS = {
+    "row_count",
+    "column_count",
+    "non_empty_row_count",
+    "blank_row_count",
+    "max_non_empty_cells_in_row",
+    "median_non_empty_cells_per_non_blank_row",
+    "structure_hints",
+    "header_candidates",
+    "regions",
+    "sample_rows",
+}
+
+
+def _structure_hints(
+    *,
+    header_candidate_rows: list[dict[str, Any]],
+    regions: list[dict[str, Any]],
+    sheet_names: list[str] | None = None,
+) -> dict[str, Any]:
+    """Build compact hints for agents before they inspect raw rows manually."""
+    stable_candidates = [candidate for candidate in header_candidate_rows if not candidate.get("has_stronger_header_ahead")]
+    header_pool = stable_candidates or header_candidate_rows
+    best_header = max(header_pool, key=lambda candidate: (candidate.get("non_empty_cells", 0), -candidate.get("row", 0))) if header_pool else None
+    suggested_start_row = best_header["row"] if best_header else None
+    return {
+        "likely_header_row": suggested_start_row,
+        "suggested_data_start_row": suggested_start_row + 1 if suggested_start_row else None,
+        "header_candidate_count": len(header_candidate_rows),
+        "region_count": len(regions),
+        "sheet_names": sheet_names or [],
+    }
+
+
+def profile_tabular_file(
+    path: str | Path,
+    *,
+    max_sample_rows: int = MAX_SAMPLE_ROWS,
+    sheet: str | None = None,
+) -> dict[str, Any]:
+    """Profile a tabular file with read-only structural hints."""
+    path = Path(path)
+    if path.suffix.lower() == ".csv" and path.stat().st_size > MAX_FULL_PROFILE_BYTES:
+        summary = stream_csv_profile(path, max_sample_rows=max_sample_rows)
+        header_candidate_rows: list[dict[str, Any]] = []
+        regions: list[dict[str, Any]] = []
+        return {
+            "path": str(path),
+            **{key: value for key, value in summary.items() if key not in {"top_rows", "bottom_rows"}},
+            "structure_hints": _structure_hints(
+                header_candidate_rows=header_candidate_rows,
+                regions=regions,
+                sheet_names=summary.get("sheet_names", []),
+            ),
+        }
+
+    rows, format_info = load_rows(path, sheet=sheet)
+    region_boxes = compute_region_boxes(rows)
+    detected_header_candidates = header_candidates(rows, region_boxes=region_boxes)
+    non_empty_counts = [count_non_empty(row) for row in rows if not is_blank(row)]
+
+    regions = profile_region_boxes(region_boxes)
+    return {
+        "path": str(path),
+        **tabular_summary(rows, format_info),
+        "non_empty_row_count": len(non_empty_counts),
+        "blank_row_count": len(rows) - len(non_empty_counts),
+        "max_non_empty_cells_in_row": max(non_empty_counts, default=0),
+        "median_non_empty_cells_per_non_blank_row": statistics.median(non_empty_counts) if non_empty_counts else 0,
+        "sample_rows": rows[:max_sample_rows],
+        "structure_hints": _structure_hints(
+            header_candidate_rows=detected_header_candidates,
+            regions=regions,
+            sheet_names=format_info.get("sheet_names", []),
+        ),
+        "header_candidates": detected_header_candidates,
+        "regions": regions,
+    }
+
+
+def profile_tabular_workbook_sheets(
+    path: str | Path,
+    *,
+    max_sample_rows: int = MAX_SAMPLE_ROWS,
+) -> dict[str, Any]:
+    """Profile all workbook sheets with compact structural hints."""
+    from .inspection import inspect_tabular_file
+
+    path = Path(path)
+    summary = inspect_tabular_file(path, limit=1)
+    sheet_names = summary.get("sheet_names", [])
+    if not sheet_names:
+        raise ValueError(f"All-sheet profiling requires an XLS or XLSX workbook: {path}")
+    sheet_profiles = []
+    for sheet_name in sheet_names:
+        profile = profile_tabular_file(path, max_sample_rows=max_sample_rows, sheet=sheet_name)
+        sheet_profiles.append(
+            {
+                "sheet_name": sheet_name,
+                **{key: value for key, value in profile.items() if key in WORKBOOK_SHEET_PROFILE_FIELDS},
+            }
+        )
+    return {
+        "path": str(path),
+        "format": summary["format"],
+        "sheet_names": sheet_names,
+        "sheet_count": len(sheet_names),
+        "sheets": sheet_profiles,
+    }
