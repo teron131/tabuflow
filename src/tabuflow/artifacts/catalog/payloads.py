@@ -13,6 +13,12 @@ MAX_COLUMN_PREVIEW = 8
 MAX_REASON_PREVIEW = 3
 MAX_SOURCE_MATCH_PREVIEW = 12
 SUGGESTION_STOP_WORDS = {"a", "an", "and", "by", "for", "from", "how", "in", "is", "me", "of", "on", "show", "the", "to", "what", "which", "with"}
+SQL_ARTIFACT_KIND_BIAS = {
+    "typed_content_view": 3,
+    "view_or_table": 1,
+    "raw_content_table": -2,
+    "internal_catalog": -5,
+}
 
 
 def preview_items(
@@ -122,19 +128,6 @@ def sql_artifact_score(
     return score, reasons
 
 
-def sql_artifact_kind_bias(kind: str) -> int:
-    """Prefer stable views over raw storage artifacts during sql_artifact suggestion."""
-    if kind == "typed_content_view":
-        return 3
-    if kind == "view_or_table":
-        return 1
-    if kind == "raw_content_table":
-        return -2
-    if kind == "internal_catalog":
-        return -5
-    return 0
-
-
 def compact_sql_artifact_listing(artifact_listing: dict[str, Any]) -> dict[str, Any]:
     """Return the compact artifact listing shape."""
     return {
@@ -227,7 +220,7 @@ def sql_artifact_suggestion(
     if score <= 0:
         return None
 
-    score += sql_artifact_kind_bias(kind)
+    score += SQL_ARTIFACT_KIND_BIAS.get(kind, 0)
     column_preview, columns_truncated = preview_items(column_names, max_items=MAX_COLUMN_PREVIEW)
     source_path_preview, source_paths_truncated = preview_items(source_paths, max_items=MAX_SOURCE_PATH_PREVIEW)
     return {

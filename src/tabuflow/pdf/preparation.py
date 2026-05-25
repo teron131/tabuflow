@@ -10,7 +10,7 @@ from typing import Any
 import pymupdf
 
 from ..artifacts.naming import normalize_source_filename, normalize_source_stem
-from ..tabular.storage import resolve_root_dir
+from ..workspace_db import resolve_root_dir
 from .common import (
     DEFAULT_DPI,
     DEFAULT_MAX_PREPARE_PAGES,

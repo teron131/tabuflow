@@ -1,5 +1,7 @@
 """Deterministic SQLite artifact repair hints."""
 
+from __future__ import annotations
+
 from contextlib import closing, suppress
 from difflib import SequenceMatcher
 from pathlib import Path

@@ -1,5 +1,7 @@
 """Naming helpers for source-backed artifacts, SQL files, and saved views."""
 
+from __future__ import annotations
+
 from collections.abc import Callable
 from pathlib import Path
 import re

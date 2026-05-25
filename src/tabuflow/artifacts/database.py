@@ -105,11 +105,6 @@ def leading_sql_keyword(sql: str) -> str:
     return stripped.split(None, 1)[0].upper()
 
 
-def is_read_only_sql(sql: str) -> bool:
-    """Return whether a SQL statement looks read-only."""
-    return leading_sql_keyword(sql) in READ_ONLY_SQL_PREFIXES
-
-
 def normalized_sql(sql: str) -> str:
     """Normalize one SQL statement for validation and embedding."""
     return sql.strip().rstrip(";").strip()
@@ -135,7 +130,7 @@ def run_query(
                 max_rows=safe_max_rows,
             )
         # This is a quick UX guard. The read-only SQLite connection is the actual safety boundary.
-        if not is_read_only_sql(query_sql):
+        if leading_sql_keyword(query_sql) not in READ_ONLY_SQL_PREFIXES:
             return error_result(
                 database_path=requested_path,
                 error_type="disallowed_sql",

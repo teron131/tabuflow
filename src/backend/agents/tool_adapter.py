@@ -24,7 +24,7 @@ from tabuflow.tabular import (
     inspect_tabular_file,
     profile_tabular_file,
 )
-from tabuflow.tabular.storage import resolve_root_dir
+from tabuflow.workspace_db import resolve_root_dir
 
 from ..tools.fs import (
     DEFAULT_WRITE_DENIED_MESSAGE,

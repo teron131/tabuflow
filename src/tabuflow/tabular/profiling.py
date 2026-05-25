@@ -47,7 +47,7 @@ def profile_tabular_file(
         regions: list[dict[str, Any]] = []
         return {
             "path": str(path),
-            **{key: value for key, value in summary.items() if key not in {"top_rows", "bottom_rows"}},
+            **summary,
             "structure_hints": structure_hints(
                 header_candidate_rows=header_candidate_rows,
                 regions=regions,

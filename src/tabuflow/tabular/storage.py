@@ -15,13 +15,11 @@ from typing import Any, cast
 from ..artifacts.naming import normalize_source_stem
 from ..artifacts.relationships import ensure_artifact_relationship_tables, register_source_table_relationships
 from ..workspace_db import (
-    SQLITE_CONTENTS_TABLE as SQLITE_CONTENTS_TABLE,
-    SQLITE_FILENAME as SQLITE_FILENAME,
-    SQLITE_SOURCES_TABLE as SQLITE_SOURCES_TABLE,
-    quote_identifier as quote_identifier,
-    resolve_root_dir as resolve_root_dir,
-    sqlite_database_path as sqlite_database_path,
-    sqlite_write_lock as sqlite_write_lock,
+    SQLITE_CONTENTS_TABLE,
+    SQLITE_SOURCES_TABLE,
+    quote_identifier,
+    sqlite_database_path,
+    sqlite_write_lock,
 )
 
 INSERT_BATCH_SIZE = 1000
@@ -97,15 +95,11 @@ def _db_column_names(columns: list[str]) -> list[str]:
     return normalized
 
 
-def _create_sqlite_sources_table(
-    connection: sqlite3.Connection,
-    *,
-    table_name: str = SQLITE_SOURCES_TABLE,
-) -> None:
+def _create_sqlite_sources_table(connection: sqlite3.Connection) -> None:
     """Create the source-linkage table for extracted content."""
     connection.execute(
         f"""
-        CREATE TABLE IF NOT EXISTS {quote_identifier(table_name)} (
+        CREATE TABLE IF NOT EXISTS {quote_identifier(SQLITE_SOURCES_TABLE)} (
             source_path TEXT NOT NULL,
             source_format TEXT NOT NULL,
             source_sheet_name TEXT NOT NULL,
@@ -117,15 +111,11 @@ def _create_sqlite_sources_table(
     )
 
 
-def _create_sqlite_contents_table(
-    connection: sqlite3.Connection,
-    *,
-    table_name: str = SQLITE_CONTENTS_TABLE,
-) -> None:
+def _create_sqlite_contents_table(connection: sqlite3.Connection) -> None:
     """Create the content catalog table keyed by exact table fingerprint."""
     connection.execute(
         f"""
-        CREATE TABLE IF NOT EXISTS {quote_identifier(table_name)} (
+        CREATE TABLE IF NOT EXISTS {quote_identifier(SQLITE_CONTENTS_TABLE)} (
             fingerprint TEXT PRIMARY KEY,
             table_name TEXT NOT NULL,
             source_format TEXT NOT NULL,

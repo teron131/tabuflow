@@ -17,11 +17,6 @@ VIEW_SQL_PREFIXES = ("SELECT", "WITH")
 VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$")
 
 
-def is_view_sql(sql: str) -> bool:
-    """Return whether a SQL statement can be embedded in CREATE VIEW AS."""
-    return leading_sql_keyword(sql) in VIEW_SQL_PREFIXES
-
-
 def save_view(
     sql: str,
     view_name: str,
@@ -63,7 +58,7 @@ def save_view(
                 message="View name must not start with 'sqlite_'.",
                 view_name=normalized_view_name,
             )
-        if not is_view_sql(query_sql):
+        if leading_sql_keyword(query_sql) not in VIEW_SQL_PREFIXES:
             return error_result(
                 database_path=requested_path,
                 error_type="disallowed_sql",

@@ -5,9 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .ingestion import MAX_FULL_EXTRACT_BYTES, MAX_METADATA_ROWS, MAX_SAMPLE_ROWS, load_rows, tabular_summary
+from ..workspace_db import resolve_root_dir
+from .ingestion import MAX_FULL_EXTRACT_BYTES, MAX_METADATA_ROWS, load_rows, tabular_summary
 from .segmentation import segment_tabular_blocks
-from .storage import load_tables_into_sqlite, resolve_root_dir
+from .storage import load_tables_into_sqlite
 
 FOOTER_LIKE_LABELS = {"total", "grand total", "rounding error"}
 
@@ -38,29 +39,6 @@ def _footer_like_row_hints(
     return hints
 
 
-def _recover_tabular_blocks(
-    path: Path,
-    *,
-    sample_rows: int = MAX_SAMPLE_ROWS,
-    metadata_rows: int = MAX_METADATA_ROWS,
-    sheet: str | None = None,
-) -> dict[str, Any]:
-    """Recover metadata and table blocks for future extraction backends."""
-    rows, format_info = load_rows(path, sheet=sheet)
-    metadata, tables = segment_tabular_blocks(
-        rows,
-        table_sample_rows=sample_rows,
-        metadata_sample_rows=metadata_rows,
-    )
-
-    return {
-        "path": str(path),
-        **tabular_summary(rows, format_info),
-        "metadata": metadata,
-        "tables": tables,
-    }
-
-
 def extract_tabular_file(
     path: str | Path,
     *,
@@ -75,12 +53,18 @@ def extract_tabular_file(
     if path.suffix.lower() == ".csv" and path.stat().st_size > MAX_FULL_EXTRACT_BYTES:
         raise ValueError(f"CSV extraction currently requires a full in-memory layout pass and is capped at {MAX_FULL_EXTRACT_BYTES} bytes for safety: {path}")
 
-    recovered = _recover_tabular_blocks(
-        path,
-        sample_rows=None,
-        metadata_rows=metadata_rows,
-        sheet=sheet,
+    rows, format_info = load_rows(path, sheet=sheet)
+    metadata, tables = segment_tabular_blocks(
+        rows,
+        table_sample_rows=None,
+        metadata_sample_rows=metadata_rows,
     )
+    recovered = {
+        "path": str(path),
+        **tabular_summary(rows, format_info),
+        "metadata": metadata,
+        "tables": tables,
+    }
     if not recovered["tables"]:
         return {
             "path": recovered["path"],
@@ -90,7 +74,6 @@ def extract_tabular_file(
             "artifact_backend": "sqlite",
             "database_path": "",
             "recovered_table_count": 0,
-            "recovered_metadata_block_count": len(recovered["metadata"]),
             "excluded_row_hints": _footer_like_row_hints(recovered["tables"], recovered["metadata"]),
             "tables": [],
             "message": "Tabular extraction completed but did not recover importable tables.",
@@ -100,7 +83,6 @@ def extract_tabular_file(
         recovered,
         root_dir=root_dir,
     )
-    table_fingerprints = [table["fingerprint"] for table in loaded["tables"]]
 
     return {
         "path": recovered["path"],
@@ -109,9 +91,7 @@ def extract_tabular_file(
         "status": "loaded",
         "artifact_backend": "sqlite",
         "database_path": loaded["database_path"],
-        "fingerprints": table_fingerprints,
         "recovered_table_count": len(recovered["tables"]),
-        "recovered_metadata_block_count": len(recovered["metadata"]),
         "excluded_row_hints": _footer_like_row_hints(recovered["tables"], recovered["metadata"]),
         "tables": loaded["tables"],
     }

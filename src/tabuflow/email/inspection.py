@@ -39,12 +39,6 @@ def _clean_text(value: Any) -> str:
     return WHITESPACE.sub(" ", str(value or "").replace("\x00", " ")).strip()
 
 
-def _body_preview(value: Any, *, max_chars: int) -> str:
-    """Return a compact body preview."""
-    text = _clean_text(value)
-    return text[: max(0, max_chars)]
-
-
 def _html_to_text(value: Any) -> str:
     """Convert simple email HTML into plain text."""
     if value is None:
@@ -81,6 +75,7 @@ def _email_payload(
     max_body_chars: int,
 ) -> dict[str, Any]:
     """Build a generic email inspection payload."""
+    clean_body = _clean_text(body)
     return {
         "path": str(path),
         "format": format_name,
@@ -90,8 +85,8 @@ def _email_payload(
         "cc": _clean_text(cc),
         "sent_at": None if sent_at is None else _clean_text(sent_at),
         "body_source": body_source,
-        "body_preview": _body_preview(body, max_chars=max_body_chars),
-        "body_char_count": len(_clean_text(body)),
+        "body_preview": clean_body[: max(0, max_body_chars)],
+        "body_char_count": len(clean_body),
         "attachments": attachments,
     }
 

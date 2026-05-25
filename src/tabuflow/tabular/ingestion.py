@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections import Counter, deque
+from collections import Counter
 import csv
 from pathlib import Path
 from typing import Any, cast
 
 from openpyxl import load_workbook
-from openpyxl.worksheet.merge import MergedCellRange
 import xlrd
 
 MAX_SAMPLE_ROWS = 20
@@ -58,11 +57,6 @@ def preview_rows(rows: list[list[str]], sample_rows: int | None) -> list[list[st
     return rows if sample_rows is None else rows[:sample_rows]
 
 
-def preview_dimensions(rows: list[list[str]]) -> tuple[int, int]:
-    """Return the row and column counts for a preview window."""
-    return len(rows), max((len(row) for row in rows), default=0)
-
-
 def count_non_empty(row: list[str]) -> int:
     """Count non-empty cells in a row."""
     return sum(bool(cell.strip()) for cell in row)
@@ -80,19 +74,10 @@ def _normalize_cell(value: object) -> str:
     return str(value)
 
 
-def _read_file_sample(
-    path: Path,
-    *,
-    sample_bytes: int,
-) -> bytes:
-    """Read at most ``sample_bytes`` from the start of a file."""
-    with path.open("rb") as handle:
-        return handle.read(sample_bytes)
-
-
 def _csv_encoding(path: Path) -> str:
     """Detect a practical CSV text encoding from a small byte sample."""
-    sample = _read_file_sample(path, sample_bytes=MAX_ENCODING_SAMPLE_BYTES)
+    with path.open("rb") as handle:
+        sample = handle.read(MAX_ENCODING_SAMPLE_BYTES)
     for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
         try:
             sample.decode(encoding)
@@ -202,8 +187,7 @@ def stream_csv_profile(
 ) -> dict[str, Any]:
     """Build a bounded CSV profile without materializing the full file."""
     encoding, dialect, format_info = _csv_stream_info(path)
-    top_rows: list[list[str]] = []
-    bottom_rows: deque[list[str]] = deque(maxlen=max_sample_rows)
+    sample_rows: list[list[str]] = []
     non_empty_frequencies: Counter[int] = Counter()
     row_count = 0
     column_count = 0
@@ -214,9 +198,8 @@ def stream_csv_profile(
         for row in csv.reader(handle, dialect):
             row_count += 1
             column_count = max(column_count, len(row))
-            if len(top_rows) < max_sample_rows:
-                top_rows.append(list(row))
-            bottom_rows.append(list(row))
+            if len(sample_rows) < max_sample_rows:
+                sample_rows.append(list(row))
 
             non_empty_cells = count_non_empty(row)
             if not non_empty_cells:
@@ -224,9 +207,6 @@ def stream_csv_profile(
             non_empty_row_count += 1
             max_non_empty_cells = max(max_non_empty_cells, non_empty_cells)
             non_empty_frequencies[non_empty_cells] += 1
-
-    sample_rows = top_rows
-    tail_rows = list(bottom_rows) if row_count > max_sample_rows else []
 
     return {
         **format_info,
@@ -241,8 +221,6 @@ def stream_csv_profile(
         "regions": [],
         "sheet_names": [],
         "profile_mode": "streaming",
-        "top_rows": sample_rows,
-        "bottom_rows": tail_rows,
     }
 
 
@@ -250,23 +228,13 @@ def _load_csv_rows(
     path: Path,
 ) -> tuple[
     list[list[str]],
-    dict[str, str],
+    dict[str, Any],
 ]:
     """Load CSV rows and detected dialect metadata."""
     encoding, dialect, format_info = _csv_stream_info(path)
     with path.open("r", encoding=encoding, newline="") as handle:
         rows = [list(row) for row in csv.reader(handle, dialect)]
     return rows, {key: value for key, value in format_info.items() if key != "format"}
-
-
-def _merged_cell_bounds(merged_range: MergedCellRange) -> tuple[int, int, int, int]:
-    """Return one openpyxl merged range as min_col, min_row, max_col, max_row."""
-    return (
-        merged_range.min_col,
-        merged_range.min_row,
-        merged_range.max_col,
-        merged_range.max_row,
-    )
 
 
 def _load_xlsx_rows(
@@ -291,7 +259,12 @@ def _load_xlsx_rows(
         worksheet = workbook[sheet_name]
         rows = [[_normalize_cell(cell) for cell in row] for row in worksheet.iter_rows(values_only=True)]
         for merged_range in worksheet.merged_cells.ranges:
-            min_col, min_row, max_col, max_row = _merged_cell_bounds(merged_range)
+            min_col, min_row, max_col, max_row = (
+                merged_range.min_col,
+                merged_range.min_row,
+                merged_range.max_col,
+                merged_range.max_row,
+            )
             value = rows[min_row - 1][min_col - 1]
             for row_index in range(min_row - 1, max_row):
                 for column_index in range(min_col - 1, max_col):

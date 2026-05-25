@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from ..artifacts.naming import normalize_source_filename, normalize_source_stem
-from ..tabular.storage import resolve_root_dir
+from ..workspace_db import resolve_root_dir
 
 DEFAULT_DPI = 150
 DEFAULT_PDF_INSPECT_OUTPUT_DIR = Path("data/pdf_inspect")

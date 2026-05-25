@@ -9,7 +9,6 @@ from .hints import structure_hints
 from .ingestion import (
     MAX_SAMPLE_ROWS,
     load_rows,
-    preview_dimensions,
     stream_csv_window,
     tabular_dimensions,
     tabular_summary_from_counts,
@@ -78,7 +77,7 @@ def inspect_tabular_file(
         header_candidate_rows = header_candidates(rows, region_boxes=region_boxes)
         regions = profile_region_boxes(region_boxes)
 
-    preview_row_count, preview_column_count = preview_dimensions(selected_rows)
+    preview_row_count, preview_column_count = tabular_dimensions(selected_rows)
 
     return {
         "path": str(path),

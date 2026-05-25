@@ -49,15 +49,6 @@ def split_rows(
     return list(groups.items())
 
 
-def split_table_name(
-    base_name: str,
-    split_value: str,
-) -> str:
-    """Return a stable table name for one split output."""
-    split_name = normalize_source_stem(split_value) if split_value else "unsectioned"
-    return f"{base_name}_{split_name}" if split_name else base_name
-
-
 def page_tag(
     pages: list[int],
     *,
@@ -145,16 +136,6 @@ def empty_extraction_diagnostics(pdf_path: Path) -> dict[str, Any]:
         }
 
 
-def configured_output_columns(table_config: dict[str, Any]) -> list[str]:
-    """Return CSV columns from explicit output columns or coordinate specs."""
-    if output_columns := table_config.get("output_columns"):
-        return [str(column) for column in output_columns]
-    columns = table_config.get("columns", [])
-    if columns and isinstance(columns[0], dict):
-        return [str(column["name"]) for column in columns]
-    return [str(column) for column in columns]
-
-
 def extract_pdf_file(
     path: str | Path,
     *,
@@ -214,15 +195,23 @@ def extract_pdf_file(
         else:
             raise ValueError(f"Unsupported PDF config extraction mode: {mode}")
         table_name = str(table_config.get("name") or "table")
-        columns = configured_output_columns(table_config)
+        if output_columns := table_config.get("output_columns"):
+            columns = [str(column) for column in output_columns]
+        else:
+            configured_columns = table_config.get("columns", [])
+            if configured_columns and isinstance(configured_columns[0], dict):
+                columns = [str(column["name"]) for column in configured_columns]
+            else:
+                columns = [str(column) for column in configured_columns]
         if not columns and rows:
             columns = list(rows[0])
         if split_by := table_config.get("split_by"):
             split_groups = split_rows(rows, str(split_by), drop_empty=bool(table_config.get("drop_empty_split")))
             for split_value, grouped_rows in split_groups:
-                split_name = split_table_name(table_name, split_value)
+                split_slug = normalize_source_stem(split_value) if split_value else "unsectioned"
+                split_table_name = f"{table_name}_{split_slug}" if split_slug else table_name
                 table_pages = row_pages(grouped_rows, fallback_pages)
-                descriptor = output_descriptor(split_value=split_value, table_name=split_name, columns=columns)
+                descriptor = output_descriptor(split_value=split_value, table_name=split_table_name, columns=columns)
                 pending_tables.append(
                     {
                         "pages": table_pages,
