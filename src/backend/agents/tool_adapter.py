@@ -215,7 +215,6 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             "name": "detected_tables",
             "preset": preset,
             "mode": "pymupdf_tables",
-            "number": 1,
             "page_start": page_start,
             "min_rows": min_rows,
         }

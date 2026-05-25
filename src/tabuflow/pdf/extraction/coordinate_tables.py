@@ -48,9 +48,7 @@ def coordinate_rows(
     required_columns = [str(column) for column in config.get("required_columns", [])]
     continuation_column = str(config["continuation_column"]) if config.get("continuation_column") else None
     if continuation_column:
-        anchor_columns = [str(column) for column in config.get("anchor_columns", [])]
-        if not anchor_columns:
-            anchor_columns = [column for column in required_columns if column != continuation_column]
+        anchor_columns = [column for column in required_columns if column != continuation_column]
         if anchor_columns:
             return coordinate_anchor_rows(
                 pdf_path,

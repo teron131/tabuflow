@@ -7,13 +7,13 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pymupdf
+
 from ...artifacts.naming import normalize_source_stem
 from ..common import pdf_artifact_work_paths
 from .coordinate_tables import coordinate_rows
 from .detected_tables import pymupdf_table_outputs
 from .text_values import field_value_rows, line_value_rows
-
-import pymupdf
 
 
 def write_csv(
@@ -98,7 +98,7 @@ def extract_pdf_file(
     for table_index, table_config in enumerate(extraction.get("tables", []), start=1):
         if table_config["mode"] == "pymupdf_tables":
             base_name = str(table_config.get("name", "detected_table"))
-            for detected_index, table_output in enumerate(pymupdf_table_outputs(pdf_path, table_config), start=int(table_config.get("number", table_index))):
+            for detected_index, table_output in enumerate(pymupdf_table_outputs(pdf_path, table_config), start=table_index):
                 table_name = f"{base_name}_{detected_index}"
                 output_path = output_dir / f"{pdf_stem}_table_{detected_index}.csv"
                 write_csv(output_path, table_output["rows"], table_output["columns"])
@@ -127,7 +127,7 @@ def extract_pdf_file(
             rows = coordinate_rows(pdf_path, table_config)
         else:
             raise ValueError(f"Unsupported PDF config extraction mode: {mode}")
-        table_number = int(table_config.get("number", table_index))
+        table_number = table_index
         table_name = str(table_config.get("name", f"table_{table_number}"))
         columns = configured_output_columns(table_config)
         if not columns and rows:

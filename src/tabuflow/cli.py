@@ -222,7 +222,6 @@ def add_pdf_commands(subparsers: Any) -> None:
         help="PyMuPDF-backed extraction preset.",
     )
     extract.add_argument("--name", default=None)
-    extract.add_argument("--number", type=int, default=1)
     extract.add_argument("--pages", default=None, help="Comma-separated 1-based pages, for example 1,3,5.")
     extract.add_argument("--page-start", type=int, default=None)
     extract.add_argument("--page-end", type=int, default=None)

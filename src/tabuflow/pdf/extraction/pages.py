@@ -32,7 +32,7 @@ def page_lines(
     skip_lines = set(config.get("skip_lines", []))
     skip_prefixes = list(config.get("skip_prefixes", []))
     for line in [part.strip() for part in page.get_text("text").splitlines() if part.strip()]:
-        if bool(config.get("skip_page_numbers", True)) and line == str(page_number):
+        if line == str(page_number):
             continue
         if any(line.startswith(prefix) for prefix in config.get("stop_prefixes", [])):
             break

@@ -189,9 +189,10 @@ def add_detected_table_options(
         table["min_filled_cells"] = args.min_filled_cells
     if args.require_header or table.get("require_header"):
         table["require_header"] = True
-    if args.strategy:
-        table["vertical_strategy"] = args.strategy.replace("-", "_")
-        table["horizontal_strategy"] = args.strategy.replace("-", "_")
+    strategy = args.strategy or table.get("strategy")
+    if strategy:
+        table["vertical_strategy"] = str(strategy).replace("-", "_")
+        table["horizontal_strategy"] = str(strategy).replace("-", "_")
     if args.vertical_strategy:
         table["vertical_strategy"] = args.vertical_strategy.replace("-", "_")
     if args.horizontal_strategy:
@@ -280,7 +281,6 @@ def pdf_extract_spec_from_args(
         "name": args.name or str(rules.get("name") or ("detected_tables" if preset == "detected" else "table")),
         "preset": preset,
         "mode": internal_mode,
-        "number": args.number,
     }
     if rules:
         merge_pdf_rules(table, rules)
