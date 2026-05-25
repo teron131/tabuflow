@@ -8,8 +8,8 @@ from typing import Any
 from .hints import structure_hints
 from .ingestion import (
     MAX_SAMPLE_ROWS,
+    CsvReader,
     load_rows,
-    stream_csv_window,
     tabular_dimensions,
     tabular_summary_from_counts,
 )
@@ -32,8 +32,8 @@ def inspect_tabular_file(
     safe_limit = max(1, limit)
     safe_start_col = max(1, start_col)
     if path.suffix.lower() == ".csv":
-        selected_rows, summary = stream_csv_window(
-            path,
+        csv_reader = CsvReader.from_path(path)
+        selected_rows = csv_reader.window(
             start_row=safe_start,
             limit=safe_limit,
             start_col=safe_start_col,
@@ -48,12 +48,10 @@ def inspect_tabular_file(
             row_count=None,
             column_count=None,
             format_info={
-                "format": summary["format"],
-                "encoding": summary["encoding"],
-                "delimiter": summary["delimiter"],
-                "quotechar": summary["quotechar"],
+                "format": "csv",
+                **csv_reader.metadata(),
                 "sheet_names": [],
-                "read_mode": summary["read_mode"],
+                "read_mode": "bounded_stream",
             },
         )
         header_candidate_rows = profile.get("header_candidates", [])

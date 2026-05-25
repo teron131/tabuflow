@@ -14,7 +14,8 @@ from .common import (
     PDF_ARTIFACT_VERSION,
     PDF_TABLES_DIR_NAME,
     PDF_TABLES_MANIFEST_NAME,
-    pdf_artifact_work_paths,
+    PdfArtifactWorkspace,
+    pdf_artifact_workspace,
     pdf_source_fingerprint,
 )
 from .extraction import extract_pdf_file
@@ -33,9 +34,10 @@ __all__ = [
     "PDF_ARTIFACT_VERSION",
     "PDF_TABLES_DIR_NAME",
     "PDF_TABLES_MANIFEST_NAME",
+    "PdfArtifactWorkspace",
     "extract_pdf_file",
     "inspect_pdf_file",
-    "pdf_artifact_work_paths",
+    "pdf_artifact_workspace",
     "pdf_source_fingerprint",
     "prepare_pdf_file",
 ]

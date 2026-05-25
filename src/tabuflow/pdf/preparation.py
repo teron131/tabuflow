@@ -9,20 +9,14 @@ from typing import Any
 
 import pymupdf
 
-from ..artifacts.naming import normalize_source_filename, normalize_source_stem
-from ..workspace_db import resolve_root_dir
 from .common import (
     DEFAULT_DPI,
     DEFAULT_MAX_PREPARE_PAGES,
-    DEFAULT_PDF_PREPARE_OUTPUT_DIR,
     MAX_PREPARE_DPI,
     MIN_PREPARE_DPI,
     PDF_ARTIFACT_VERSION,
-    PDF_TABLES_DIR_NAME,
-    PDF_TABLES_MANIFEST_NAME,
-    _pdf_artifact_dir,
     _relative_to_root,
-    pdf_source_fingerprint,
+    pdf_artifact_workspace,
 )
 
 
@@ -79,26 +73,9 @@ def prepare_pdf_file(
     max_pages: int | None = DEFAULT_MAX_PREPARE_PAGES,
 ) -> dict[str, Any]:
     """Create a lean PDF artifact workspace with page images, work files, and manifest."""
-    resolved_root_dir = resolve_root_dir(root_dir=root_dir)
-    pdf_path = Path(path).expanduser()
-    if not pdf_path.is_absolute():
-        pdf_path = resolved_root_dir / pdf_path
-    pdf_path = pdf_path.resolve()
-    if not pdf_path.is_file():
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
-
-    output_path = resolved_root_dir / DEFAULT_PDF_PREPARE_OUTPUT_DIR
-    source_fingerprint = pdf_source_fingerprint(pdf_path)
-    normalized_filename = normalize_source_filename(pdf_path.name)
-    normalized_stem = normalize_source_stem(pdf_path.name)
-    artifact_dir = _pdf_artifact_dir(
-        output_path=output_path,
-        source_stem=normalized_stem,
-        source_fingerprint=source_fingerprint,
-    )
-    pages_dir = artifact_dir / "pages"
-    text_dir = artifact_dir / "text"
-    work_dir = artifact_dir / "work"
+    workspace = pdf_artifact_workspace(path, root_dir=root_dir, create=False)
+    resolved_root_dir = workspace.root_dir
+    pdf_path = workspace.pdf_path
 
     with pymupdf.open(str(pdf_path)) as document:
         page_count = document.page_count
@@ -108,20 +85,15 @@ def prepare_pdf_file(
             max_pages=max_pages,
         )
 
-        for directory in (pages_dir, text_dir, work_dir):
+        for directory in (workspace.pages_dir, workspace.text_dir, workspace.work_dir, workspace.tables_dir):
             directory.mkdir(parents=True, exist_ok=True)
-        tables_dir = work_dir / PDF_TABLES_DIR_NAME
-        tables_dir.mkdir(parents=True, exist_ok=True)
-        tables_manifest_path = work_dir / PDF_TABLES_MANIFEST_NAME
-
-        source_artifact_path = artifact_dir / normalized_filename
-        if not source_artifact_path.exists():
-            source_artifact_path.write_bytes(pdf_path.read_bytes())
+        if not workspace.source_artifact_path.exists():
+            workspace.source_artifact_path.write_bytes(pdf_path.read_bytes())
 
         pages = _prepare_page_artifacts(
             document=document,
-            pages_dir=pages_dir,
-            text_dir=text_dir,
+            pages_dir=workspace.pages_dir,
+            text_dir=workspace.text_dir,
             root_dir=resolved_root_dir,
             dpi=dpi,
         )
@@ -133,36 +105,36 @@ def prepare_pdf_file(
         "created_at": datetime.now(UTC).isoformat(),
         "source_path": str(pdf_path),
         "source_filename": pdf_path.name,
-        "normalized_filename": normalized_filename,
-        "source_fingerprint": source_fingerprint,
-        "source_artifact_path": _relative_to_root(source_artifact_path, resolved_root_dir),
-        "artifact_dir": _relative_to_root(artifact_dir, resolved_root_dir),
-        "pages_dir": _relative_to_root(pages_dir, resolved_root_dir),
-        "text_dir": _relative_to_root(text_dir, resolved_root_dir),
-        "work_dir": _relative_to_root(work_dir, resolved_root_dir),
-        "tables_dir": _relative_to_root(tables_dir, resolved_root_dir),
-        "tables_manifest_path": _relative_to_root(tables_manifest_path, resolved_root_dir),
+        "normalized_filename": workspace.normalized_filename,
+        "source_fingerprint": workspace.source_fingerprint,
+        "source_artifact_path": _relative_to_root(workspace.source_artifact_path, resolved_root_dir),
+        "artifact_dir": _relative_to_root(workspace.artifact_dir, resolved_root_dir),
+        "pages_dir": _relative_to_root(workspace.pages_dir, resolved_root_dir),
+        "text_dir": _relative_to_root(workspace.text_dir, resolved_root_dir),
+        "work_dir": _relative_to_root(workspace.work_dir, resolved_root_dir),
+        "tables_dir": _relative_to_root(workspace.tables_dir, resolved_root_dir),
+        "tables_manifest_path": _relative_to_root(workspace.tables_manifest_path, resolved_root_dir),
         "dpi": dpi,
         "max_pages": max_pages,
         "page_count": page_count,
         "prepared_page_count": len(pages),
         "pages": pages,
     }
-    manifest_path = artifact_dir / "manifest.json"
+    manifest_path = workspace.artifact_dir / "manifest.json"
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     return {
         "path": str(pdf_path),
         "format": "pdf",
         "status": "prepared",
-        "artifact_dir": str(artifact_dir),
+        "artifact_dir": str(workspace.artifact_dir),
         "manifest_path": str(manifest_path),
-        "source_artifact_path": str(source_artifact_path),
-        "pages_dir": str(pages_dir),
-        "text_dir": str(text_dir),
-        "work_dir": str(work_dir),
-        "tables_dir": str(tables_dir),
-        "tables_manifest_path": str(tables_manifest_path),
+        "source_artifact_path": str(workspace.source_artifact_path),
+        "pages_dir": str(workspace.pages_dir),
+        "text_dir": str(workspace.text_dir),
+        "work_dir": str(workspace.work_dir),
+        "tables_dir": str(workspace.tables_dir),
+        "tables_manifest_path": str(workspace.tables_manifest_path),
         "dpi": dpi,
         "max_pages": max_pages,
         "page_count": page_count,

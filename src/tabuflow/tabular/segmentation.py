@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import statistics
-from typing import Any, TypedDict, cast
+from typing import Any, cast
 
 import numpy as np
 from scipy import ndimage
@@ -11,7 +12,8 @@ from scipy import ndimage
 from .ingestion import count_non_empty, is_blank, preview_rows
 
 
-class RegionBox(TypedDict):
+@dataclass(frozen=True)
+class RegionBox:
     """Represent one rectangular region in a segmented table image."""
 
     row_start: int
@@ -194,12 +196,8 @@ def _find_header_region_boxes(
         return []
 
     return sorted(
-        [
-            box
-            for box in region_boxes
-            if box["row_start"] <= header_index <= box["row_end"] and any(box["column_start"] <= column <= box["column_end"] for column in header_active_columns)
-        ],
-        key=lambda box: (box["column_start"], box["row_start"]),
+        [box for box in region_boxes if box.row_start <= header_index <= box.row_end and any(box.column_start <= column <= box.column_end for column in header_active_columns)],
+        key=lambda box: (box.column_start, box.row_start),
     )
 
 
@@ -253,12 +251,12 @@ def _extend_table(
     followers = _collect_followers(rows, header_index, limit=5)
     full_header_active_columns = _active_columns(rows[header_index])
     expected_width = max(len(rows[header_index]), *(len(follower) for follower in followers))
-    column_start = region_box["column_start"] if region_box else (min(full_header_active_columns) if full_header_active_columns else 0)
-    column_end = region_box["column_end"] if region_box else (max(full_header_active_columns) if full_header_active_columns else expected_width - 1)
+    column_start = region_box.column_start if region_box else (min(full_header_active_columns) if full_header_active_columns else 0)
+    column_end = region_box.column_end if region_box else (max(full_header_active_columns) if full_header_active_columns else expected_width - 1)
     header_active_columns = [column for column in full_header_active_columns if column_start <= column <= column_end]
     if not header_active_columns:
         return None
-    max_row_end = region_box["row_end"] if region_box else len(rows) - 1
+    max_row_end = region_box.row_end if region_box else len(rows) - 1
     anchor_column = column_start
     supported_columns = (
         _supported_columns_in_box(
@@ -344,8 +342,8 @@ def _build_table_block(
     sample_rows: int | None,
 ) -> dict[str, Any]:
     """Build a table block summary for a detected region."""
-    column_start = region_box["column_start"] if region_box else 0
-    column_end = region_box["column_end"] if region_box else max((len(row) for row in rows[start_index : end_index + 1]), default=0) - 1
+    column_start = region_box.column_start if region_box else 0
+    column_end = region_box.column_end if region_box else max((len(row) for row in rows[start_index : end_index + 1]), default=0) - 1
     header = rows[start_index][column_start : column_end + 1]
     data_rows = [row[column_start : column_end + 1] for row in rows[start_index + 1 : end_index + 1]]
 
@@ -435,8 +433,8 @@ def header_candidates(
     for box in region_boxes:
         header_index = _candidate_header_index(
             rows,
-            row_start=box["row_start"],
-            row_end=box["row_end"],
+            row_start=box.row_start,
+            row_end=box.row_end,
         )
         if header_index is None or header_index in seen_rows:
             continue
@@ -464,10 +462,10 @@ def profile_region_boxes(region_boxes: list[RegionBox]) -> list[dict[str, int]]:
     """Convert region boxes into read-only profile hints."""
     return [
         {
-            "row_start": box["row_start"] + 1,
-            "row_end": box["row_end"] + 1,
-            "column_start": box["column_start"] + 1,
-            "column_end": box["column_end"] + 1,
+            "row_start": box.row_start + 1,
+            "row_end": box.row_end + 1,
+            "column_start": box.column_start + 1,
+            "column_end": box.column_end + 1,
         }
         for box in region_boxes
     ]

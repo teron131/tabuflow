@@ -35,7 +35,6 @@ from .payloads import (
     sql_artifact_suggestion,
     sql_artifact_summary,
     tokenize_query,
-    visible_sql_artifacts,
 )
 
 MAX_DESCRIBE_SAMPLE_ROWS = 20
@@ -139,7 +138,7 @@ def list_sql_artifacts(
             database_path=database_path,
         )
         catalog = database_catalog(resolved_path)
-        artifact_listings = [sql_artifact_listing(artifact) for artifact in visible_sql_artifacts(catalog, include_internal=include_internal)]
+        artifact_listings = [sql_artifact_listing(artifact) for artifact in catalog.visible_sql_artifacts(include_internal=include_internal)]
 
         total_count = len(artifact_listings)
         if max_items is not None:
@@ -198,7 +197,7 @@ def describe_sql_artifact(
             database_path=database_path,
         )
         catalog = database_catalog(resolved_path)
-        artifact_info = cast(dict[str, Any] | None, catalog["sql_artifacts_by_name"].get(sql_artifact_name))
+        artifact_info = catalog.sql_artifacts_by_name.get(sql_artifact_name)
         if artifact_info is None:
             return error_result(
                 database_path=resolved_path,
@@ -207,15 +206,15 @@ def describe_sql_artifact(
                 sql_artifact_name=sql_artifact_name,
             )
 
-        name = cast(str, artifact_info["name"])
-        sqlite_type = cast(str, artifact_info["type"])
-        kind = cast(str, artifact_info["kind"])
-        columns = cast(list[dict[str, Any]], artifact_info["columns"])
-        column_names = [cast(str, column["name"]) for column in columns]
+        name = artifact_info.name
+        sqlite_type = artifact_info.sqlite_type
+        kind = artifact_info.kind
+        columns = artifact_info.columns
+        column_names = [str(column["name"]) for column in columns]
         column_count = len(columns)
-        row_count = cast(int | None, artifact_info["row_count"])
-        source_mappings = cast(list[dict[str, Any]], artifact_info["source_mappings"])
-        source_paths = cast(list[str], artifact_info["source_paths"])
+        row_count = artifact_info.row_count
+        source_mappings = artifact_info.source_mappings
+        source_paths = artifact_info.source_paths
         with closing(open_read_only_connection(resolved_path)) as connection:
             sample_row_items = _sample_rows(
                 connection,
@@ -247,9 +246,9 @@ def describe_sql_artifact(
                 "columns": columns,
                 "sample_rows": sample_row_items,
                 "text_value_hints": text_value_hint_map,
-                "create_sql": artifact_info["create_sql"],
-                "fingerprint": artifact_info["fingerprint"],
-                "content_schema": artifact_info["content_schema"],
+                "create_sql": artifact_info.create_sql,
+                "fingerprint": artifact_info.fingerprint,
+                "content_schema": artifact_info.content_schema,
                 "source_mappings": source_mappings,
                 "source_path_count": len(source_paths),
                 "source_path_preview": source_paths[:MAX_SOURCE_PATH_PREVIEW],
@@ -313,7 +312,7 @@ def suggest_sql_artifacts(
         )
         catalog = database_catalog(resolved_path)
         suggestions = []
-        for artifact in visible_sql_artifacts(catalog, include_internal=include_internal):
+        for artifact in catalog.visible_sql_artifacts(include_internal=include_internal):
             suggestion = sql_artifact_suggestion(artifact, tokens)
             if suggestion is not None:
                 suggestions.append(suggestion)
@@ -382,7 +381,7 @@ def artifacts_from_source(
         )
         catalog = database_catalog(resolved_path)
         source_matches = []
-        for artifact in visible_sql_artifacts(catalog, include_internal=include_internal):
+        for artifact in catalog.visible_sql_artifacts(include_internal=include_internal):
             matched_mappings = matched_source_artifact_mappings(
                 artifact,
                 requested_source=requested_source,

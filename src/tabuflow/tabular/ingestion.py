@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 import csv
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -104,27 +105,102 @@ def _csv_dialect(
     return dialect
 
 
-def _csv_stream_info(
-    path: Path,
-) -> tuple[
-    str,
-    csv.Dialect,
-    dict[str, Any],
-]:
-    """Return the encoding, dialect, and common CSV format metadata."""
-    encoding = _csv_encoding(path)
-    dialect = _csv_dialect(path, encoding=encoding)
-    return (
-        encoding,
-        dialect,
-        {
-            "format": "csv",
-            "encoding": encoding,
-            "delimiter": dialect.delimiter,
-            "quotechar": dialect.quotechar,
+@dataclass(frozen=True)
+class CsvReader:
+    """Detected CSV reader settings and bounded read helpers."""
+
+    path: Path
+    encoding: str
+    dialect: csv.Dialect
+
+    @classmethod
+    def from_path(cls, path: Path) -> CsvReader:
+        """Detect encoding and dialect for one CSV file."""
+        encoding = _csv_encoding(path)
+        return cls(
+            path=path,
+            encoding=encoding,
+            dialect=_csv_dialect(path, encoding=encoding),
+        )
+
+    def metadata(self) -> dict[str, Any]:
+        """Return common CSV metadata for public payloads."""
+        return {
+            "encoding": self.encoding,
+            "delimiter": self.dialect.delimiter,
+            "quotechar": self.dialect.quotechar,
             "sheet_names": [],
-        },
-    )
+        }
+
+    def rows(self) -> list[list[str]]:
+        """Load all CSV rows."""
+        with self.path.open("r", encoding=self.encoding, newline="") as handle:
+            return [list(row) for row in csv.reader(handle, self.dialect)]
+
+    def window(
+        self,
+        *,
+        start_row: int,
+        limit: int,
+        start_col: int,
+        end_col: int | None,
+    ) -> list[list[str]]:
+        """Read a bounded CSV grid window."""
+        selected_rows: list[list[str]] = []
+        end_row = start_row + limit - 1
+
+        with self.path.open("r", encoding=self.encoding, newline="") as handle:
+            for row_index, row in enumerate(csv.reader(handle, self.dialect), start=1):
+                if row_index < start_row:
+                    continue
+                if row_index > end_row:
+                    break
+                safe_end_col = len(row) if end_col is None else max(start_col, end_col)
+                selected_rows.append(row[start_col - 1 : safe_end_col])
+
+        return selected_rows
+
+    def profile(
+        self,
+        *,
+        max_sample_rows: int,
+    ) -> dict[str, Any]:
+        """Build a bounded profile without loading the full table layout."""
+        sample_rows: list[list[str]] = []
+        non_empty_frequencies: Counter[int] = Counter()
+        row_count = 0
+        column_count = 0
+        non_empty_row_count = 0
+        max_non_empty_cells = 0
+
+        with self.path.open("r", encoding=self.encoding, newline="") as handle:
+            for row in csv.reader(handle, self.dialect):
+                row_count += 1
+                column_count = max(column_count, len(row))
+                if len(sample_rows) < max_sample_rows:
+                    sample_rows.append(list(row))
+
+                non_empty_cells = count_non_empty(row)
+                if not non_empty_cells:
+                    continue
+                non_empty_row_count += 1
+                max_non_empty_cells = max(max_non_empty_cells, non_empty_cells)
+                non_empty_frequencies[non_empty_cells] += 1
+
+        return {
+            "format": "csv",
+            **self.metadata(),
+            "row_count": row_count,
+            "column_count": column_count,
+            "non_empty_row_count": non_empty_row_count,
+            "blank_row_count": row_count - non_empty_row_count,
+            "max_non_empty_cells_in_row": max_non_empty_cells,
+            "median_non_empty_cells_per_non_blank_row": _median_from_frequencies(non_empty_frequencies, non_empty_row_count),
+            "sample_rows": sample_rows,
+            "header_candidates": [],
+            "regions": [],
+            "profile_mode": "streaming",
+        }
 
 
 def _median_from_frequencies(
@@ -150,91 +226,6 @@ def _median_from_frequencies(
             break
 
     return float(((low_value or 0) + high_value) / 2)
-
-
-def stream_csv_window(
-    path: Path,
-    *,
-    start_row: int,
-    limit: int,
-    start_col: int,
-    end_col: int | None,
-) -> tuple[list[list[str]], dict[str, Any]]:
-    """Stream a CSV once to collect a bounded grid window and file summary."""
-    encoding, dialect, format_info = _csv_stream_info(path)
-    selected_rows: list[list[str]] = []
-    end_row = start_row + limit - 1
-
-    with path.open("r", encoding=encoding, newline="") as handle:
-        for row_index, row in enumerate(csv.reader(handle, dialect), start=1):
-            if row_index < start_row:
-                continue
-            if row_index > end_row:
-                break
-            safe_end_col = len(row) if end_col is None else max(start_col, end_col)
-            selected_rows.append(row[start_col - 1 : safe_end_col])
-
-    return selected_rows, {
-        **format_info,
-        "read_mode": "bounded_stream",
-    }
-
-
-def stream_csv_profile(
-    path: Path,
-    *,
-    max_sample_rows: int,
-) -> dict[str, Any]:
-    """Build a bounded CSV profile without materializing the full file."""
-    encoding, dialect, format_info = _csv_stream_info(path)
-    sample_rows: list[list[str]] = []
-    non_empty_frequencies: Counter[int] = Counter()
-    row_count = 0
-    column_count = 0
-    non_empty_row_count = 0
-    max_non_empty_cells = 0
-
-    with path.open("r", encoding=encoding, newline="") as handle:
-        for row in csv.reader(handle, dialect):
-            row_count += 1
-            column_count = max(column_count, len(row))
-            if len(sample_rows) < max_sample_rows:
-                sample_rows.append(list(row))
-
-            non_empty_cells = count_non_empty(row)
-            if not non_empty_cells:
-                continue
-            non_empty_row_count += 1
-            max_non_empty_cells = max(max_non_empty_cells, non_empty_cells)
-            non_empty_frequencies[non_empty_cells] += 1
-
-    return {
-        **format_info,
-        "row_count": row_count,
-        "column_count": column_count,
-        "non_empty_row_count": non_empty_row_count,
-        "blank_row_count": row_count - non_empty_row_count,
-        "max_non_empty_cells_in_row": max_non_empty_cells,
-        "median_non_empty_cells_per_non_blank_row": _median_from_frequencies(non_empty_frequencies, non_empty_row_count),
-        "sample_rows": sample_rows,
-        "header_candidates": [],
-        "regions": [],
-        "sheet_names": [],
-        "profile_mode": "streaming",
-    }
-
-
-def _load_csv_rows(
-    path: Path,
-) -> tuple[
-    list[list[str]],
-    dict[str, Any],
-]:
-    """Load CSV rows and detected dialect metadata."""
-    encoding, dialect, format_info = _csv_stream_info(path)
-    with path.open("r", encoding=encoding, newline="") as handle:
-        rows = [list(row) for row in csv.reader(handle, dialect)]
-    return rows, {key: value for key, value in format_info.items() if key != "format"}
 
 
 def _load_xlsx_rows(
@@ -352,8 +343,8 @@ def load_rows(
     """Load tabular rows from a supported file type."""
     suffix = path.suffix.lower()
     if suffix == ".csv":
-        rows, format_info = _load_csv_rows(path)
-        return rows, {"format": "csv", **format_info}
+        csv_reader = CsvReader.from_path(path)
+        return csv_reader.rows(), {"format": "csv", **csv_reader.metadata()}
     if suffix == ".xlsx":
         rows, format_info = _load_xlsx_rows(path, sheet=sheet)
         return rows, {"format": "xlsx", **format_info}

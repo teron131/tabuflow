@@ -13,7 +13,7 @@ from typing import Any
 import pymupdf
 
 from ...artifacts.naming import normalize_source_stem
-from ..common import pdf_artifact_work_paths
+from ..common import pdf_artifact_workspace
 from .coordinate_tables import coordinate_rows
 from .detected_tables import pymupdf_table_outputs
 from .pages import page_numbers
@@ -343,9 +343,9 @@ def extract_pdf_file(
     if "output_dir" in extraction:
         raise ValueError("PDF extraction options cannot set output_dir. Outputs are written to the root-owned PDF artifact workspace.")
 
-    artifact_paths = pdf_artifact_work_paths(path, root_dir=root_dir)
-    pdf_path = artifact_paths["pdf_path"]
-    output_dir = artifact_paths["tables_dir"]
+    workspace = pdf_artifact_workspace(path, root_dir=root_dir)
+    pdf_path = workspace.pdf_path
+    output_dir = workspace.tables_dir
     pdf_stem = normalize_source_stem(pdf_path.name)
     for stale_output in output_dir.glob(f"{pdf_stem}_*.csv"):
         stale_output.unlink()
@@ -358,13 +358,13 @@ def extract_pdf_file(
         pdf_stem=pdf_stem,
     )
 
-    manifest_path = artifact_paths["tables_manifest_path"]
+    manifest_path = workspace.tables_manifest_path
     manifest = {
         "status": "ok",
         "path": str(pdf_path),
         "extraction": extraction,
-        "artifact_dir": str(artifact_paths["artifact_dir"]),
-        "work_dir": str(artifact_paths["work_dir"]),
+        "artifact_dir": str(workspace.artifact_dir),
+        "work_dir": str(workspace.work_dir),
         "output_dir": str(output_dir),
         "tables": manifest_tables,
         "diagnostics": {"warnings": []} if manifest_tables else empty_extraction_diagnostics(pdf_path),

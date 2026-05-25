@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import dataclass
 import hashlib
 from itertools import islice
 import json
@@ -56,6 +57,42 @@ SQLITE_CONTENTS_COLUMNS = (
     "column_schema_json",
 )
 SQLITE_CONTENTS_COLUMN_SET = frozenset(SQLITE_CONTENTS_COLUMNS)
+
+
+@dataclass(frozen=True)
+class TabularSource:
+    """Source-file metadata shared by all extracted tables in one load."""
+
+    path: str
+    source_format: str
+    sheet_name: str
+
+    @classmethod
+    def from_recovered(cls, recovered: dict[str, Any]) -> TabularSource:
+        """Build source metadata from a recovered extraction payload."""
+        return cls(
+            path=_required_metadata_text(recovered.get("path"), "path"),
+            source_format=_required_metadata_text(recovered.get("format"), "format"),
+            sheet_name=str(recovered.get("sheet_name") or ""),
+        )
+
+
+@dataclass(frozen=True)
+class TypedSqliteView:
+    """Metadata for the typed view generated from a raw content table."""
+
+    name: str
+    columns: dict[str, str]
+
+
+@dataclass(frozen=True)
+class StoredContentTable:
+    """Storage metadata for a raw SQLite content table."""
+
+    fingerprint: str
+    table_name: str
+    db_columns: list[str]
+    load_status: str
 
 
 def _update_hash_rows(
@@ -249,7 +286,7 @@ def _create_typed_sqlite_view(
     table_name: str,
     db_columns: list[str],
     rows: list[list[str]],
-) -> tuple[str, dict[str, str]]:
+) -> TypedSqliteView:
     """Create or replace a typed view alongside a raw extracted table."""
     typed_view_name = f"{table_name}_typed"
     inferred_types = {column_name: _infer_column_type(row[column_index] if column_index < len(row) else "" for row in rows) for column_index, column_name in enumerate(db_columns)}
@@ -262,7 +299,7 @@ def _create_typed_sqlite_view(
         FROM {quote_identifier(table_name)}
         """
     )
-    return typed_view_name, inferred_types
+    return TypedSqliteView(name=typed_view_name, columns=inferred_types)
 
 
 def _available_content_table_name(
@@ -311,9 +348,8 @@ def _load_or_reuse_content_table(
     *,
     columns: list[str],
     rows: list[list[str]],
-    source_path: str,
-    source_format: str,
-) -> tuple[str, str, list[str], str]:
+    source: TabularSource,
+) -> StoredContentTable:
     """Ensure a raw content table exists and return its storage metadata."""
     table_fingerprint = fingerprint(columns, rows)
     db_columns = _db_column_names(columns)
@@ -322,10 +358,15 @@ def _load_or_reuse_content_table(
         [table_fingerprint],
     ).fetchone()
     if existing is not None:
-        return table_fingerprint, cast(str, existing[0]), db_columns, "reused"
+        return StoredContentTable(
+            fingerprint=table_fingerprint,
+            table_name=cast(str, existing[0]),
+            db_columns=db_columns,
+            load_status="reused",
+        )
 
     table_name = _available_content_table_name(
-        source_path=source_path,
+        source_path=source.path,
         connection=connection,
     )
     _create_sqlite_table(
@@ -343,7 +384,7 @@ def _load_or_reuse_content_table(
         [
             table_fingerprint,
             table_name,
-            source_format,
+            source.source_format,
             len(rows),
             json.dumps(
                 {
@@ -354,7 +395,12 @@ def _load_or_reuse_content_table(
             ),
         ],
     )
-    return table_fingerprint, table_name, db_columns, "loaded"
+    return StoredContentTable(
+        fingerprint=table_fingerprint,
+        table_name=table_name,
+        db_columns=db_columns,
+        load_status="loaded",
+    )
 
 
 def _required_metadata_text(value: Any, field_name: str) -> str:
@@ -373,9 +419,7 @@ def load_tables_into_sqlite(
     """Load recovered tables into a shared SQLite database."""
     database_path = sqlite_database_path(root_dir=root_dir)
     loaded_tables: list[dict[str, Any]] = []
-    source_path = _required_metadata_text(recovered.get("path"), "path")
-    source_format = _required_metadata_text(recovered.get("format"), "format")
-    source_sheet_name = recovered.get("sheet_name") or ""
+    source = TabularSource.from_recovered(recovered)
 
     with sqlite_write_lock(database_path):
         connection = sqlite3.connect(str(database_path))
@@ -388,17 +432,16 @@ def load_tables_into_sqlite(
                 source_table_name = _required_metadata_text(table.get("name"), "tables[].name")
                 columns = list(table["columns"])
                 rows = list(table["rows"])
-                table_fingerprint, table_name, db_columns, load_status = _load_or_reuse_content_table(
+                stored_table = _load_or_reuse_content_table(
                     connection,
                     columns=columns,
                     rows=rows,
-                    source_path=source_path,
-                    source_format=source_format,
+                    source=source,
                 )
-                typed_view_name, typed_columns = _create_typed_sqlite_view(
+                typed_view = _create_typed_sqlite_view(
                     connection,
-                    table_name=table_name,
-                    db_columns=db_columns,
+                    table_name=stored_table.table_name,
+                    db_columns=stored_table.db_columns,
                     rows=rows,
                 )
                 connection.execute(
@@ -408,35 +451,35 @@ def load_tables_into_sqlite(
                     VALUES (?, ?, ?, ?, ?)
                     """,
                     [
-                        source_path,
-                        source_format,
-                        source_sheet_name,
+                        source.path,
+                        source.source_format,
+                        source.sheet_name,
                         source_table_name,
-                        table_fingerprint,
+                        stored_table.fingerprint,
                     ],
                 )
                 register_source_table_relationships(
                     connection,
-                    source_path=source_path,
-                    source_format=source_format,
-                    source_sheet_name=source_sheet_name,
+                    source_path=source.path,
+                    source_format=source.source_format,
+                    source_sheet_name=source.sheet_name,
                     source_table_name=source_table_name,
-                    fingerprint=table_fingerprint,
-                    table_name=table_name,
-                    typed_view_name=typed_view_name,
+                    fingerprint=stored_table.fingerprint,
+                    table_name=stored_table.table_name,
+                    typed_view_name=typed_view.name,
                 )
 
                 loaded_tables.append(
                     {
                         "source_name": source_table_name,
-                        "fingerprint": table_fingerprint,
-                        "table_name": table_name,
-                        "typed_view_name": typed_view_name,
+                        "fingerprint": stored_table.fingerprint,
+                        "table_name": stored_table.table_name,
+                        "typed_view_name": typed_view.name,
                         "row_count": len(rows),
                         "columns": columns,
-                        "db_columns": db_columns,
-                        "typed_columns": typed_columns,
-                        "load_status": load_status,
+                        "db_columns": stored_table.db_columns,
+                        "typed_columns": typed_view.columns,
+                        "load_status": stored_table.load_status,
                     }
                 )
             connection.commit()

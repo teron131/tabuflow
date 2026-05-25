@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
 import json
@@ -21,6 +22,23 @@ MAX_PREPARE_DPI = 300
 PDF_ARTIFACT_VERSION = 1
 PDF_TABLES_DIR_NAME = "tables"
 PDF_TABLES_MANIFEST_NAME = "tables_manifest.json"
+
+
+@dataclass(frozen=True)
+class PdfArtifactWorkspace:
+    """Root-owned PDF artifact paths and identity for one source PDF."""
+
+    root_dir: Path
+    pdf_path: Path
+    source_fingerprint: str
+    normalized_filename: str
+    artifact_dir: Path
+    pages_dir: Path
+    text_dir: Path
+    work_dir: Path
+    tables_dir: Path
+    tables_manifest_path: Path
+    source_artifact_path: Path
 
 
 def pdf_source_fingerprint(path: Path) -> str:
@@ -65,12 +83,13 @@ def _pdf_artifact_dir(
         index += 1
 
 
-def pdf_artifact_work_paths(
+def pdf_artifact_workspace(
     path: str | Path,
     *,
     root_dir: str | Path | None = None,
-) -> dict[str, Path]:
-    """Return root-owned PDF artifact work paths for a source PDF."""
+    create: bool = True,
+) -> PdfArtifactWorkspace:
+    """Return root-owned PDF artifact workspace paths for a source PDF."""
     resolved_root_dir = resolve_root_dir(root_dir=root_dir)
     pdf_path = Path(path).expanduser()
     if not pdf_path.is_absolute():
@@ -81,6 +100,7 @@ def pdf_artifact_work_paths(
 
     output_path = resolved_root_dir / DEFAULT_PDF_PREPARE_OUTPUT_DIR
     source_fingerprint = pdf_source_fingerprint(pdf_path)
+    normalized_filename = normalize_source_filename(pdf_path.name)
     source_stem = normalize_source_stem(pdf_path.name)
     artifact_dir = output_path / source_stem
     if not artifact_dir.exists() or _manifest_source_fingerprint(artifact_dir) not in {None, source_fingerprint}:
@@ -91,29 +111,40 @@ def pdf_artifact_work_paths(
         )
     work_dir = artifact_dir / "work"
     tables_dir = work_dir / PDF_TABLES_DIR_NAME
-    tables_dir.mkdir(parents=True, exist_ok=True)
-    manifest_path = artifact_dir / "manifest.json"
-    if not manifest_path.exists():
-        manifest = {
-            "version": PDF_ARTIFACT_VERSION,
-            "kind": "pdf_work",
-            "status": "prepared",
-            "created_at": datetime.now(UTC).isoformat(),
-            "source_path": str(pdf_path),
-            "source_filename": pdf_path.name,
-            "normalized_filename": normalize_source_filename(pdf_path.name),
-            "source_fingerprint": source_fingerprint,
-            "artifact_dir": _relative_to_root(artifact_dir, resolved_root_dir),
-            "work_dir": _relative_to_root(work_dir, resolved_root_dir),
-            "tables_dir": _relative_to_root(tables_dir, resolved_root_dir),
-            "tables_manifest_path": _relative_to_root(work_dir / PDF_TABLES_MANIFEST_NAME, resolved_root_dir),
-        }
-        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    return {
-        "root_dir": resolved_root_dir,
-        "pdf_path": pdf_path,
-        "artifact_dir": artifact_dir,
-        "work_dir": work_dir,
-        "tables_dir": tables_dir,
-        "tables_manifest_path": work_dir / PDF_TABLES_MANIFEST_NAME,
-    }
+    tables_manifest_path = work_dir / PDF_TABLES_MANIFEST_NAME
+    workspace = PdfArtifactWorkspace(
+        root_dir=resolved_root_dir,
+        pdf_path=pdf_path,
+        source_fingerprint=source_fingerprint,
+        normalized_filename=normalized_filename,
+        artifact_dir=artifact_dir,
+        pages_dir=artifact_dir / "pages",
+        text_dir=artifact_dir / "text",
+        work_dir=work_dir,
+        tables_dir=tables_dir,
+        tables_manifest_path=tables_manifest_path,
+        source_artifact_path=artifact_dir / normalized_filename,
+    )
+    if create:
+        workspace.tables_dir.mkdir(parents=True, exist_ok=True)
+        manifest_path = artifact_dir / "manifest.json"
+        if not manifest_path.exists():
+            manifest = {
+                "version": PDF_ARTIFACT_VERSION,
+                "kind": "pdf_work",
+                "status": "prepared",
+                "created_at": datetime.now(UTC).isoformat(),
+                "source_path": str(pdf_path),
+                "source_filename": pdf_path.name,
+                "normalized_filename": normalized_filename,
+                "source_fingerprint": source_fingerprint,
+                "artifact_dir": _relative_to_root(artifact_dir, resolved_root_dir),
+                "work_dir": _relative_to_root(work_dir, resolved_root_dir),
+                "tables_dir": _relative_to_root(tables_dir, resolved_root_dir),
+                "tables_manifest_path": _relative_to_root(tables_manifest_path, resolved_root_dir),
+            }
+            manifest_path.write_text(
+                json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+    return workspace

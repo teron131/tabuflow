@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Any, cast
+from typing import Any
 
 from ...workspace_db import quote_identifier
-from .metadata import path_match_reason, source_paths_from_mappings
+from .metadata import SqlArtifactInfo, path_match_reason, source_paths_from_mappings
 
 MAX_SOURCE_PATH_PREVIEW = 3
 MAX_COLUMN_PREVIEW = 8
@@ -144,32 +144,20 @@ def compact_sql_artifact_listing(artifact_listing: dict[str, Any]) -> dict[str, 
     }
 
 
-def visible_sql_artifacts(
-    catalog: dict[str, Any],
-    *,
-    include_internal: bool,
-) -> list[dict[str, Any]]:
-    """Return artifacts visible for a public list, source, or suggestion call."""
-    artifacts = cast(list[dict[str, Any]], catalog["sql_artifacts"])
-    if include_internal:
-        return artifacts
-    return [artifact for artifact in artifacts if artifact["kind"] != "internal_catalog"]
-
-
-def sql_artifact_listing(artifact: dict[str, Any]) -> dict[str, Any]:
+def sql_artifact_listing(artifact: SqlArtifactInfo) -> dict[str, Any]:
     """Return the full artifact listing shape."""
-    kind = cast(str, artifact["kind"])
-    source_paths = cast(list[str], artifact["source_paths"])
-    source_mappings = cast(list[dict[str, Any]], artifact["source_mappings"])
+    kind = artifact.kind
+    source_paths = artifact.source_paths
+    source_mappings = artifact.source_mappings
     source_path_preview, source_paths_truncated = preview_items(source_paths, max_items=MAX_SOURCE_PATH_PREVIEW)
-    columns = cast(list[dict[str, Any]], artifact["columns"])
-    column_names = [cast(str, column["name"]) for column in columns]
+    columns = artifact.columns
+    column_names = [str(column["name"]) for column in columns]
     column_preview, columns_truncated = preview_items(columns, max_items=MAX_COLUMN_PREVIEW)
-    row_count = cast(int | None, artifact["row_count"])
+    row_count = artifact.row_count
     column_count = len(column_names)
     return {
-        "name": artifact["name"],
-        "type": artifact["type"],
+        "name": artifact.name,
+        "type": artifact.sqlite_type,
         "kind": kind,
         "row_count": row_count,
         "column_count": column_count,
@@ -181,8 +169,8 @@ def sql_artifact_listing(artifact: dict[str, Any]) -> dict[str, Any]:
         "source_path_preview": source_path_preview,
         "source_paths_truncated": source_paths_truncated,
         "summary": sql_artifact_summary(
-            name=cast(str, artifact["name"]),
-            sqlite_type=cast(str, artifact["type"]),
+            name=artifact.name,
+            sqlite_type=artifact.sqlite_type,
             kind=kind,
             row_count=row_count,
             column_names=column_names,
@@ -192,23 +180,23 @@ def sql_artifact_listing(artifact: dict[str, Any]) -> dict[str, Any]:
 
 
 def sql_artifact_suggestion(
-    artifact: dict[str, Any],
+    artifact: SqlArtifactInfo,
     tokens: list[str],
 ) -> dict[str, Any] | None:
     """Return one suggestion payload when an artifact matches a token query."""
-    name = cast(str, artifact["name"])
-    sqlite_type = cast(str, artifact["type"])
-    kind = cast(str, artifact["kind"])
-    columns = cast(list[dict[str, Any]], artifact["columns"])
-    column_names = [cast(str, column["name"]) for column in columns]
-    source_paths = cast(list[str], artifact["source_paths"])
+    name = artifact.name
+    sqlite_type = artifact.sqlite_type
+    kind = artifact.kind
+    columns = artifact.columns
+    column_names = [str(column["name"]) for column in columns]
+    source_paths = artifact.source_paths
     search_text = sql_artifact_search_text(
         name=name,
         sqlite_type=sqlite_type,
         kind=kind,
         column_names=column_names,
         source_paths=source_paths,
-        create_sql=cast(str | None, artifact["create_sql"]),
+        create_sql=artifact.create_sql,
     )
     score, reasons = sql_artifact_score(
         tokens=tokens,
@@ -235,12 +223,12 @@ def sql_artifact_suggestion(
         "source_path_count": len(source_paths),
         "source_path_preview": source_path_preview,
         "source_paths_truncated": source_paths_truncated,
-        "row_count": artifact["row_count"],
+        "row_count": artifact.row_count,
         "summary": sql_artifact_summary(
             name=name,
             sqlite_type=sqlite_type,
             kind=kind,
-            row_count=cast(int | None, artifact["row_count"]),
+            row_count=artifact.row_count,
             column_names=column_names,
             source_paths=source_paths,
             reasons=reasons,
@@ -249,14 +237,14 @@ def sql_artifact_suggestion(
 
 
 def matched_source_artifact_mappings(
-    artifact: dict[str, Any],
+    artifact: SqlArtifactInfo,
     *,
     requested_source: str,
     requested_source_format: str,
 ) -> list[dict[str, Any]]:
     """Return source mappings that match the requested source path and optional format."""
     matched_mappings = []
-    for mapping in cast(list[dict[str, Any]], artifact["source_mappings"]):
+    for mapping in artifact.source_mappings:
         if requested_source_format and str(mapping.get("source_format") or "") != requested_source_format:
             continue
         stored_source_path = str(mapping.get("source_path") or "")
@@ -267,19 +255,19 @@ def matched_source_artifact_mappings(
 
 
 def source_match_sql_artifact(
-    artifact: dict[str, Any],
+    artifact: SqlArtifactInfo,
     matched_mappings: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Return one source-match artifact payload."""
-    artifact_name = cast(str, artifact["name"])
-    kind = cast(str, artifact["kind"])
-    columns = cast(list[dict[str, Any]], artifact["columns"])
-    column_names = [cast(str, column["name"]) for column in columns]
+    artifact_name = artifact.name
+    kind = artifact.kind
+    columns = artifact.columns
+    column_names = [str(column["name"]) for column in columns]
     column_preview, columns_truncated = preview_items(column_names, max_items=MAX_COLUMN_PREVIEW)
-    row_count = cast(int | None, artifact["row_count"])
+    row_count = artifact.row_count
     return {
         "name": artifact_name,
-        "type": artifact["type"],
+        "type": artifact.sqlite_type,
         "kind": kind,
         "row_count": row_count,
         "column_count": len(column_names),
@@ -293,7 +281,7 @@ def source_match_sql_artifact(
         "source_mappings": matched_mappings,
         "summary": sql_artifact_summary(
             name=artifact_name,
-            sqlite_type=cast(str, artifact["type"]),
+            sqlite_type=artifact.sqlite_type,
             kind=kind,
             row_count=row_count,
             column_names=column_names,
