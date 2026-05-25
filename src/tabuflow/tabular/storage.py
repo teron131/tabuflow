@@ -178,14 +178,6 @@ def _ensure_sqlite_sources_table_schema(connection: sqlite3.Connection) -> None:
     raise ValueError(f"`{SQLITE_SOURCES_TABLE}` must use the fingerprint-only schema.")
 
 
-def _ensure_sqlite_catalog(connection: sqlite3.Connection) -> None:
-    """Create the shared SQLite catalog tables when missing."""
-    _ensure_sqlite_contents_table_schema(connection)
-    _ensure_sqlite_sources_table_schema(connection)
-
-    ensure_artifact_relationship_tables(connection)
-
-
 def _clean_numeric_text(value: str) -> str:
     """Normalize a numeric-looking string for safe SQL casting."""
     return value.strip().replace(",", "")
@@ -388,7 +380,9 @@ def load_tables_into_sqlite(
     with sqlite_write_lock(database_path):
         connection = sqlite3.connect(str(database_path))
         try:
-            _ensure_sqlite_catalog(connection)
+            _ensure_sqlite_contents_table_schema(connection)
+            _ensure_sqlite_sources_table_schema(connection)
+            ensure_artifact_relationship_tables(connection)
 
             for table in recovered["tables"]:
                 source_table_name = _required_metadata_text(table.get("name"), "tables[].name")

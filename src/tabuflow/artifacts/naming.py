@@ -65,7 +65,8 @@ def normalize_source_filename(filename: str | Path) -> str:
     source_name = Path(filename).name
     source_path = Path(source_name)
     suffix = "".join(SLUG_PATTERN.findall(source_path.suffix.lower().lstrip(".")))
-    stem = _normalize_source_stem(source_path.stem)
+    stem = SOURCE_NAME_UNSAFE_PATTERN.sub("_", source_path.stem.lower())
+    stem = SOURCE_NAME_SEPARATOR_PATTERN.sub("_", stem).strip("_") or "source"
     return f"{stem}.{suffix}" if suffix else stem
 
 
@@ -107,18 +108,12 @@ def name_sql_artifact(
 ) -> str:
     """Return a SQL artifact stem with two semantic words and six id chars."""
     slug_tokens = _slug_words(SLUG_PATTERN.findall(description.lower()))
-    suffix = _artifact_suffix(identifier)
-    return "-".join([*slug_tokens, suffix])
-
-
-def _artifact_suffix(identifier: str | None) -> str:
-    """Return a stable suffix from an id, or a random fallback when no id exists."""
     suffix = secrets.token_hex(ARTIFACT_SUFFIX_CHARS)[:ARTIFACT_SUFFIX_CHARS]
     if identifier and identifier != "default":
         stable_suffix = "".join(SLUG_PATTERN.findall(identifier.lower()))[:ARTIFACT_SUFFIX_CHARS]
         if stable_suffix:
             suffix = stable_suffix.ljust(ARTIFACT_SUFFIX_CHARS, "0")
-    return suffix
+    return "-".join([*slug_tokens, suffix])
 
 
 def _slug_words(words: list[str]) -> list[str]:
@@ -131,10 +126,3 @@ def _slug_words(words: list[str]) -> list[str]:
         if fallback_word not in slug_tokens:
             slug_tokens.append(fallback_word)
     return slug_tokens
-
-
-def _normalize_source_stem(stem: str) -> str:
-    """Normalize one source filename stem while preserving useful copy suffixes."""
-    normalized = SOURCE_NAME_UNSAFE_PATTERN.sub("_", stem.lower())
-    normalized = SOURCE_NAME_SEPARATOR_PATTERN.sub("_", normalized).strip("_")
-    return normalized or "source"

@@ -38,7 +38,8 @@ def records_from_detected_table(
         column_indexes = []
     if column_indexes:
         columns = column_names_from_header([header[index] for index in column_indexes])
-        data_rows = rows[1:] if row_matches_header(rows[0], header, column_indexes) else rows
+        first_row_repeats_header = all(index < len(rows[0]) and index < len(header) and rows[0][index] == header[index] for index in column_indexes)
+        data_rows = rows[1:] if first_row_repeats_header else rows
         records = [record_from_header_indexes(row, columns, column_indexes) for row in data_rows]
         return columns, merge_continuation_records(records, columns)
 
@@ -105,15 +106,6 @@ def row_matches_forced_columns(row: list[str], columns: list[str]) -> bool:
 def header_token(value: str) -> str:
     """Return a comparable token for detected and requested headers."""
     return re.sub(r"[^a-z0-9]+", "", value.lower())
-
-
-def row_matches_header(
-    row: list[str],
-    header: list[str],
-    column_indexes: list[int],
-) -> bool:
-    """Return whether the first extracted row repeats the PyMuPDF header."""
-    return all(index < len(row) and index < len(header) and row[index] == header[index] for index in column_indexes)
 
 
 def record_from_header_indexes(

@@ -297,41 +297,25 @@ def _extend_table(
     return end_index
 
 
-def _build_metadata_block(
-    rows: list[list[str]],
-    start_index: int,
-    end_index: int,
-    *,
-    sample_rows: int | None,
-) -> dict[str, Any]:
-    """Build a metadata block summary for a row range."""
-    block_rows = rows[start_index : end_index + 1]
-    return {
-        "row_start": start_index + 1,
-        "row_end": end_index + 1,
-        "row_count": len(block_rows),
-        "rows": preview_rows(block_rows, sample_rows),
-    }
-
-
 def _flush_metadata_block(
     metadata: list[dict[str, Any]],
     rows: list[list[str]],
-    metadata_start: int | None,
+    start_index: int | None,
     end_index: int,
     *,
     sample_rows: int | None,
 ) -> None:
     """Append the current metadata block when a range is open."""
-    if metadata_start is None or end_index < metadata_start:
+    if start_index is None or end_index < start_index:
         return
+    block_rows = rows[start_index : end_index + 1]
     metadata.append(
-        _build_metadata_block(
-            rows,
-            metadata_start,
-            end_index,
-            sample_rows=sample_rows,
-        )
+        {
+            "row_start": start_index + 1,
+            "row_end": end_index + 1,
+            "row_count": len(block_rows),
+            "rows": preview_rows(block_rows, sample_rows),
+        }
     )
 
 

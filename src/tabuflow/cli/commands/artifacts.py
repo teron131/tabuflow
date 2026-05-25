@@ -24,13 +24,8 @@ from ..paths import (
 )
 
 
-def add_artifact_commands(subparsers: Any) -> None:
-    """Add SQLite-backed artifact commands."""
-    artifacts = subparsers.add_parser("artifacts", help="Inspect and query prepared artifacts.")
-    add_root_argument(artifacts)
-    artifacts.add_argument("--database-path", default=None, help="SQLite artifact database path. Relative paths resolve under --root-dir when provided.")
-    artifact_subparsers = artifacts.add_subparsers(dest="artifact_command", required=True)
-
+def add_artifacts_query_command(artifact_subparsers: Any) -> None:
+    """Add the read-only SQL artifact query command."""
     query = artifact_subparsers.add_parser("query", help="Query prepared artifacts with read-only SQL. Prefix SQL with @ to read from a file.")
     query.add_argument("sql")
     query.add_argument("--max-rows", type=int, default=200)
@@ -43,6 +38,9 @@ def add_artifact_commands(subparsers: Any) -> None:
         )
     )
 
+
+def add_artifacts_save_view_command(artifact_subparsers: Any) -> None:
+    """Add the SQL saved-view command."""
     save = artifact_subparsers.add_parser("save-view", help="Save an artifact query as a named SQLite view.")
     save.add_argument("view_name")
     save.add_argument("sql")
@@ -58,6 +56,9 @@ def add_artifact_commands(subparsers: Any) -> None:
         )
     )
 
+
+def add_artifacts_list_command(artifact_subparsers: Any) -> None:
+    """Add the SQL artifact listing command."""
     list_command = artifact_subparsers.add_parser("list", help="List queryable prepared artifacts.")
     list_command.add_argument("--include-internal", action="store_true")
     list_command.add_argument("--max-items", type=int, default=DEFAULT_CLI_ARTIFACT_LIST_LIMIT)
@@ -73,6 +74,9 @@ def add_artifact_commands(subparsers: Any) -> None:
         )
     )
 
+
+def add_artifacts_from_source_command(artifact_subparsers: Any) -> None:
+    """Add the source-to-artifacts lookup command."""
     from_source = artifact_subparsers.add_parser("from-source", help="List artifacts created from one source file.")
     from_source.add_argument("path")
     from_source.add_argument("--source-format", default=None)
@@ -87,6 +91,9 @@ def add_artifact_commands(subparsers: Any) -> None:
         )
     )
 
+
+def add_artifacts_suggest_command(artifact_subparsers: Any) -> None:
+    """Add the natural-language artifact suggestion command."""
     suggest = artifact_subparsers.add_parser("suggest", help="Suggest queryable artifacts for a natural-language question.")
     suggest.add_argument("question")
     suggest.add_argument("--max-results", type=int, default=5)
@@ -101,6 +108,9 @@ def add_artifact_commands(subparsers: Any) -> None:
         )
     )
 
+
+def add_artifacts_describe_command(artifact_subparsers: Any) -> None:
+    """Add the SQL artifact description command."""
     describe = artifact_subparsers.add_parser("describe", help="Describe one queryable artifact.")
     describe.add_argument("name")
     describe.add_argument("--sample-rows", type=int, default=10)
@@ -114,3 +124,18 @@ def add_artifact_commands(subparsers: Any) -> None:
             text_value_hints=args.text_value_hints,
         )
     )
+
+
+def add_artifact_commands(subparsers: Any) -> None:
+    """Add SQLite-backed artifact commands."""
+    artifacts = subparsers.add_parser("artifacts", help="Inspect and query prepared artifacts.")
+    add_root_argument(artifacts)
+    artifacts.add_argument("--database-path", default=None, help="SQLite artifact database path. Relative paths resolve under --root-dir when provided.")
+    artifact_subparsers = artifacts.add_subparsers(dest="artifact_command", required=True)
+
+    add_artifacts_query_command(artifact_subparsers)
+    add_artifacts_save_view_command(artifact_subparsers)
+    add_artifacts_list_command(artifact_subparsers)
+    add_artifacts_from_source_command(artifact_subparsers)
+    add_artifacts_suggest_command(artifact_subparsers)
+    add_artifacts_describe_command(artifact_subparsers)

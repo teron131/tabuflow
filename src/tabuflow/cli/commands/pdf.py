@@ -22,12 +22,8 @@ from ..pdf_spec import (
 )
 
 
-def add_pdf_commands(subparsers: Any) -> None:
-    """Add PDF inspection, preparation, and extraction-boundary commands."""
-    pdf = subparsers.add_parser("pdf", help="Inspect or extract PDF files.")
-    add_root_argument(pdf)
-    pdf_subparsers = pdf.add_subparsers(dest="pdf_command", required=True)
-
+def add_pdf_inspect_command(pdf_subparsers: Any) -> None:
+    """Add the PDF text and image inspection command."""
     inspect = pdf_subparsers.add_parser("inspect", help="Inspect PDF text and optional page images.")
     inspect.add_argument("path")
     inspect.add_argument("--page-start", type=int, default=1)
@@ -46,6 +42,9 @@ def add_pdf_commands(subparsers: Any) -> None:
         )
     )
 
+
+def add_pdf_prepare_command(pdf_subparsers: Any) -> None:
+    """Add the PDF artifact workspace preparation command."""
     prepare = pdf_subparsers.add_parser("prepare", help="Render a PDF into a resumable artifact workspace.")
     prepare.add_argument("path")
     prepare.add_argument("--dpi", type=int, default=DEFAULT_DPI)
@@ -59,6 +58,9 @@ def add_pdf_commands(subparsers: Any) -> None:
         )
     )
 
+
+def add_pdf_extract_command(pdf_subparsers: Any) -> None:
+    """Add the PDF table extraction command."""
     extract = pdf_subparsers.add_parser("extract", help="Extract PDF artifacts with narrow PyMuPDF-backed presets.")
     extract.add_argument("path")
     extract.add_argument("target", nargs="?", choices=["tables"], metavar="tables", help="Artifact kind to extract.")
@@ -129,3 +131,14 @@ def add_pdf_commands(subparsers: Any) -> None:
             root_dir=resolve_cli_root(args),
         )
     )
+
+
+def add_pdf_commands(subparsers: Any) -> None:
+    """Add PDF inspection, preparation, and extraction-boundary commands."""
+    pdf = subparsers.add_parser("pdf", help="Inspect or extract PDF files.")
+    add_root_argument(pdf)
+    pdf_subparsers = pdf.add_subparsers(dest="pdf_command", required=True)
+
+    add_pdf_inspect_command(pdf_subparsers)
+    add_pdf_prepare_command(pdf_subparsers)
+    add_pdf_extract_command(pdf_subparsers)

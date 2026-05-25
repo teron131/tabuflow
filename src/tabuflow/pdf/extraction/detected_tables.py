@@ -5,7 +5,6 @@ from __future__ import annotations
 import contextlib
 import io
 from pathlib import Path
-import re
 from typing import Any
 
 import pymupdf
@@ -43,7 +42,7 @@ def pymupdf_table_outputs(
                     columns, rows = records_from_forced_columns(extracted_rows, forced_columns, min_filled_cells)
                 else:
                     columns, rows = records_from_detected_table(extracted_rows, header_names)
-                if config.get("require_header") and generic_column_names(columns):
+                if config.get("require_header") and all(column.startswith("column_") and column[7:].isdigit() for column in columns):
                     continue
                 if not rows:
                     continue
@@ -60,11 +59,6 @@ def pymupdf_table_outputs(
                     }
                 )
     return merge_consecutive_table_outputs(outputs, merge_tables=merge_tables)
-
-
-def generic_column_names(columns: list[str]) -> bool:
-    """Return whether every column is a fallback column_N name."""
-    return all(re.fullmatch(r"column_\d+", column) for column in columns)
 
 
 def find_tables_kwargs(config: dict[str, Any]) -> dict[str, Any]:
@@ -141,20 +135,12 @@ def should_merge_table_outputs(
         "source_page_height": previous_page_height,
     }
     if current["source_page"] == previous_page:
-        return same_page_tables_touch(previous_chunk, current)
+        previous_bottom = float(previous_chunk["source_bbox"][3])
+        current_top = float(current["source_bbox"][1])
+        return 0 <= current_top - previous_bottom <= 18
     if current["source_page"] != previous_page + 1:
         return False
     return page_break_tables_touch(previous_chunk, current)
-
-
-def same_page_tables_touch(
-    previous: dict[str, Any],
-    current: dict[str, Any],
-) -> bool:
-    """Return whether same-page tables are close enough to be one chunk."""
-    previous_bottom = float(previous["source_bbox"][3])
-    current_top = float(current["source_bbox"][1])
-    return 0 <= current_top - previous_bottom <= 18
 
 
 def page_break_tables_touch(

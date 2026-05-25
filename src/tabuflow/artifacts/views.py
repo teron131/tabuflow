@@ -17,6 +17,113 @@ VIEW_SQL_PREFIXES = ("SELECT", "WITH")
 VIEW_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)*$")
 
 
+def _validate_saved_view_request(
+    *,
+    query_sql: str,
+    view_name: str,
+    database_path: str | Path | None,
+) -> dict[str, Any] | None:
+    """Return a stable error payload when saved-view input is invalid."""
+    if not query_sql:
+        return error_result(
+            database_path=database_path,
+            error_type="empty_sql",
+            message="SQL query must not be empty.",
+            view_name=view_name,
+        )
+    if not view_name:
+        return error_result(
+            database_path=database_path,
+            error_type="empty_view_name",
+            message="View name must not be empty.",
+        )
+    if not VIEW_NAME_PATTERN.fullmatch(view_name):
+        return error_result(
+            database_path=database_path,
+            error_type="invalid_view_name",
+            message="View name must start with a letter and contain only letters, digits, and hyphen-separated words.",
+            view_name=view_name,
+        )
+    if view_name.startswith("sqlite_"):
+        return error_result(
+            database_path=database_path,
+            error_type="reserved_view_name",
+            message="View name must not start with 'sqlite_'.",
+            view_name=view_name,
+        )
+    if leading_sql_keyword(query_sql) not in VIEW_SQL_PREFIXES:
+        return error_result(
+            database_path=database_path,
+            error_type="disallowed_sql",
+            message="Only read-only SELECT and WITH queries can be saved as views.",
+            view_name=view_name,
+        )
+    return None
+
+
+def _create_saved_view(
+    connection: sqlite3.Connection,
+    *,
+    database_path: Path,
+    query_sql: str,
+    view_name: str,
+    sql_file_path: str | Path | None,
+    replace: bool,
+) -> dict[str, Any] | None:
+    """Create or replace a SQLite view and register its artifact relationships."""
+    existing_row = connection.execute(
+        """
+        SELECT type
+        FROM sqlite_master
+        WHERE name = ?
+        """,
+        [view_name],
+    ).fetchone()
+    if existing_row is not None:
+        existing_type = cast(str, existing_row[0])
+        if existing_type != "view":
+            return error_result(
+                database_path=database_path,
+                error_type="name_conflict",
+                message=f"SQLite object already exists and is not a view: {view_name}",
+                view_name=view_name,
+            )
+        if not replace:
+            return error_result(
+                database_path=database_path,
+                error_type="view_exists",
+                message=f"SQLite view already exists: {view_name}",
+                view_name=view_name,
+            )
+        connection.execute(f"DROP VIEW IF EXISTS {quote_identifier(view_name)}")
+
+    connection.execute(f"CREATE VIEW {quote_identifier(view_name)} AS {query_sql}")
+    available_artifact_names = {
+        cast(str, row[0])
+        for row in connection.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type IN ('table', 'view')
+              AND name NOT LIKE 'sqlite_%'
+            """
+        ).fetchall()
+    }
+    dependency_names = referenced_artifact_names(
+        query_sql,
+        available_artifact_names=available_artifact_names,
+        current_artifact_name=view_name,
+    )
+    register_saved_view_relationships(
+        connection,
+        view_name=view_name,
+        sql=query_sql,
+        sql_file_path=sql_file_path,
+        dependency_names=dependency_names,
+    )
+    return None
+
+
 def save_view(
     sql: str,
     view_name: str,
@@ -31,96 +138,29 @@ def save_view(
     query_sql = normalized_sql(sql)
     normalized_view_name = view_name.strip()
     try:
-        if not query_sql:
-            return error_result(
-                database_path=requested_path,
-                error_type="empty_sql",
-                message="SQL query must not be empty.",
-                view_name=normalized_view_name,
-            )
-        if not normalized_view_name:
-            return error_result(
-                database_path=requested_path,
-                error_type="empty_view_name",
-                message="View name must not be empty.",
-            )
-        if not VIEW_NAME_PATTERN.fullmatch(normalized_view_name):
-            return error_result(
-                database_path=requested_path,
-                error_type="invalid_view_name",
-                message="View name must start with a letter and contain only letters, digits, and hyphen-separated words.",
-                view_name=normalized_view_name,
-            )
-        if normalized_view_name.startswith("sqlite_"):
-            return error_result(
-                database_path=requested_path,
-                error_type="reserved_view_name",
-                message="View name must not start with 'sqlite_'.",
-                view_name=normalized_view_name,
-            )
-        if leading_sql_keyword(query_sql) not in VIEW_SQL_PREFIXES:
-            return error_result(
-                database_path=requested_path,
-                error_type="disallowed_sql",
-                message="Only read-only SELECT and WITH queries can be saved as views.",
-                view_name=normalized_view_name,
-            )
+        validation_error = _validate_saved_view_request(
+            query_sql=query_sql,
+            view_name=normalized_view_name,
+            database_path=requested_path,
+        )
+        if validation_error is not None:
+            return validation_error
 
         resolved_path = resolve_db_path(
             root_dir=root_dir,
             database_path=database_path,
         )
         with sqlite_write_lock(resolved_path), closing(sqlite3.connect(str(resolved_path))) as connection:
-            existing_row = connection.execute(
-                """
-                SELECT type
-                FROM sqlite_master
-                WHERE name = ?
-                """,
-                [normalized_view_name],
-            ).fetchone()
-            if existing_row is not None:
-                existing_type = cast(str, existing_row[0])
-                if existing_type != "view":
-                    return error_result(
-                        database_path=resolved_path,
-                        error_type="name_conflict",
-                        message=f"SQLite object already exists and is not a view: {normalized_view_name}",
-                        view_name=normalized_view_name,
-                    )
-                if not replace:
-                    return error_result(
-                        database_path=resolved_path,
-                        error_type="view_exists",
-                        message=f"SQLite view already exists: {normalized_view_name}",
-                        view_name=normalized_view_name,
-                    )
-                connection.execute(f"DROP VIEW IF EXISTS {quote_identifier(normalized_view_name)}")
-
-            connection.execute(f"CREATE VIEW {quote_identifier(normalized_view_name)} AS {query_sql}")
-            available_artifact_names = {
-                cast(str, row[0])
-                for row in connection.execute(
-                    """
-                    SELECT name
-                    FROM sqlite_master
-                    WHERE type IN ('table', 'view')
-                      AND name NOT LIKE 'sqlite_%'
-                    """
-                ).fetchall()
-            }
-            dependency_names = referenced_artifact_names(
-                query_sql,
-                available_artifact_names=available_artifact_names,
-                current_artifact_name=normalized_view_name,
-            )
-            register_saved_view_relationships(
+            save_error = _create_saved_view(
                 connection,
+                database_path=resolved_path,
+                query_sql=query_sql,
                 view_name=normalized_view_name,
-                sql=query_sql,
                 sql_file_path=sql_file_path,
-                dependency_names=dependency_names,
+                replace=replace,
             )
+            if save_error is not None:
+                return save_error
             connection.commit()
 
         description = describe_sql_artifact(
