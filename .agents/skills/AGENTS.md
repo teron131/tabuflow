@@ -93,7 +93,7 @@ When the CLI JSON shape is awkward, call the standalone Python functions directl
 
 - `tabuflow.tabular` for tabular inspection, profiling, and extraction.
 - `tabuflow.pdf` for PDF inspection and preparation.
-- `tabuflow.mail` for EML/MSG inspection.
+- `tabuflow.email` for EML/MSG inspection.
 - `tabuflow.artifacts` for artifact listing, description, read-only queries, saved views, artifact lookup, and SQL repair hints.
 
 ## Validation Bar

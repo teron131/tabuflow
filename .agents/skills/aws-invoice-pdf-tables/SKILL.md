@@ -11,7 +11,9 @@ If the invoice folder includes email files, read `references/aws-email-reporting
 
 The first pass should try direct PDF text extraction. Most AWS invoices are text PDFs where label/amount rows can be recovered without OCR. Use OCR or visual table extraction when pages have no text, direct extraction returns too few rows, or visual structure is needed to resolve ambiguous boundaries.
 
-Preserve table boundaries, titles, row order, parent/child hierarchy, and totals unless the caller explicitly asks for logical regrouping.
+For AWS invoices, do not equate "table extraction" with literal PDF grid detection. Many AWS billing tables are stacked label/value blocks where the meaningful business columns are implied by repeated labels such as Charges, Discount, Credits, Tax, VAT, Total, or service names. The tool should recover the complete row stream; the agent should then decide whether a SQL/Python reshape is needed to make the useful business table.
+
+Preserve table boundaries, titles, row order, parent/child hierarchy, and totals unless the caller explicitly asks for logical regrouping or the accounting output clearly requires a semantic reshape.
 
 ## Email References
 
@@ -67,9 +69,32 @@ Expected common section outputs:
 
 These are direct PDF text-layer tables, not visually verified OCR tables. Treat missing sections, obviously tiny row counts, or missing text as the handoff point to visual inspection/OCR, not as permission to invent rows.
 
+## Stacked Billing Columns
+
+Treat the `line-value` output as the canonical intermediate table, not always as the final table. It is good when the PDF visually stacks amounts like this:
+
+- service or account heading,
+- Charges,
+- Discounts,
+- Credits,
+- Tax or VAT,
+- Total,
+- repeated again for the next service/account.
+
+When the user needs an accounting-ready result, reshape this row stream after extraction:
+
+- Use `section`, `account`, page order, and nearest parent labels to define the entity for each group.
+- Promote repeated billing labels into columns only after checking they repeat in the same pattern within a section or parent group.
+- Keep signs exactly as extracted; do not flip discounts or credits unless the source sign and target output contract require it.
+- Preserve zero-value tax rows and explicit total rows.
+- Keep the raw extracted CSVs as evidence; write the semantic reshape as SQL or a small script artifact, then validate it against the source totals.
+- If the PDF has a literal grid, `tables detected` may help inspect it, but AWS invoice totals are usually more reliable through `tables line-value` plus an explicit reshape.
+
+Common semantic columns may include `charges`, `discount`, `credits`, `tax`, `vat`, and `total`, but do not hardcode them as universal. Derive columns from the actual labels in the invoice and keep unknown labels as rows until the grouping is clear.
+
 ## Final Tables
 
-Default final output: SQLite-ready tables from meaningful invoice tables. Common AWS invoice sections include:
+Default final output: SQLite-ready tables from meaningful invoice tables or a validated semantic reshape of the first-pass amount lines. Common AWS invoice sections include:
 
 - `Summary`
 - `Detail for Consolidated Bill`
@@ -77,7 +102,7 @@ Default final output: SQLite-ready tables from meaningful invoice tables. Common
 - `Summary for Linked Account`
 - `Detail for Linked Account`
 
-Rows should be immediately importable into SQLite. For two-column AWS billing tables, use these columns unless the table visibly requires a richer shape:
+Rows should be immediately importable into SQLite. For raw two-column AWS billing tables, use these columns unless the table visibly requires a richer shape:
 
 - `label`
 - `amount`
@@ -92,19 +117,23 @@ Use `row_role` values:
 
 Set `parent_label` for child rows to the nearest preceding parent row in the same visual table. Leave it empty for parent rows and standalone totals unless the visual table clearly nests the total under a parent.
 
+For semantic reshapes, prefer explicit business columns plus enough grouping columns to trace the source, such as `section`, `account`, `service`, or `parent_label`. Do not leave the user with only raw `label`/`amount` rows when the requested deliverable is clearly a columnar accounting table.
+
 ## Workflow
 
 1. Inspect the PDF text and page count.
 2. If emails are present, inspect them as supporting references and keep notes separate from PDF table outputs.
 3. Run direct text extraction for AWS invoice-style text PDFs.
 4. Review text-derived amount-row counts, page summaries, section names, and a sample of extracted rows.
-5. Escalate pages to OCR/visual extraction only when direct text extraction is empty, obviously incomplete, or visually ambiguous.
-6. If OCR/visual output is used, visual evidence wins for table names, table boundaries, row order, indentation, parent/child hierarchy, and totals.
-7. Produce SQLite-ready tabular data with stable columns.
-8. Keep provenance metadata out of importable table columns. If metadata is needed internally, keep it in sidecar JSON or metadata tables.
-9. Validate:
+5. Decide whether the raw amount-line table is enough or whether stacked labels need a SQL/Python semantic reshape into columns.
+6. Escalate pages to OCR/visual extraction only when direct text extraction is empty, obviously incomplete, or visually ambiguous.
+7. If OCR/visual output is used, visual evidence wins for table names, table boundaries, row order, indentation, parent/child hierarchy, and totals.
+8. Produce SQLite-ready tabular data with stable columns.
+9. Keep provenance metadata out of importable table columns. If metadata is needed internally, keep it in sidecar JSON or metadata tables.
+10. Validate:
    - text-derived amount-row count is plausible for the PDF page count and invoice type,
    - summary/detail rows are not collapsed into one total,
+   - repeated labels that became columns reconcile back to the raw amount-line rows,
    - invoice header facts do not leak into table rows unless they appear inside a table,
    - zero-amount tax rows are preserved,
    - scanned pages are reported as needing OCR,
