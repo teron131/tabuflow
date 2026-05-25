@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 import os
 from pathlib import Path
+import sqlite3
 import time
 
 SQLITE_FILENAME = "tabular.sqlite"
@@ -26,6 +27,32 @@ def sqlite_database_path(*, root_dir: str | Path | None = None) -> Path:
     artifacts_dir = resolved_root / ARTIFACTS_DIRNAME
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     return artifacts_dir / SQLITE_FILENAME
+
+
+def requested_database_path(
+    *,
+    root_dir: str | Path | None = None,
+    database_path: str | Path | None = None,
+) -> Path:
+    """Return the requested SQLite path before existence checks."""
+    return sqlite_database_path(root_dir=root_dir) if database_path is None else Path(database_path)
+
+
+def open_read_only_connection(database_path: Path) -> sqlite3.Connection:
+    """Open one SQLite connection in read-only mode."""
+    return sqlite3.connect(f"{database_path.resolve().as_uri()}?mode=ro", uri=True)
+
+
+def resolve_db_path(
+    *,
+    root_dir: str | Path | None = None,
+    database_path: str | Path | None = None,
+) -> Path:
+    """Resolve the SQLite database path and ensure it exists."""
+    resolved_path = requested_database_path(root_dir=root_dir, database_path=database_path)
+    if not resolved_path.exists():
+        raise ValueError(f"SQLite database does not exist: {resolved_path}")
+    return resolved_path
 
 
 @contextmanager

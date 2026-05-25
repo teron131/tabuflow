@@ -86,25 +86,31 @@ def _is_table_header_at(
     return len(consistent_followers) >= min_followers
 
 
-def _has_stronger_header_ahead(
+def _has_stronger_header_after(
     rows: list[list[str]],
     header_index: int,
     *,
+    non_empty_gain: int,
+    prefix_row_shortcut: bool,
     window: int = 6,
+    row_end: int | None = None,
 ) -> bool:
     """Check whether a better table header appears shortly after this row."""
     current_non_empty = count_non_empty(rows[header_index])
     current_row = rows[header_index]
-    end_index = min(len(rows), header_index + window + 1)
-    for index in range(header_index + 1, end_index):
+    last_index = min(len(rows) - 1, header_index + window)
+    if row_end is not None:
+        last_index = min(last_index, row_end)
+
+    for index in range(header_index + 1, last_index + 1):
         row = rows[index]
-        if is_blank(row):
+        if is_blank(row) or not _is_table_header_at(rows, index):
             continue
         stronger_non_empty = count_non_empty(row)
         coverage_gain = sum(not current_cell.strip() and bool(future_cell.strip()) for current_cell, future_cell in zip(current_row, row, strict=False))
-        if _looks_like_header_prefix_row(current_row) and _is_table_header_at(rows, index):
+        if prefix_row_shortcut and _looks_like_header_prefix_row(current_row):
             return True
-        if _is_table_header_at(rows, index) and (stronger_non_empty >= current_non_empty + 4 or coverage_gain >= 2):
+        if stronger_non_empty >= current_non_empty + non_empty_gain or coverage_gain >= 2:
             return True
     return False
 
@@ -406,30 +412,6 @@ def _build_tables_for_header(
     return built_tables
 
 
-def _has_stronger_header_successor(
-    rows: list[list[str]],
-    header_index: int,
-    *,
-    row_end: int,
-    window: int = 6,
-) -> bool:
-    """Return whether a stronger header appears shortly after this row."""
-    current_row = rows[header_index]
-    current_non_empty = count_non_empty(current_row)
-    last_index = min(row_end, header_index + window)
-
-    for future_index in range(header_index + 1, last_index + 1):
-        future_row = rows[future_index]
-        if is_blank(future_row) or not _is_table_header_at(rows, future_index):
-            continue
-        future_non_empty = count_non_empty(future_row)
-        coverage_gain = sum(not current_cell.strip() and bool(future_cell.strip()) for current_cell, future_cell in zip(current_row, future_row, strict=False))
-        if future_non_empty >= current_non_empty + 2 or coverage_gain >= 2:
-            return True
-
-    return False
-
-
 def _candidate_header_index(
     rows: list[list[str]],
     *,
@@ -445,7 +427,13 @@ def _candidate_header_index(
             continue
         if fallback_index is None:
             fallback_index = row_index
-        if not _has_stronger_header_successor(rows, row_index, row_end=row_end):
+        if not _has_stronger_header_after(
+            rows,
+            row_index,
+            row_end=row_end,
+            non_empty_gain=2,
+            prefix_row_shortcut=False,
+        ):
             return row_index
 
     return fallback_index
@@ -475,7 +463,12 @@ def header_candidates(
             {
                 "row": header_index + 1,
                 "non_empty_cells": count_non_empty(row),
-                "has_stronger_header_ahead": _has_stronger_header_ahead(rows, header_index),
+                "has_stronger_header_ahead": _has_stronger_header_after(
+                    rows,
+                    header_index,
+                    non_empty_gain=4,
+                    prefix_row_shortcut=True,
+                ),
                 "values": row,
             }
         )
@@ -524,7 +517,12 @@ def segment_tabular_blocks(
             index += 1
             continue
 
-        if not _is_table_header_at(rows, index) or _has_stronger_header_ahead(rows, index):
+        if not _is_table_header_at(rows, index) or _has_stronger_header_after(
+            rows,
+            index,
+            non_empty_gain=4,
+            prefix_row_shortcut=True,
+        ):
             if metadata_start is None:
                 metadata_start = index
             index += 1

@@ -11,13 +11,13 @@ import re
 import sqlite3
 from typing import Any, cast
 
-from ..workspace_db import quote_identifier, sqlite_database_path
+from ..workspace_db import open_read_only_connection, requested_database_path, resolve_db_path
+from .repair import sql_error_repair_hints
 
 MAX_QUERY_ROWS = 200
 MISSING_VALUE = object()
 READ_ONLY_SQL_PREFIXES = ("SELECT", "WITH", "EXPLAIN")
 LEADING_SQL_COMMENT = re.compile(r"\A(?:\s+|--[^\n]*(?:\n|\Z)|/\*.*?\*/)*", re.DOTALL)
-UNQUOTED_HYPHENATED_REFERENCE = re.compile(r"\b(?:FROM|JOIN)\s+([A-Za-z_][\w$]*(?:-[A-Za-z0-9_]+)+)\b", re.IGNORECASE)
 
 
 def jsonable_value(value: object) -> object:
@@ -97,32 +97,6 @@ def normalized_column_names(column_names: list[str | None]) -> tuple[list[str], 
     return normalized, originals
 
 
-def requested_database_path(
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-) -> Path:
-    """Return the requested SQLite path before existence checks."""
-    return sqlite_database_path(root_dir=root_dir) if database_path is None else Path(database_path)
-
-
-def open_read_only_connection(database_path: Path) -> sqlite3.Connection:
-    """Open one SQLite connection in read-only mode."""
-    return sqlite3.connect(f"{database_path.resolve().as_uri()}?mode=ro", uri=True)
-
-
-def resolve_db_path(
-    *,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-) -> Path:
-    """Resolve the SQLite database path and ensure it exists."""
-    resolved_path = requested_database_path(root_dir=root_dir, database_path=database_path)
-    if not resolved_path.exists():
-        raise ValueError(f"SQLite database does not exist: {resolved_path}")
-    return resolved_path
-
-
 def leading_sql_keyword(sql: str) -> str:
     """Extract the first SQL keyword after whitespace and comments."""
     stripped = LEADING_SQL_COMMENT.sub("", sql, count=1).lstrip()
@@ -139,41 +113,6 @@ def is_read_only_sql(sql: str) -> bool:
 def normalized_sql(sql: str) -> str:
     """Normalize one SQL statement for validation and embedding."""
     return sql.strip().rstrip(";").strip()
-
-
-def sql_error_repair_hints(
-    *,
-    sql: str,
-    error_message: str,
-    root_dir: str | Path | None = None,
-    database_path: str | Path | None = None,
-) -> list[dict[str, Any]]:
-    """Return deterministic repair hints for a failed artifact query."""
-    hints: list[dict[str, Any]] = []
-    referenced_hyphenated_names = list(dict.fromkeys(UNQUOTED_HYPHENATED_REFERENCE.findall(sql)))
-    if referenced_hyphenated_names:
-        hints.append(
-            {
-                "kind": "quote_sql_artifact",
-                "identifier": referenced_hyphenated_names[0],
-                "candidates": [{"name": name, "quoted": quote_identifier(name)} for name in referenced_hyphenated_names],
-                "message": "Quote SQL artifact names that contain hyphens, for example FROM " + quote_identifier(referenced_hyphenated_names[0]) + ".",
-            }
-        )
-
-    try:
-        from .repair import suggest_sql_error_repair
-
-        hints.extend(
-            suggest_sql_error_repair(
-                error_message,
-                root_dir=root_dir,
-                database_path=database_path,
-            )
-        )
-    except (sqlite3.Error, ValueError, RuntimeError):
-        pass
-    return hints
 
 
 def run_query(

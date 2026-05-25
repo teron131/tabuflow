@@ -10,6 +10,8 @@ from pathlib import Path
 import re
 from typing import Any
 
+import extract_msg
+
 BODY_PREVIEW_CHARS = 2_000
 WHITESPACE = re.compile(r"\s+")
 
@@ -117,11 +119,6 @@ def _inspect_eml(path: Path, *, max_body_chars: int) -> dict[str, Any]:
 
 def _inspect_msg(path: Path, *, max_body_chars: int) -> dict[str, Any]:
     """Inspect a Microsoft Outlook MSG file."""
-    try:
-        import extract_msg
-    except ModuleNotFoundError as exc:
-        raise RuntimeError("MSG inspection requires the optional extract-msg dependency.") from exc
-
     message = extract_msg.Message(str(path))
     try:
         subject = _clean_text(message.subject)

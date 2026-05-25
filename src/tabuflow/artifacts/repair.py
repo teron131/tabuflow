@@ -1,19 +1,20 @@
 """Deterministic SQLite artifact repair hints."""
 
-from contextlib import closing
+from contextlib import closing, suppress
 from difflib import SequenceMatcher
 from pathlib import Path
 import re
+import sqlite3
 from typing import Any, cast
 
-from ..workspace_db import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, quote_identifier
-from .database import open_read_only_connection, resolve_db_path
+from ..workspace_db import SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE, open_read_only_connection, quote_identifier, resolve_db_path
 
 MAX_REPAIR_CANDIDATES = 3
 AMBIGUOUS_COLUMN_ERROR_PREFIX = "ambiguous column name:"
 MISSING_COLUMN_ERROR_PREFIX = "no such column:"
 MISSING_TABLE_ERROR_PREFIX = "no such table:"
 INTERNAL_SQLITE_TABLES = {SQLITE_CONTENTS_TABLE, SQLITE_SOURCES_TABLE}
+UNQUOTED_HYPHENATED_REFERENCE = re.compile(r"\b(?:FROM|JOIN)\s+([A-Za-z_][\w$]*(?:-[A-Za-z0-9_]+)+)\b", re.IGNORECASE)
 
 
 def identifier_tokens(value: str) -> set[str]:
@@ -231,3 +232,34 @@ def suggest_sql_error_repair(
         sql_artifact_columns=sql_artifact_columns,
         max_matches=max_matches,
     )
+
+
+def sql_error_repair_hints(
+    *,
+    sql: str,
+    error_message: str,
+    root_dir: str | Path | None = None,
+    database_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    """Return deterministic repair hints for a failed artifact query."""
+    hints: list[dict[str, Any]] = []
+    referenced_hyphenated_names = list(dict.fromkeys(UNQUOTED_HYPHENATED_REFERENCE.findall(sql)))
+    if referenced_hyphenated_names:
+        hints.append(
+            {
+                "kind": "quote_sql_artifact",
+                "identifier": referenced_hyphenated_names[0],
+                "candidates": [{"name": name, "quoted": quote_identifier(name)} for name in referenced_hyphenated_names],
+                "message": "Quote SQL artifact names that contain hyphens, for example FROM " + quote_identifier(referenced_hyphenated_names[0]) + ".",
+            }
+        )
+
+    with suppress(sqlite3.Error, ValueError, RuntimeError):
+        hints.extend(
+            suggest_sql_error_repair(
+                error_message,
+                root_dir=root_dir,
+                database_path=database_path,
+            )
+        )
+    return hints

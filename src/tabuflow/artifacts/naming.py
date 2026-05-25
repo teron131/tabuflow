@@ -6,6 +6,9 @@ import re
 import secrets
 from typing import Any
 
+from langchain_core.messages import HumanMessage
+from pydantic import BaseModel, Field
+
 ARTIFACT_WORD_COUNT = 2
 ARTIFACT_SUFFIX_CHARS = 6
 SLUG_PATTERN = re.compile(r"[a-z0-9]+")
@@ -45,6 +48,16 @@ SLUG_FALLBACK_WORDS = ("data", "query", "result")
 ArtifactNamerFn = Callable[[str], str]
 
 
+class SQLArtifactName(BaseModel):
+    """Structured model output for one SQL artifact name."""
+
+    words: list[str] = Field(
+        min_length=ARTIFACT_WORD_COUNT,
+        max_length=ARTIFACT_WORD_COUNT,
+        description="Exactly two concrete noun words for the artifact name, without the random suffix.",
+    )
+
+
 def normalize_source_filename(filename: str | Path) -> str:
     """Return a compact lowercase filename suitable for source-backed artifacts."""
     source_name = Path(filename).name
@@ -63,18 +76,6 @@ def build_sql_artifact_namer(llm: Any | None) -> ArtifactNamerFn | None:
     """Build an optional LLM-backed namer from the shared orchestrator model."""
     if llm is None:
         return None
-
-    from langchain_core.messages import HumanMessage
-    from pydantic import BaseModel, Field
-
-    class SQLArtifactName(BaseModel):
-        """Structured model output for one SQL artifact name."""
-
-        words: list[str] = Field(
-            min_length=ARTIFACT_WORD_COUNT,
-            max_length=ARTIFACT_WORD_COUNT,
-            description="Exactly two concrete noun words for the artifact name, without the random suffix.",
-        )
 
     structured_llm = llm.with_structured_output(SQLArtifactName)
 

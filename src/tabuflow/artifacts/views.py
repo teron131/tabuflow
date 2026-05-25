@@ -9,6 +9,7 @@ import sqlite3
 from typing import Any, cast
 
 from ..workspace_db import quote_identifier, sqlite_write_lock
+from .catalog import describe_sql_artifact
 from .database import error_result, leading_sql_keyword, normalized_sql, requested_database_path, resolve_db_path
 from .relationships import referenced_artifact_names, register_saved_view_relationships
 
@@ -126,8 +127,6 @@ def save_view(
                 dependency_names=dependency_names,
             )
             connection.commit()
-
-        from .catalog import describe_sql_artifact
 
         description = describe_sql_artifact(
             normalized_view_name,

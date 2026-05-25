@@ -348,6 +348,26 @@ def _load_xls_rows(
         workbook.release_resources()
 
 
+def workbook_sheet_names(path: Path) -> list[str]:
+    """Return worksheet names for workbook formats, or an empty list for CSV."""
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        return []
+    if suffix == ".xlsx":
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        try:
+            return list(workbook.sheetnames)
+        finally:
+            workbook.close()
+    if suffix == ".xls":
+        workbook = xlrd.open_workbook(path, on_demand=True)
+        try:
+            return workbook.sheet_names()
+        finally:
+            workbook.release_resources()
+    raise ValueError(f"Unsupported tabular file type: {path.suffix}")
+
+
 def load_rows(
     path: Path,
     *,

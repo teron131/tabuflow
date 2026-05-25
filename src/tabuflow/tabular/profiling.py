@@ -15,6 +15,7 @@ from .ingestion import (
     load_rows,
     stream_csv_profile,
     tabular_summary,
+    workbook_sheet_names,
 )
 from .segmentation import compute_region_boxes, header_candidates, profile_region_boxes
 
@@ -84,11 +85,8 @@ def profile_tabular_workbook_sheets(
     max_sample_rows: int = MAX_SAMPLE_ROWS,
 ) -> dict[str, Any]:
     """Profile all workbook sheets with compact structural hints."""
-    from .inspection import inspect_tabular_file
-
     path = Path(path)
-    summary = inspect_tabular_file(path, limit=1)
-    sheet_names = summary.get("sheet_names", [])
+    sheet_names = workbook_sheet_names(path)
     if not sheet_names:
         raise ValueError(f"All-sheet profiling requires an XLS or XLSX workbook: {path}")
     sheet_profiles = []
@@ -102,7 +100,7 @@ def profile_tabular_workbook_sheets(
         )
     return {
         "path": str(path),
-        "format": summary["format"],
+        "format": path.suffix.lower().removeprefix("."),
         "sheet_names": sheet_names,
         "sheet_count": len(sheet_names),
         "sheets": sheet_profiles,
