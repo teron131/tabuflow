@@ -145,7 +145,10 @@ def merge_pdf_rules(
             table[key] = rules[key]
 
 
-def add_shared_pdf_table_options(args: Any, table: dict[str, Any]) -> None:
+def add_shared_pdf_table_options(
+    args: Any,
+    table: dict[str, Any],
+) -> None:
     """Add CLI options shared by all PDF table presets."""
     if args.pages:
         table["pages"] = [int(page) for page in parse_comma_list(args.pages)]
