@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import csv
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .hints import structure_hints
 from .ingestion import (
     MAX_SAMPLE_ROWS,
-    CsvReader,
+    TabularReader,
     load_rows,
     tabular_dimensions,
     tabular_summary_from_counts,
@@ -32,8 +33,10 @@ def inspect_tabular_file(
     safe_limit = max(1, limit)
     safe_start_col = max(1, start_col)
     if path.suffix.lower() == ".csv":
-        csv_reader = CsvReader.from_path(path)
-        selected_rows = csv_reader.window(
+        tabular_reader = TabularReader.from_path(path, sheet=sheet)
+        encoding = cast(str, tabular_reader.encoding)
+        dialect = cast(csv.Dialect, tabular_reader.dialect)
+        selected_rows = tabular_reader.stream_window(
             start_row=safe_start,
             limit=safe_limit,
             start_col=safe_start_col,
@@ -49,7 +52,9 @@ def inspect_tabular_file(
             column_count=None,
             format_info={
                 "format": "csv",
-                **csv_reader.metadata(),
+                "encoding": encoding,
+                "delimiter": dialect.delimiter,
+                "quotechar": dialect.quotechar,
                 "sheet_names": [],
                 "read_mode": "bounded_stream",
             },

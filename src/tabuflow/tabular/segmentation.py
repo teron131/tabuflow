@@ -9,7 +9,7 @@ from typing import Any, cast
 import numpy as np
 from scipy import ndimage
 
-from .ingestion import count_non_empty, is_blank, preview_rows
+from .ingestion import preview_rows
 
 
 @dataclass(frozen=True)
@@ -60,7 +60,7 @@ def _collect_followers(
     followers: list[list[str]] = []
     for index in range(header_index + 1, len(rows)):
         row = rows[index]
-        if is_blank(row):
+        if not _active_columns(row):
             break
         followers.append(row)
         if len(followers) >= limit:
@@ -74,17 +74,17 @@ def _is_table_header_at(
 ) -> bool:
     """Check whether a row can anchor a table block."""
     row = rows[header_index]
-    if is_blank(row) or not _looks_like_header(row):
+    active_columns = _active_columns(row)
+    if not active_columns or not _looks_like_header(row):
         return False
 
     followers = _collect_followers(rows, header_index)
     if not followers:
         return False
 
-    row_non_empty = count_non_empty(row)
     expected_width = max(len(row), *(len(follower) for follower in followers))
-    consistent_followers = [follower for follower in followers if len(follower) == expected_width and count_non_empty(follower) >= 2]
-    min_followers = 2 if row_non_empty <= 3 else 1
+    consistent_followers = [follower for follower in followers if len(follower) == expected_width and len(_active_columns(follower)) >= 2]
+    min_followers = 2 if len(active_columns) <= 3 else 1
     return len(consistent_followers) >= min_followers
 
 
@@ -98,7 +98,7 @@ def _has_stronger_header_after(
     row_end: int | None = None,
 ) -> bool:
     """Check whether a better table header appears shortly after this row."""
-    current_non_empty = count_non_empty(rows[header_index])
+    current_non_empty = len(_active_columns(rows[header_index]))
     current_row = rows[header_index]
     last_index = min(len(rows) - 1, header_index + window)
     if row_end is not None:
@@ -106,9 +106,9 @@ def _has_stronger_header_after(
 
     for index in range(header_index + 1, last_index + 1):
         row = rows[index]
-        if is_blank(row) or not _is_table_header_at(rows, index):
+        if not _active_columns(row) or not _is_table_header_at(rows, index):
             continue
-        stronger_non_empty = count_non_empty(row)
+        stronger_non_empty = len(_active_columns(row))
         coverage_gain = sum(not current_cell.strip() and bool(future_cell.strip()) for current_cell, future_cell in zip(current_row, row, strict=False))
         if prefix_row_shortcut and _looks_like_header_prefix_row(current_row):
             return True
@@ -123,7 +123,7 @@ def _data_row_threshold(
 ) -> int:
     """Estimate a minimum non-empty-cell threshold for follower rows."""
     followers = _collect_followers(rows, header_index, limit=5)
-    non_empty_counts = [count_non_empty(row) for row in followers if count_non_empty(row) > 0]
+    non_empty_counts = [len(active_columns) for row in followers if (active_columns := _active_columns(row))]
     if not non_empty_counts:
         return 2
     median_non_empty = statistics.median(non_empty_counts)
@@ -233,9 +233,10 @@ def _supported_columns_in_box(
     support_counts = dict.fromkeys(range(column_start, column_end + 1), 0)
     for index in range(row_start, row_end + 1):
         row = rows[index]
-        if is_blank(row):
+        active_columns = _active_columns(row)
+        if not active_columns:
             continue
-        for column in _active_columns(row):
+        for column in active_columns:
             if column_start <= column <= column_end:
                 support_counts[column] += 1
     return {column for column, count in support_counts.items() if count >= 2}
@@ -275,7 +276,7 @@ def _extend_table(
 
     for index in range(header_index + 1, min(len(rows), max_row_end + 1)):
         row = rows[index]
-        if is_blank(row):
+        if not _active_columns(row):
             break
         if len(row) != expected_width:
             break
@@ -405,7 +406,7 @@ def _candidate_header_index(
 
     for row_index in range(max(0, row_start - 1), row_end + 1):
         row = rows[row_index]
-        if is_blank(row) or not _is_table_header_at(rows, row_index):
+        if not _active_columns(row) or not _is_table_header_at(rows, row_index):
             continue
         if fallback_index is None:
             fallback_index = row_index
@@ -444,7 +445,7 @@ def header_candidates(
         candidates.append(
             {
                 "row": header_index + 1,
-                "non_empty_cells": count_non_empty(row),
+                "non_empty_cells": len(_active_columns(row)),
                 "has_stronger_header_ahead": _has_stronger_header_after(
                     rows,
                     header_index,
@@ -487,7 +488,7 @@ def segment_tabular_blocks(
 
     while index < len(rows):
         row = rows[index]
-        if is_blank(row):
+        if not _active_columns(row):
             _flush_metadata_block(
                 metadata,
                 rows,

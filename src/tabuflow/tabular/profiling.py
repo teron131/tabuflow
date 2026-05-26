@@ -10,9 +10,7 @@ from .hints import structure_hints
 from .ingestion import (
     MAX_FULL_PROFILE_BYTES,
     MAX_SAMPLE_ROWS,
-    CsvReader,
-    count_non_empty,
-    is_blank,
+    TabularReader,
     load_rows,
     tabular_summary,
     workbook_sheet_names,
@@ -42,7 +40,7 @@ def profile_tabular_file(
     """Profile a tabular file with read-only structural hints."""
     path = Path(path)
     if path.suffix.lower() == ".csv" and path.stat().st_size > MAX_FULL_PROFILE_BYTES:
-        summary = CsvReader.from_path(path).profile(max_sample_rows=max_sample_rows)
+        summary = TabularReader.from_path(path, sheet=sheet).streaming_profile(max_sample_rows=max_sample_rows)
         header_candidate_rows: list[dict[str, Any]] = []
         regions: list[dict[str, Any]] = []
         return {
@@ -58,7 +56,7 @@ def profile_tabular_file(
     rows, format_info = load_rows(path, sheet=sheet)
     region_boxes = compute_region_boxes(rows)
     detected_header_candidates = header_candidates(rows, region_boxes=region_boxes)
-    non_empty_counts = [count_non_empty(row) for row in rows if not is_blank(row)]
+    non_empty_counts = [non_empty_count for row in rows if (non_empty_count := sum(bool(cell.strip()) for cell in row)) > 0]
 
     regions = profile_region_boxes(region_boxes)
     return {

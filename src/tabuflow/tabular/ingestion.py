@@ -58,23 +58,6 @@ def preview_rows(rows: list[list[str]], sample_rows: int | None) -> list[list[st
     return rows if sample_rows is None else rows[:sample_rows]
 
 
-def count_non_empty(row: list[str]) -> int:
-    """Count non-empty cells in a row."""
-    return sum(bool(cell.strip()) for cell in row)
-
-
-def is_blank(row: list[str]) -> bool:
-    """Return whether a row has no non-empty cells."""
-    return count_non_empty(row) == 0
-
-
-def _normalize_cell(value: object) -> str:
-    """Convert a raw cell value into the normalized string form."""
-    if value is None:
-        return ""
-    return str(value)
-
-
 def _csv_encoding(path: Path) -> str:
     """Detect a practical CSV text encoding from a small byte sample."""
     with path.open("rb") as handle:
@@ -103,104 +86,6 @@ def _csv_dialect(
     if dialect.delimiter in {"\r", "\n"}:
         return csv.get_dialect("excel")
     return dialect
-
-
-@dataclass(frozen=True)
-class CsvReader:
-    """Detected CSV reader settings and bounded read helpers."""
-
-    path: Path
-    encoding: str
-    dialect: csv.Dialect
-
-    @classmethod
-    def from_path(cls, path: Path) -> CsvReader:
-        """Detect encoding and dialect for one CSV file."""
-        encoding = _csv_encoding(path)
-        return cls(
-            path=path,
-            encoding=encoding,
-            dialect=_csv_dialect(path, encoding=encoding),
-        )
-
-    def metadata(self) -> dict[str, Any]:
-        """Return common CSV metadata for public payloads."""
-        return {
-            "encoding": self.encoding,
-            "delimiter": self.dialect.delimiter,
-            "quotechar": self.dialect.quotechar,
-            "sheet_names": [],
-        }
-
-    def rows(self) -> list[list[str]]:
-        """Load all CSV rows."""
-        with self.path.open("r", encoding=self.encoding, newline="") as handle:
-            return [list(row) for row in csv.reader(handle, self.dialect)]
-
-    def window(
-        self,
-        *,
-        start_row: int,
-        limit: int,
-        start_col: int,
-        end_col: int | None,
-    ) -> list[list[str]]:
-        """Read a bounded CSV grid window."""
-        selected_rows: list[list[str]] = []
-        end_row = start_row + limit - 1
-
-        with self.path.open("r", encoding=self.encoding, newline="") as handle:
-            for row_index, row in enumerate(csv.reader(handle, self.dialect), start=1):
-                if row_index < start_row:
-                    continue
-                if row_index > end_row:
-                    break
-                safe_end_col = len(row) if end_col is None else max(start_col, end_col)
-                selected_rows.append(row[start_col - 1 : safe_end_col])
-
-        return selected_rows
-
-    def profile(
-        self,
-        *,
-        max_sample_rows: int,
-    ) -> dict[str, Any]:
-        """Build a bounded profile without loading the full table layout."""
-        sample_rows: list[list[str]] = []
-        non_empty_frequencies: Counter[int] = Counter()
-        row_count = 0
-        column_count = 0
-        non_empty_row_count = 0
-        max_non_empty_cells = 0
-
-        with self.path.open("r", encoding=self.encoding, newline="") as handle:
-            for row in csv.reader(handle, self.dialect):
-                row_count += 1
-                column_count = max(column_count, len(row))
-                if len(sample_rows) < max_sample_rows:
-                    sample_rows.append(list(row))
-
-                non_empty_cells = count_non_empty(row)
-                if not non_empty_cells:
-                    continue
-                non_empty_row_count += 1
-                max_non_empty_cells = max(max_non_empty_cells, non_empty_cells)
-                non_empty_frequencies[non_empty_cells] += 1
-
-        return {
-            "format": "csv",
-            **self.metadata(),
-            "row_count": row_count,
-            "column_count": column_count,
-            "non_empty_row_count": non_empty_row_count,
-            "blank_row_count": row_count - non_empty_row_count,
-            "max_non_empty_cells_in_row": max_non_empty_cells,
-            "median_non_empty_cells_per_non_blank_row": _median_from_frequencies(non_empty_frequencies, non_empty_row_count),
-            "sample_rows": sample_rows,
-            "header_candidates": [],
-            "regions": [],
-            "profile_mode": "streaming",
-        }
 
 
 def _median_from_frequencies(
@@ -248,7 +133,7 @@ def _load_xlsx_rows(
         if sheet_name not in workbook.sheetnames:
             raise ValueError(f"Unknown worksheet '{sheet_name}' in {path.name}")
         worksheet = workbook[sheet_name]
-        rows = [[_normalize_cell(cell) for cell in row] for row in worksheet.iter_rows(values_only=True)]
+        rows = [["" if cell is None else str(cell) for cell in row] for row in worksheet.iter_rows(values_only=True)]
         for merged_range in worksheet.merged_cells.ranges:
             min_col, min_row, max_col, max_row = (
                 merged_range.min_col,
@@ -279,7 +164,7 @@ def _normalize_xls_cell(
         return xlrd.xldate.xldate_as_datetime(cell.value, workbook.datemode).isoformat()
     if cell.ctype == xlrd.XL_CELL_NUMBER and float(cell.value).is_integer():
         return str(int(cell.value))
-    return _normalize_cell(cell.value)
+    return "" if cell.value is None else str(cell.value)
 
 
 def _load_xls_rows(
@@ -312,6 +197,137 @@ def _load_xls_rows(
         workbook.release_resources()
 
 
+@dataclass(frozen=True)
+class TabularReader:
+    """Detected reader settings for one CSV, XLSX, or XLS tabular source."""
+
+    path: Path
+    format_name: str
+    sheet: str | None = None
+    encoding: str | None = None
+    dialect: csv.Dialect | None = None
+
+    @classmethod
+    def from_path(
+        cls,
+        path: Path,
+        *,
+        sheet: str | None = None,
+    ) -> TabularReader:
+        """Detect the tabular format and lightweight reader settings."""
+        suffix = path.suffix.lower()
+        if suffix == ".csv":
+            encoding = _csv_encoding(path)
+            return cls(
+                path=path,
+                format_name="csv",
+                sheet=sheet,
+                encoding=encoding,
+                dialect=_csv_dialect(path, encoding=encoding),
+            )
+        if suffix in {".xlsx", ".xls"}:
+            return cls(
+                path=path,
+                format_name=suffix.removeprefix("."),
+                sheet=sheet,
+            )
+        raise ValueError(f"Unsupported tabular file type: {path.suffix}")
+
+    def read(self) -> tuple[list[list[str]], dict[str, Any]]:
+        """Load rows and public format metadata for this tabular source."""
+        if self.format_name == "csv":
+            encoding = cast(str, self.encoding)
+            dialect = cast(csv.Dialect, self.dialect)
+            with self.path.open("r", encoding=encoding, newline="") as handle:
+                rows = [list(row) for row in csv.reader(handle, dialect)]
+            return rows, {
+                "format": "csv",
+                "encoding": encoding,
+                "delimiter": dialect.delimiter,
+                "quotechar": dialect.quotechar,
+                "sheet_names": [],
+            }
+        if self.format_name == "xlsx":
+            rows, format_info = _load_xlsx_rows(self.path, sheet=self.sheet)
+            return rows, {"format": "xlsx", **format_info}
+        if self.format_name == "xls":
+            rows, format_info = _load_xls_rows(self.path, sheet=self.sheet)
+            return rows, {"format": "xls", **format_info}
+        raise ValueError(f"Unsupported tabular file type: {self.path.suffix}")
+
+    def stream_window(
+        self,
+        *,
+        start_row: int,
+        limit: int,
+        start_col: int,
+        end_col: int | None,
+    ) -> list[list[str]]:
+        """Read a bounded CSV grid window without loading the full file."""
+        encoding = cast(str, self.encoding)
+        dialect = cast(csv.Dialect, self.dialect)
+        selected_rows: list[list[str]] = []
+        end_row = start_row + limit - 1
+
+        with self.path.open("r", encoding=encoding, newline="") as handle:
+            for row_index, row in enumerate(csv.reader(handle, dialect), start=1):
+                if row_index < start_row:
+                    continue
+                if row_index > end_row:
+                    break
+                safe_end_col = len(row) if end_col is None else max(start_col, end_col)
+                selected_rows.append(row[start_col - 1 : safe_end_col])
+
+        return selected_rows
+
+    def streaming_profile(
+        self,
+        *,
+        max_sample_rows: int,
+    ) -> dict[str, Any]:
+        """Build a bounded CSV profile without loading the full table layout."""
+        encoding = cast(str, self.encoding)
+        dialect = cast(csv.Dialect, self.dialect)
+        sample_rows: list[list[str]] = []
+        non_empty_frequencies: Counter[int] = Counter()
+        row_count = 0
+        column_count = 0
+        non_empty_row_count = 0
+        max_non_empty_cells = 0
+
+        with self.path.open("r", encoding=encoding, newline="") as handle:
+            for row in csv.reader(handle, dialect):
+                row_count += 1
+                column_count = max(column_count, len(row))
+                if len(sample_rows) < max_sample_rows:
+                    sample_rows.append(list(row))
+
+                non_empty_cells = sum(bool(cell.strip()) for cell in row)
+                if not non_empty_cells:
+                    continue
+                non_empty_row_count += 1
+                max_non_empty_cells = max(max_non_empty_cells, non_empty_cells)
+                non_empty_frequencies[non_empty_cells] += 1
+
+        return {
+            "format": "csv",
+            "encoding": encoding,
+            "delimiter": dialect.delimiter,
+            "quotechar": dialect.quotechar,
+            "sheet_names": [],
+            "row_count": row_count,
+            "column_count": column_count,
+            "non_empty_row_count": non_empty_row_count,
+            "blank_row_count": row_count - non_empty_row_count,
+            "max_non_empty_cells_in_row": max_non_empty_cells,
+            "median_non_empty_cells_per_non_blank_row": _median_from_frequencies(non_empty_frequencies, non_empty_row_count),
+            "sample_rows": sample_rows,
+            "header_candidates": [],
+            "regions": [],
+            "profile_mode": "streaming",
+        }
+
+
 def workbook_sheet_names(path: Path) -> list[str]:
     """Return worksheet names for workbook formats, or an empty list for CSV."""
     suffix = path.suffix.lower()
@@ -341,14 +357,4 @@ def load_rows(
     dict[str, Any],
 ]:
     """Load tabular rows from a supported file type."""
-    suffix = path.suffix.lower()
-    if suffix == ".csv":
-        csv_reader = CsvReader.from_path(path)
-        return csv_reader.rows(), {"format": "csv", **csv_reader.metadata()}
-    if suffix == ".xlsx":
-        rows, format_info = _load_xlsx_rows(path, sheet=sheet)
-        return rows, {"format": "xlsx", **format_info}
-    if suffix == ".xls":
-        rows, format_info = _load_xls_rows(path, sheet=sheet)
-        return rows, {"format": "xls", **format_info}
-    raise ValueError(f"Unsupported tabular file type: {path.suffix}")
+    return TabularReader.from_path(path, sheet=sheet).read()
