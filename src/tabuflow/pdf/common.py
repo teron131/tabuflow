@@ -22,6 +22,15 @@ MAX_PREPARE_DPI = 300
 PDF_ARTIFACT_VERSION = 1
 PDF_TABLES_DIR_NAME = "tables"
 PDF_TABLES_MANIFEST_NAME = "tables_manifest.json"
+PDF_TABLE_SCALAR_TUNING_OPTIONS = (
+    "snap_tolerance",
+    "join_tolerance",
+    "intersection_tolerance",
+    "text_tolerance",
+    "edge_min_length",
+    "min_words_vertical",
+    "min_words_horizontal",
+)
 
 
 @dataclass(frozen=True)

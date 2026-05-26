@@ -20,11 +20,11 @@ def _clean_table_cell(value: Any) -> str:
     return re.sub(r"\s+([,.;:])", r"\1", text)
 
 
-def _detected_table_quality(
+def _detected_table_metrics(
     rows: list[list[str]],
     header_names: list[str],
 ) -> dict[str, Any]:
-    """Return compact diagnostics for one PyMuPDF table candidate."""
+    """Return compact deterministic metrics for one PyMuPDF table candidate."""
     allowed_short_headers = {"id", "ip", "no", "qty", "key"}
     row_count = len(rows)
     column_count = max((len(row) for row in rows), default=0)
@@ -33,21 +33,53 @@ def _detected_table_quality(
     filled_first_row = sum(1 for value in first_row if value)
     short_header_cells = [value for value in header_cells if value and len(value) <= 3 and value.lower() not in allowed_short_headers]
     non_empty_cells = sum(1 for row in rows for value in row if value)
-    plausible = row_count >= 2 and column_count >= 2 and filled_first_row >= 2 and len(short_header_cells) < max(2, len(header_cells) // 2)
+    return {
+        "row_count": row_count,
+        "column_count": column_count,
+        "filled_first_row_cells": filled_first_row,
+        "short_header_cell_count": len(short_header_cells),
+        "header_cell_count": len(header_cells),
+        "non_empty_cell_count": non_empty_cells,
+    }
+
+
+def detected_table_diagnostics(
+    rows: list[list[str]],
+    header_names: list[str],
+) -> dict[str, Any]:
+    """Return deterministic diagnostics for one PyMuPDF table candidate."""
+    metrics = _detected_table_metrics(rows, header_names)
     warnings: list[str] = []
-    if row_count < 2:
+    if metrics["row_count"] < 2:
         warnings.append("too_few_rows")
-    if column_count < 2:
+    if metrics["column_count"] < 2:
         warnings.append("too_few_columns")
-    if short_header_cells:
+    if metrics["short_header_cell_count"]:
         warnings.append("short_header_fragments")
-    if non_empty_cells < row_count * max(column_count, 1) * 0.25:
+    if metrics["non_empty_cell_count"] < metrics["row_count"] * max(metrics["column_count"], 1) * 0.25:
         warnings.append("sparse_cells")
     return {
-        "quality": "plausible" if plausible else "suspicious",
         "warnings": warnings,
-        "filled_first_row_cells": filled_first_row,
-        "non_empty_cell_count": non_empty_cells,
+        "filled_first_row_cells": metrics["filled_first_row_cells"],
+        "non_empty_cell_count": metrics["non_empty_cell_count"],
+    }
+
+
+def detected_table_quality(
+    rows: list[list[str]],
+    header_names: list[str],
+) -> dict[str, Any]:
+    """Return compact inspection quality for one PyMuPDF table candidate."""
+    metrics = _detected_table_metrics(rows, header_names)
+    plausible = (
+        metrics["row_count"] >= 2
+        and metrics["column_count"] >= 2
+        and metrics["filled_first_row_cells"] >= 2
+        and metrics["short_header_cell_count"] < max(2, metrics["header_cell_count"] // 2)
+    )
+    return {
+        "quality": "plausible" if plausible else "suspicious",
+        **detected_table_diagnostics(rows, header_names),
     }
 
 
@@ -207,7 +239,7 @@ def _candidate_headers_match_first_row(
     return bool(rows and header_names and rows[0][: len(header_names)] == header_names)
 
 
-def _candidate_interpretation(
+def candidate_interpretation(
     rows: list[list[str]],
     header_names: list[str],
     quality: dict[str, Any],
@@ -381,8 +413,8 @@ def table_detections(
         rows, header_names, merged_indexes = _merge_unnamed_table_columns(rows, header_names)
         rows, merged_continuation_row_count = _merge_continuation_rows(rows)
         rows = _repair_key_value_rows(rows, header_names)
-        quality = _detected_table_quality(rows, header_names)
-        interpretation = _bounded_interpretation(_candidate_interpretation(rows, header_names, quality), max_rows=max_rows)
+        quality = detected_table_quality(rows, header_names)
+        interpretation = _bounded_interpretation(candidate_interpretation(rows, header_names, quality), max_rows=max_rows)
         detection = {
             "table_id": table_index,
             "bbox": [round(float(value), 1) for value in table.bbox],

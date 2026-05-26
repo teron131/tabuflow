@@ -16,6 +16,7 @@ from ...pdf import (
 from ..paths import add_root_argument, resolve_cli_path, resolve_cli_root
 from ..pdf_spec import (
     PDF_TABLE_PRESET_MODES,
+    PDF_TABLE_SCALAR_TUNING_OPTIONS,
     PDF_TABLE_STRATEGIES,
     PDF_VALUE_PRESETS,
     pdf_extract_spec_from_args,
@@ -103,6 +104,8 @@ def add_pdf_extract_command(pdf_subparsers: Any) -> None:
     extract.add_argument("--vertical-strategy", choices=PDF_TABLE_STRATEGIES, default=None, help="tables detected: PyMuPDF vertical strategy.")
     extract.add_argument("--horizontal-strategy", choices=PDF_TABLE_STRATEGIES, default=None, help="tables detected: PyMuPDF horizontal strategy.")
     extract.add_argument("--clip", default=None, help="tables detected: clip rectangle X0,Y0,X1,Y1 in PDF points.")
+    for option in PDF_TABLE_SCALAR_TUNING_OPTIONS:
+        extract.add_argument(f"--{option.replace('_', '-')}", dest=option, type=float, default=None, help=f"tables detected: PyMuPDF {option.replace('_', ' ')}.")
     extract.add_argument("--require-header", action="store_true", help="tables detected: skip tables without useful PyMuPDF header metadata.")
     extract.add_argument(
         "--merge-tables",

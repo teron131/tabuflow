@@ -7,6 +7,8 @@ from typing import Any
 
 import yaml
 
+from ..pdf.common import PDF_TABLE_SCALAR_TUNING_OPTIONS
+
 PDF_TABLE_STRATEGIES = ["lines", "lines-strict", "text"]
 PDF_VALUE_PRESETS = {
     "money": r"^-?[A-Z]{3}\s+[0-9][0-9,]*\.[0-9]{2}$",
@@ -125,6 +127,7 @@ def merge_pdf_rules(
         "vertical_strategy",
         "horizontal_strategy",
         "clip",
+        *PDF_TABLE_SCALAR_TUNING_OPTIONS,
         "y_min",
         "y_max",
         "y_tolerance",
@@ -202,6 +205,10 @@ def add_detected_table_options(
         table["horizontal_strategy"] = args.horizontal_strategy.replace("-", "_")
     if args.clip:
         table["clip"] = parse_clip_rect(args.clip)
+    for key in PDF_TABLE_SCALAR_TUNING_OPTIONS:
+        value = getattr(args, key)
+        if value is not None:
+            table[key] = value
 
 
 def add_line_value_table_options(

@@ -151,17 +151,21 @@ def empty_extraction_diagnostics(pdf_path: Path) -> dict[str, Any]:
         }
 
 
-def manifest_table_quality_warnings(tables: list[dict[str, Any]]) -> list[str]:
-    """Return broad warnings for extractable but low-confidence PDF tables."""
+def manifest_table_warnings(tables: list[dict[str, Any]]) -> list[str]:
+    """Return deterministic warnings for extracted PDF tables."""
     warnings: list[str] = []
     detected_tables = [table for table in tables if table.get("mode") == "pymupdf_tables"]
     if not detected_tables:
         return warnings
     if any(all(GENERIC_COLUMN_PATTERN.match(str(column)) for column in table.get("columns", [])) for table in detected_tables):
         warnings.append("generic_detected_columns")
+    for table in detected_tables:
+        detector_diagnostics = table.get("detector_diagnostics", {})
+        if isinstance(detector_diagnostics, dict):
+            warnings.extend(str(warning) for warning in detector_diagnostics.get("warnings", []) if warning)
     if warnings:
         warnings.insert(0, "low_confidence_detected_tables")
-    return warnings
+    return list(dict.fromkeys(warnings))
 
 
 def extraction_diagnostics(
@@ -172,7 +176,7 @@ def extraction_diagnostics(
     """Return extraction diagnostics for empty or low-confidence PDF outputs."""
     if not tables:
         return empty_extraction_diagnostics(pdf_path)
-    return {"warnings": manifest_table_quality_warnings(tables)}
+    return {"warnings": manifest_table_warnings(tables)}
 
 
 def pdf_extraction_status(tables: list[dict[str, Any]], diagnostics: dict[str, Any]) -> str:
@@ -244,6 +248,7 @@ def _detected_pending_tables(
                     "source_pages": table_output.get("source_pages", [table_output["source_page"]]),
                     "source_tables": table_output.get("source_tables", [table_output["source_table"]]),
                     "source_bboxes": table_output.get("source_bboxes", [table_output.get("source_bbox")]),
+                    "detector_diagnostics": table_output.get("detector_diagnostics"),
                 },
             )
         )

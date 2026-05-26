@@ -10,6 +10,8 @@ from typing import Any
 
 import pymupdf
 
+from ..common import PDF_TABLE_SCALAR_TUNING_OPTIONS
+from ..inspection.tables import detected_table_diagnostics
 from .pages import page_numbers
 from .table_records import (
     clean_extracted_table,
@@ -33,6 +35,7 @@ _DETECTED_TABLE_PAYLOAD_KEYS = {
     "last_source_page",
     "last_source_bbox",
     "last_source_page_height",
+    "detector_diagnostics",
 }
 
 
@@ -53,6 +56,7 @@ class DetectedTableOutput:
     rows: list[dict[str, str]]
     merge_first_column_continuations: bool | None = None
     mode: str | None = None
+    detector_diagnostics: dict[str, Any] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
     source_pages: list[int] = field(default_factory=list)
     source_tables: list[int] = field(default_factory=list)
@@ -73,6 +77,7 @@ class DetectedTableOutput:
             rows=list(payload["rows"]),
             merge_first_column_continuations=bool(payload["merge_first_column_continuations"]) if payload.get("merge_first_column_continuations") is not None else None,
             mode=str(payload["mode"]) if payload.get("mode") is not None else None,
+            detector_diagnostics=dict(payload["detector_diagnostics"]) if isinstance(payload.get("detector_diagnostics"), dict) else None,
             extra={key: value for key, value in payload.items() if key not in _DETECTED_TABLE_PAYLOAD_KEYS},
             source_pages=[int(page) for page in payload.get("source_pages", [])],
             source_tables=[int(table) for table in payload.get("source_tables", [])],
@@ -164,6 +169,8 @@ class DetectedTableOutput:
             payload["source_page_height"] = self.source_page_height
         if self.merge_first_column_continuations is not None:
             payload["merge_first_column_continuations"] = self.merge_first_column_continuations
+        if self.detector_diagnostics is not None:
+            payload["detector_diagnostics"] = self.detector_diagnostics
         return payload
 
 
@@ -187,6 +194,7 @@ def pymupdf_table_outputs(
                 extracted_rows, header_names = clean_extracted_table(table.extract(), table.header.names)
                 if len(extracted_rows) < min_rows:
                     continue
+                detector_diagnostics = detected_table_diagnostics(extracted_rows, header_names)
                 if forced_columns:
                     columns, rows = records_from_forced_columns(extracted_rows, forced_columns, min_filled_cells)
                 else:
@@ -205,6 +213,7 @@ def pymupdf_table_outputs(
                         rows=rows,
                         merge_first_column_continuations=bool(forced_columns),
                         mode="pymupdf_tables",
+                        detector_diagnostics=detector_diagnostics,
                     )
                 )
     return _merge_detected_table_outputs(outputs, merge_tables=merge_tables)
@@ -220,6 +229,9 @@ def find_tables_kwargs(config: dict[str, Any]) -> dict[str, Any]:
         if len(clip) != 4:
             raise ValueError("PDF table clip must contain exactly four values: X0,Y0,X1,Y1.")
         kwargs["clip"] = pymupdf.Rect(*(float(value) for value in clip))
+    for key in PDF_TABLE_SCALAR_TUNING_OPTIONS:
+        if config.get(key) is not None:
+            kwargs[key] = float(config[key])
     return kwargs
 
 

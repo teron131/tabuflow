@@ -92,6 +92,7 @@ def _pdf_table_config(
     vertical_strategy: str | None,
     horizontal_strategy: str | None,
     clip: list[float] | None,
+    detected_tuning_options: dict[str, float | None],
     require_header: bool,
     merge_tables: str,
     value_pattern: str | None,
@@ -146,6 +147,9 @@ def _pdf_table_config(
             table_config["horizontal_strategy"] = horizontal_strategy
         if clip is not None:
             table_config["clip"] = clip
+        for key, value in detected_tuning_options.items():
+            if value is not None:
+                table_config[key] = value
         if require_header:
             table_config["require_header"] = True
         return table_config
@@ -346,6 +350,13 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
         vertical_strategy: str | None = None,
         horizontal_strategy: str | None = None,
         clip: list[float] | None = None,
+        snap_tolerance: float | None = None,
+        join_tolerance: float | None = None,
+        intersection_tolerance: float | None = None,
+        text_tolerance: float | None = None,
+        edge_min_length: float | None = None,
+        min_words_vertical: float | None = None,
+        min_words_horizontal: float | None = None,
         require_header: bool = False,
         merge_tables: str = "auto",
         output_columns: list[str] | None = None,
@@ -383,6 +394,13 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             vertical_strategy: Optional PyMuPDF vertical strategy for detected tables.
             horizontal_strategy: Optional PyMuPDF horizontal strategy for detected tables.
             clip: Optional X0,Y0,X1,Y1 clip rectangle in PDF points.
+            snap_tolerance: Optional PyMuPDF snapping tolerance for nearby table edges.
+            join_tolerance: Optional PyMuPDF joining tolerance for table edge segments.
+            intersection_tolerance: Optional PyMuPDF tolerance for edge intersections.
+            text_tolerance: Optional PyMuPDF tolerance for text-derived table edges.
+            edge_min_length: Optional minimum edge length for detected-table geometry.
+            min_words_vertical: Optional minimum words for text-derived vertical edges.
+            min_words_horizontal: Optional minimum words for text-derived horizontal edges.
             require_header: Whether to skip detected tables without useful header metadata.
             merge_tables: Detected-table merge policy: auto, always, or never.
             output_columns: Optional fixed schema for continuing tables whose detected headers drift.
@@ -418,6 +436,15 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             vertical_strategy=vertical_strategy,
             horizontal_strategy=horizontal_strategy,
             clip=clip,
+            detected_tuning_options={
+                "snap_tolerance": snap_tolerance,
+                "join_tolerance": join_tolerance,
+                "intersection_tolerance": intersection_tolerance,
+                "text_tolerance": text_tolerance,
+                "edge_min_length": edge_min_length,
+                "min_words_vertical": min_words_vertical,
+                "min_words_horizontal": min_words_horizontal,
+            },
             require_header=require_header,
             merge_tables=merge_tables,
             value_pattern=value_pattern,
