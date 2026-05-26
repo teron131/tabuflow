@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 import pymupdf
@@ -20,6 +21,7 @@ from .pages import page_numbers
 from .text_values import field_value_rows, line_value_rows
 
 FILENAME_FINGERPRINT_CHARS = 4
+GENERIC_COLUMN_PATTERN = re.compile(r"^column_[0-9]+$")
 
 
 @dataclass(frozen=True)
@@ -147,6 +149,39 @@ def empty_extraction_diagnostics(pdf_path: Path) -> dict[str, Any]:
             "text_char_count": text_char_count,
             "warnings": warnings,
         }
+
+
+def manifest_table_quality_warnings(tables: list[dict[str, Any]]) -> list[str]:
+    """Return broad warnings for extractable but low-confidence PDF tables."""
+    warnings: list[str] = []
+    detected_tables = [table for table in tables if table.get("mode") == "pymupdf_tables"]
+    if not detected_tables:
+        return warnings
+    if any(all(GENERIC_COLUMN_PATTERN.match(str(column)) for column in table.get("columns", [])) for table in detected_tables):
+        warnings.append("generic_detected_columns")
+    if warnings:
+        warnings.insert(0, "low_confidence_detected_tables")
+    return warnings
+
+
+def extraction_diagnostics(
+    *,
+    pdf_path: Path,
+    tables: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return extraction diagnostics for empty or low-confidence PDF outputs."""
+    if not tables:
+        return empty_extraction_diagnostics(pdf_path)
+    return {"warnings": manifest_table_quality_warnings(tables)}
+
+
+def pdf_extraction_status(tables: list[dict[str, Any]], diagnostics: dict[str, Any]) -> str:
+    """Return the honest extraction status for a PDF table run."""
+    if not tables:
+        return "empty"
+    if "low_confidence_detected_tables" in diagnostics.get("warnings", []):
+        return "low_confidence"
+    return "ok"
 
 
 def _configured_rows(
@@ -359,15 +394,18 @@ def extract_pdf_file(
     )
 
     manifest_path = workspace.tables_manifest_path
+    diagnostics = extraction_diagnostics(pdf_path=pdf_path, tables=manifest_tables)
+    extraction_status = pdf_extraction_status(manifest_tables, diagnostics)
     manifest = {
-        "status": "ok",
+        "status": "empty" if extraction_status == "empty" else "ok",
+        "extraction_status": extraction_status,
         "path": str(pdf_path),
         "extraction": extraction,
         "artifact_dir": str(workspace.artifact_dir),
         "work_dir": str(workspace.work_dir),
         "output_dir": str(output_dir),
         "tables": manifest_tables,
-        "diagnostics": {"warnings": []} if manifest_tables else empty_extraction_diagnostics(pdf_path),
+        "diagnostics": diagnostics,
     }
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return {

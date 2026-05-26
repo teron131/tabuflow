@@ -43,6 +43,17 @@ from ..tools.skills import (
     search_skills as search_skills_core,
 )
 
+PDF_TABLE_PRESET_MODES = {
+    "detected": "pymupdf_tables",
+    "coordinate": "coordinate_table",
+    "field-value": "field_value",
+    "line-value": "line_value",
+}
+PDF_VALUE_PRESETS = {
+    "money": r"^-?[A-Z]{3}\s+[0-9][0-9,]*\.[0-9]{2}$",
+    "number": r"^-?[0-9][0-9,]*(?:\.[0-9]+)?$",
+}
+
 
 def _workspace_source_path(
     path: str,
@@ -51,6 +62,141 @@ def _workspace_source_path(
 ) -> Path:
     """Resolve one model-supplied source path inside the configured workspace."""
     return resolve_workspace_file(path, root_dir=root_dir).path
+
+
+def _add_pdf_list_options(
+    table_config: dict[str, Any],
+    **options: list[Any] | None,
+) -> None:
+    """Add non-empty list options to one PDF extraction config."""
+    for name, value in options.items():
+        if value:
+            table_config[name] = value
+
+
+def _pdf_table_config(
+    *,
+    preset: str,
+    name: str | None,
+    pages: list[int] | None,
+    page_start: int,
+    page_end: int | None,
+    include_page: bool,
+    skip_lines: list[str] | None,
+    skip_prefixes: list[str] | None,
+    stop_prefixes: list[str] | None,
+    output_columns: list[str] | None,
+    min_rows: int,
+    min_filled_cells: int | None,
+    strategy: str | None,
+    vertical_strategy: str | None,
+    horizontal_strategy: str | None,
+    clip: list[float] | None,
+    require_header: bool,
+    merge_tables: str,
+    value_pattern: str | None,
+    value_preset: str | None,
+    label_column: str | None,
+    value_column: str | None,
+    field_column: str | None,
+    fields: dict[str, str] | None,
+    collect_until_next_field: bool,
+    columns: list[dict[str, Any]] | None,
+    required_columns: list[str] | None,
+    y_min: float,
+    y_max: float,
+    y_tolerance: float,
+    continuation_column: str | None,
+    anchor_y_slop: float | None,
+) -> dict[str, Any]:
+    """Build an extraction config for the backend PDF tool adapter."""
+    if preset not in PDF_TABLE_PRESET_MODES:
+        raise ValueError(f"Unsupported PDF table preset: {preset}")
+    table_config: dict[str, Any] = {
+        "name": name or ("detected_tables" if preset == "detected" else "table"),
+        "preset": preset,
+        "mode": PDF_TABLE_PRESET_MODES[preset],
+        "page_start": page_start,
+    }
+    if pages:
+        table_config["pages"] = pages
+    if page_end is not None:
+        table_config["page_end"] = page_end
+    if include_page:
+        table_config["include_page"] = True
+    _add_pdf_list_options(
+        table_config,
+        skip_lines=skip_lines,
+        skip_prefixes=skip_prefixes,
+        stop_prefixes=stop_prefixes,
+        output_columns=output_columns,
+    )
+
+    if preset == "detected":
+        table_config["min_rows"] = min_rows
+        table_config["merge_tables"] = merge_tables
+        if min_filled_cells is not None:
+            table_config["min_filled_cells"] = min_filled_cells
+        if strategy:
+            table_config["vertical_strategy"] = strategy
+            table_config["horizontal_strategy"] = strategy
+        if vertical_strategy:
+            table_config["vertical_strategy"] = vertical_strategy
+        if horizontal_strategy:
+            table_config["horizontal_strategy"] = horizontal_strategy
+        if clip is not None:
+            table_config["clip"] = clip
+        if require_header:
+            table_config["require_header"] = True
+        return table_config
+
+    if preset == "line-value":
+        resolved_value_pattern = value_pattern or PDF_VALUE_PRESETS.get(str(value_preset))
+        if not resolved_value_pattern:
+            raise ValueError("line-value PDF extraction requires value_pattern or value_preset.")
+        table_config.update(
+            {
+                "value_pattern": resolved_value_pattern,
+                "label_column": label_column or "label",
+                "value_column": value_column or "value",
+            }
+        )
+        if value_preset:
+            table_config["value_preset"] = value_preset
+        return table_config
+
+    if preset == "field-value":
+        if not fields:
+            raise ValueError("field-value PDF extraction requires fields.")
+        table_config.update(
+            {
+                "fields": fields,
+                "field_column": field_column or "field",
+                "value_column": value_column or "value",
+                "collect_until_next_field": collect_until_next_field,
+            }
+        )
+        return table_config
+
+    if preset == "coordinate":
+        if not columns:
+            raise ValueError("coordinate PDF extraction requires columns.")
+        table_config.update(
+            {
+                "columns": columns,
+                "y_min": y_min,
+                "y_max": y_max,
+                "y_tolerance": y_tolerance,
+            }
+        )
+        _add_pdf_list_options(table_config, required_columns=required_columns)
+        if continuation_column:
+            table_config["continuation_column"] = continuation_column
+        if anchor_y_slop is not None:
+            table_config["anchor_y_slop"] = anchor_y_slop
+        return table_config
+
+    raise ValueError(f"Unsupported PDF table preset: {preset}")
 
 
 def make_tabular_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
@@ -139,13 +285,13 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
         max_text_chars: int = DEFAULT_INSPECT_TEXT_CHARS,
         include_images: bool = False,
     ) -> dict[str, Any]:
-        """Inspect a PDF with raw page text and optional rendered page images.
+        """Inspect a PDF with profile hints, default 2x2 overview batches, row geometry, raw text, and optional page images.
 
         Args:
             path: Path to the PDF file to inspect.
             page_start: One-based page number where inspection begins.
             page_limit: Maximum number of pages to inspect.
-            max_text_chars: Maximum text characters to include per page.
+            max_text_chars: Maximum text characters to include per page; raw text is supplemental to row geometry for tables.
             include_images: Whether to render inspected pages to image artifacts.
         """
         return inspect_pdf_file(
@@ -186,51 +332,109 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
     def extract_pdf(
         path: str,
         preset: str = "detected",
+        name: str | None = None,
+        pages: list[int] | None = None,
         page_start: int = 1,
         page_end: int | None = None,
+        include_page: bool = False,
+        skip_lines: list[str] | None = None,
+        skip_prefixes: list[str] | None = None,
+        stop_prefixes: list[str] | None = None,
         min_rows: int = 1,
         min_filled_cells: int | None = None,
         strategy: str | None = None,
+        vertical_strategy: str | None = None,
+        horizontal_strategy: str | None = None,
         clip: list[float] | None = None,
         require_header: bool = False,
+        merge_tables: str = "auto",
         output_columns: list[str] | None = None,
+        value_pattern: str | None = None,
+        value_preset: str | None = None,
+        label_column: str | None = None,
+        value_column: str | None = None,
+        field_column: str | None = None,
+        fields: dict[str, str] | None = None,
+        collect_until_next_field: bool = False,
+        columns: list[dict[str, Any]] | None = None,
+        required_columns: list[str] | None = None,
+        y_min: float = 0,
+        y_max: float = 10_000,
+        y_tolerance: float = 4,
+        continuation_column: str | None = None,
+        anchor_y_slop: float | None = None,
     ) -> dict[str, Any]:
         """Extract PDF tables with a narrow PyMuPDF-backed preset.
 
         Args:
             path: Path to the PDF file to extract.
-            preset: Extraction preset. Use detected for generic PyMuPDF table detection.
+            preset: Extraction preset: detected, coordinate, field-value, or line-value.
+            name: Optional output descriptor used only when page-tag filenames collide.
+            pages: Optional explicit 1-based page numbers.
             page_start: First 1-based page to inspect.
             page_end: Last 1-based page to inspect.
+            include_page: Whether to include the source page as an output column.
+            skip_lines: Exact cleaned text lines to skip.
+            skip_prefixes: Cleaned text prefixes to skip.
+            stop_prefixes: Cleaned text prefixes that stop page-line scanning.
             min_rows: Minimum detected rows for the detected preset.
             min_filled_cells: Optional minimum non-empty cells in a forced-column data row.
             strategy: Optional PyMuPDF strategy to use for both axes, such as text.
+            vertical_strategy: Optional PyMuPDF vertical strategy for detected tables.
+            horizontal_strategy: Optional PyMuPDF horizontal strategy for detected tables.
             clip: Optional X0,Y0,X1,Y1 clip rectangle in PDF points.
             require_header: Whether to skip detected tables without useful header metadata.
+            merge_tables: Detected-table merge policy: auto, always, or never.
             output_columns: Optional fixed schema for continuing tables whose detected headers drift.
+            value_pattern: Regex matching value lines for line-value extraction.
+            value_preset: Built-in line-value regex preset, such as money or number.
+            label_column: Output column for line-value labels.
+            value_column: Output column for line-value or field-value values.
+            field_column: Output column for field-value field labels.
+            fields: Field/value mapping for field-value extraction.
+            collect_until_next_field: Whether field-value extraction collects multiline values.
+            columns: Coordinate extraction columns as name/x_min/x_max dictionaries.
+            required_columns: Coordinate columns required for a row.
+            y_min: Minimum y coordinate for coordinate extraction.
+            y_max: Maximum y coordinate for coordinate extraction.
+            y_tolerance: Visual row grouping tolerance.
+            continuation_column: Coordinate column whose wrapped text joins anchored rows.
+            anchor_y_slop: Y tolerance for attaching wrapped continuation text to anchors.
         """
-        if preset != "detected":
-            raise ValueError(f"Unsupported PDF table preset: {preset}")
-        table_config: dict[str, Any] = {
-            "name": "detected_tables",
-            "preset": preset,
-            "mode": "pymupdf_tables",
-            "page_start": page_start,
-            "min_rows": min_rows,
-        }
-        if page_end is not None:
-            table_config["page_end"] = page_end
-        if min_filled_cells is not None:
-            table_config["min_filled_cells"] = min_filled_cells
-        if strategy:
-            table_config["vertical_strategy"] = strategy
-            table_config["horizontal_strategy"] = strategy
-        if clip is not None:
-            table_config["clip"] = clip
-        if require_header:
-            table_config["require_header"] = True
-        if output_columns:
-            table_config["output_columns"] = output_columns
+        table_config = _pdf_table_config(
+            preset=preset,
+            name=name,
+            pages=pages,
+            page_start=page_start,
+            page_end=page_end,
+            include_page=include_page,
+            skip_lines=skip_lines,
+            skip_prefixes=skip_prefixes,
+            stop_prefixes=stop_prefixes,
+            output_columns=output_columns,
+            min_rows=min_rows,
+            min_filled_cells=min_filled_cells,
+            strategy=strategy,
+            vertical_strategy=vertical_strategy,
+            horizontal_strategy=horizontal_strategy,
+            clip=clip,
+            require_header=require_header,
+            merge_tables=merge_tables,
+            value_pattern=value_pattern,
+            value_preset=value_preset,
+            label_column=label_column,
+            value_column=value_column,
+            field_column=field_column,
+            fields=fields,
+            collect_until_next_field=collect_until_next_field,
+            columns=columns,
+            required_columns=required_columns,
+            y_min=y_min,
+            y_max=y_max,
+            y_tolerance=y_tolerance,
+            continuation_column=continuation_column,
+            anchor_y_slop=anchor_y_slop,
+        )
         return extract_pdf_file(
             _workspace_source_path(
                 path,

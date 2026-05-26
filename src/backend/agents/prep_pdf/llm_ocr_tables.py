@@ -353,12 +353,6 @@ def _build_bridge_messages(
     right_tables: list[dict[str, Any]],
 ) -> list[SystemMessage | HumanMessage]:
     """Build the vision prompt for a cropped chunk-boundary repair."""
-    bridge_payload = _build_bridge_payload(
-        left_chunk=left_chunk,
-        right_chunk=right_chunk,
-        left_tables=left_tables,
-        right_tables=right_tables,
-    )
     blocks = [
         _text_block(
             f"Repair only the table boundary between chunk {left_chunk.index} page {bridge_images.left_page} and chunk {right_chunk.index} page {bridge_images.right_page}."
@@ -367,7 +361,14 @@ def _build_bridge_messages(
         _image_block(bridge_images.left_image),
         _text_block(f"Top crop of page {bridge_images.right_page}:"),
         _image_block(bridge_images.right_image),
-        _text_block(f"Edge table reference:\n{json.dumps(bridge_payload, indent=2, ensure_ascii=False)}"),
+        _text_block(
+            "\n\n".join(
+                [
+                    _format_table_reference(left_tables, title="Previous chunk edge tables"),
+                    _format_table_reference(right_tables, title="Next chunk edge tables"),
+                ]
+            )
+        ),
     ]
     return [
         SystemMessage(content=TABLE_BRIDGE_FIX_SYSTEM_PROMPT),
@@ -596,8 +597,8 @@ def _merge_usage(usages: list[OcrUsage]) -> OcrUsage:
     )
 
 
-def _table_window_for_prompt(tables: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Keep only model-useful table fields for a bridge-fixer prompt."""
+def _table_window_for_repair(tables: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep only table fields needed by boundary and document repair."""
     return [
         {
             "table_id": table["table_id"],
@@ -614,6 +615,37 @@ def _table_window_for_prompt(tables: list[dict[str, Any]]) -> list[dict[str, Any
     ]
 
 
+def _format_table_reference(
+    tables: list[dict[str, Any]],
+    *,
+    title: str,
+) -> str:
+    """Render OCR table references as compact text, not raw JSON."""
+    lines = [title]
+    if not tables:
+        lines.append("- none")
+        return "\n".join(lines)
+
+    for table_number, table in enumerate(_table_window_for_repair(tables), start=1):
+        page_start = table.get("page_start")
+        page_end = table.get("page_end")
+        page_span = page_start if page_start == page_end else f"{page_start}-{page_end}"
+        lines.append(f"- Table {table_number}: id={table.get('table_id')}; chunk={table.get('chunk_index')}; pages={page_span}")
+        if title_text := table.get("title"):
+            lines.append(f"  title: {title_text}")
+        lines.append("  columns: " + " | ".join(str(column) for column in table.get("columns", [])))
+        rows = table.get("rows", [])
+        if not rows:
+            lines.append("  rows: none")
+            continue
+        lines.append("  rows:")
+        for row in rows:
+            lines.append("    - " + " | ".join(str(cell) for cell in row))
+        if notes := table.get("notes"):
+            lines.append(f"  notes: {notes}")
+    return "\n".join(lines)
+
+
 def _build_bridge_payload(
     *,
     left_chunk: PdfChunk,
@@ -628,22 +660,22 @@ def _build_bridge_payload(
             "chunk_index": left_chunk.index,
             "page_start": left_chunk.start_page,
             "page_end": left_chunk.end_page,
-            "edge_tables": _table_window_for_prompt(left_tables),
+            "edge_tables": _table_window_for_repair(left_tables),
         },
         "next_chunk": {
             "chunk_index": right_chunk.index,
             "page_start": right_chunk.start_page,
             "page_end": right_chunk.end_page,
-            "edge_tables": _table_window_for_prompt(right_tables),
+            "edge_tables": _table_window_for_repair(right_tables),
         },
         "visual_boundary_tables": visual_boundary_tables or [],
-        "tables": _table_window_for_prompt(left_tables + right_tables),
+        "tables": _table_window_for_repair(left_tables + right_tables),
     }
 
 
 def _build_overall_payload(tables: list[dict[str, Any]]) -> dict[str, Any]:
     """Build the full-document payload for overall table cleanup."""
-    return {"tables": _table_window_for_prompt(tables)}
+    return {"tables": _table_window_for_repair(tables)}
 
 
 def _usage_from_fixer_result(result: dict[str, object]) -> OcrUsage:

@@ -77,7 +77,27 @@ tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3 --include-im
 tabuflow pdf prepare path/to/file.pdf
 ```
 
-`pdf inspect` is for bounded page text and optional rendered images. `pdf prepare` copies the source PDF, renders every page, and creates a normalized-filename workspace with `manifest.json`, `pages/*.jpg`, `text/*.txt`, and `work/` under the root-owned `artifacts/pdf/...` path.
+`pdf inspect` is for bounded page text, row geometry, and default 2x2 overview batches of four pages each. Use `--include-images` only for focused full-page image inspection. `pdf prepare` copies the source PDF, renders every page, and creates a normalized-filename workspace with `manifest.json`, `pages/*.jpg`, `text/*.txt`, and `work/` under the root-owned `artifacts/pdf/...` path.
+
+For PDF candidate and strategy details, read the focused references instead of expanding this quick workflow:
+
+- `references/pdf-inspection-candidates.md`: inspect payload surfaces, candidate priority, and evidence roles.
+- `references/pdf-strategy-policy.md`: per-region decision rules for horizontal grids, coordinate bands, vertical label/value blocks, images, and raw text fallback.
+- `references/pdf-extraction-recipes.md`: CLI recipe shapes for detected, coordinate, line/value, and field/value extraction.
+- `references/pdf-failure-modes.md`: false positives, lost table layers, continuations, vertical amount tables, and low-confidence outputs.
+
+Do not choose one strategy for the whole PDF unless inspection proves one repeated layout. Treat PDF extraction like writing a small script from easy-to-use puzzle pieces: make one independent extraction decision per visual table, grouped logical table, or coordinate/text region. A single document may combine plausible PyMuPDF grid tables, headerless field/value spec blocks, line/value amount rows, coordinate-banded tables, multi-page continuations, and false positive detections that should be ignored.
+
+Use priority inside each region:
+
+- `table_region_hints` first when present; each group is its own strategy decision with likely rows and page spans,
+- plausible `table_detections` first, using `interpretation.rows` when `interpretation.usable` is true,
+- field/value or line/value extraction for headerless label/value blocks,
+- coordinate/row geometry when x-bands or wrapped rows are the stable structure,
+- default 2x2 overview batches for layout and continuation decisions, with focused page images only when needed,
+- raw linear text only as a supplement for exact wording, punctuation, and wrapped values.
+
+Never treat `find_tables()` as complete or authoritative. It can miss visual tables and can detect nonsense such as one-cell prose/code fragments. The inspect `interpretation` hints classify detections as grid tables, field/value tables, false positives, or uncertain; use those hints as puzzle pieces for a small, reviewable extraction plan instead of forcing every page through one magic table detector.
 
 For text PDFs with a repeatable layout, use CLI-shaped PyMuPDF extraction options:
 
