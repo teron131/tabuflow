@@ -2,14 +2,16 @@
 
 Choose strategies per visual table, grouped logical table, coordinate band, or text region. Do not choose one global strategy for the PDF unless inspection proves one repeated layout.
 
+Visual cues are mandatory evidence for PDF table acceptance. Detector output, CSV shape, row counts, and page-tag filenames can propose candidates, but they cannot prove table identity by themselves. Before accepting, pruning, merging, splitting, or naming PDF table artifacts, inspect rendered overview images for the relevant pages and focused page images for any ambiguous table boundary, same-page repeated table, generic-column extraction, low-confidence output, or table count mismatch.
+
 ## Decision Tree
 
 Start from the best candidate evidence available:
 
 1. If `table_region_hints` gives a usable group, treat the group as a candidate.
 2. If a per-page `table_detections` candidate is usable, treat it as a candidate.
-3. If detector output is missing, suspicious, or generic, inspect `row_geometry` and overview images.
-4. If layout is still ambiguous, render focused page images for only the relevant pages.
+3. Inspect rendered overview images for the candidate page range before deciding the accepted table set.
+4. If detector output is missing, suspicious, generic, split across pages, duplicated on one page, or count-mismatched, inspect `row_geometry` and focused page images.
 5. Use raw linear text only to confirm details or as a last fallback.
 
 ## Layout Patterns
@@ -25,6 +27,10 @@ Name the visual layout before choosing a strategy:
 - `prose_or_spec_blocks`: visually structured text that may look table-like but should not become rows unless fields are explicit.
 
 Treat mixed PDFs as several layout regions, not one document-level layout.
+
+Keep table identity separate from provider, section, or page identity. A source
+may have eight providers but more than eight tables, one visual table may span
+two pages, and one page may contain multiple separate tables.
 
 ## Horizontal Grid Tables
 
