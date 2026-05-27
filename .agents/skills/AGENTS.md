@@ -16,26 +16,28 @@ Load the domain skill first when the user names a domain outcome. Load `tabuflow
 
 ## Use The CLI For Data Work
 
-Start from the repo root. Prefer the installed command:
+Start from the repo root. Prefer the installed CLI:
 
 ```bash
 tabuflow --help
 ```
 
-If it is not on PATH, use the project runner:
+If it is not on PATH, use the repo-local runner as a fallback:
 
 ```bash
 uv run tabuflow --help
 ```
+
+For OpenCode or another shell-capable coding agent, do not copy Tabuflow scripts into the agent's tool directory. Call the installed `tabuflow` CLI and keep Tabuflow's implementation in the Python package.
 
 All CLI commands print JSON. Treat a nonzero exit or a payload with `status: "error"` as a real failure. Inspect the message, fix the source path or options, and rerun the smallest relevant command.
 
 Use tabular tools for CSV, XLS, and XLSX:
 
 ```bash
-uv run tabuflow tabular inspect path/to/file.xlsx --sheet "Sheet1" --start-row 1 --limit 10
-uv run tabuflow tabular profile path/to/file.xlsx --sheet "Sheet1"
-uv run tabuflow tabular extract path/to/file.xlsx --sheet "Sheet1"
+tabuflow tabular inspect path/to/file.xlsx --sheet "Sheet1" --start-row 1 --limit 10
+tabuflow tabular profile path/to/file.xlsx --sheet "Sheet1"
+tabuflow tabular extract path/to/file.xlsx --sheet "Sheet1"
 ```
 
 Inspect before extracting. Do not assume row 1 is the header. Watch for metadata rows, repeated headers, blank spacer rows, footer totals, merged-ish spreadsheet layout, and several sparse tables in one sheet.
@@ -43,14 +45,14 @@ Inspect before extracting. Do not assume row 1 is the header. Watch for metadata
 Use PDF tools in two passes:
 
 ```bash
-uv run tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3
-uv run tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3 --include-images
-uv run tabuflow pdf prepare path/to/file.pdf
-uv run tabuflow pdf extract path/to/file.pdf tables detected --page-start 1 --min-rows 2
-uv run tabuflow pdf extract path/to/file.pdf tables detected --strategy text --require-header --page-start 2 --page-end 3 --min-rows 2
-uv run tabuflow pdf extract path/to/file.pdf tables detected --vertical-strategy text --horizontal-strategy lines --page-start 3 --page-end 13 --output-columns model,organization,score --min-filled-cells 2 --merge-tables auto
-uv run tabuflow pdf extract path/to/file.pdf tables line-value --value-pattern '^\d+\s*$' --label-column device --value-column score --output-columns device,score
-uv run tabuflow pdf extract path/to/file.pdf tables coordinate --pages 2 --y-min 180 --y-max 760 --column model:50:190 --column score:190:260 --required-columns model,score
+tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3
+tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3 --include-images
+tabuflow pdf prepare path/to/file.pdf
+tabuflow pdf extract path/to/file.pdf tables detected --page-start 1 --min-rows 2
+tabuflow pdf extract path/to/file.pdf tables detected --strategy text --require-header --page-start 2 --page-end 3 --min-rows 2
+tabuflow pdf extract path/to/file.pdf tables detected --vertical-strategy text --horizontal-strategy lines --page-start 3 --page-end 13 --output-columns model,organization,score --min-filled-cells 2 --merge-tables auto
+tabuflow pdf extract path/to/file.pdf tables line-value --value-pattern '^\d+\s*$' --label-column device --value-column score --output-columns device,score
+tabuflow pdf extract path/to/file.pdf tables coordinate --pages 2 --y-min 180 --y-max 760 --column model:50:190 --column score:190:260 --required-columns model,score
 ```
 
 `pdf inspect` is for bounded page text, row geometry, and default 2x2 overview batches of four pages each. Use `--include-images` only for focused full-page image inspection. `pdf prepare` copies the source PDF, renders every page, and creates a normalized-filename workspace under the root-owned `artifacts/pdf/...` path with `manifest.json`, `pages/*.jpg`, `text/*.txt`, and `work/`.
@@ -62,8 +64,8 @@ Use `pdf extract` only after the layout mechanics are understood. It is an LLM-f
 Use email tools only for reference context:
 
 ```bash
-uv run tabuflow email inspect path/to/message.eml
-uv run tabuflow email inspect path/to/message.msg
+tabuflow email inspect path/to/message.eml
+tabuflow email inspect path/to/message.msg
 ```
 
 Email inspection returns metadata, body preview, body length, and attachment names. It does not create billing-table artifacts. Do not replace spreadsheet/PDF billing rows with email body text unless the user explicitly asks for that.
@@ -71,12 +73,12 @@ Email inspection returns metadata, body preview, body length, and attachment nam
 Use artifact tools after extraction:
 
 ```bash
-uv run tabuflow artifacts list
-uv run tabuflow artifacts from-source path/to/file.xlsx
-uv run tabuflow artifacts describe artifact_name
-uv run tabuflow artifacts query "select * from artifact_name limit 20"
-uv run tabuflow artifacts query @query.sql
-uv run tabuflow artifacts save-view saved_view_name @query.sql
+tabuflow artifacts list
+tabuflow artifacts from-source path/to/file.xlsx
+tabuflow artifacts describe artifact_name
+tabuflow artifacts query "select * from artifact_name limit 20"
+tabuflow artifacts query @query.sql
+tabuflow artifacts save-view saved_view_name @query.sql
 ```
 
 Use `artifacts from-source` to find outputs for a specific input file. Use `describe` before writing SQL. Start with a small `limit` query. Put non-trivial SQL in a normal `.sql` file and pass it as `@query.sql` so the logic stays reviewable. Quote generated artifact names that contain hyphens: `select * from "service-usage-1cca2e" limit 20;`.

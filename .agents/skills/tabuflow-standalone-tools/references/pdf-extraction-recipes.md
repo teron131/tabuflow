@@ -7,13 +7,13 @@ These recipes are starting shapes. Adjust page ranges, columns, patterns, clips,
 Use for plausible horizontal grid tables.
 
 ```bash
-uv run tabuflow pdf extract path/to/file.pdf tables detected --page-start 1 --min-rows 2
+tabuflow pdf extract path/to/file.pdf tables detected --page-start 1 --min-rows 2
 ```
 
 Borderless text-positioned tables:
 
 ```bash
-uv run tabuflow pdf extract path/to/file.pdf tables detected \
+tabuflow pdf extract path/to/file.pdf tables detected \
   --strategy text \
   --require-header \
   --page-start 2 \
@@ -24,7 +24,7 @@ uv run tabuflow pdf extract path/to/file.pdf tables detected \
 Mixed strategy and continuing chunks:
 
 ```bash
-uv run tabuflow pdf extract path/to/file.pdf tables detected \
+tabuflow pdf extract path/to/file.pdf tables detected \
   --vertical-strategy text \
   --horizontal-strategy lines \
   --page-start 3 \
@@ -41,7 +41,7 @@ Use `--clip X0,Y0,X1,Y1` when non-table page regions are contaminating cells.
 Use for stable x-band tables when detector output is missing or suspicious.
 
 ```bash
-uv run tabuflow pdf extract path/to/file.pdf tables coordinate \
+tabuflow pdf extract path/to/file.pdf tables coordinate \
   --pages 2 \
   --y-min 180 \
   --y-max 760 \
@@ -53,7 +53,7 @@ uv run tabuflow pdf extract path/to/file.pdf tables coordinate \
 Wrapped label or description column:
 
 ```bash
-uv run tabuflow pdf extract path/to/file.pdf tables coordinate \
+tabuflow pdf extract path/to/file.pdf tables coordinate \
   --pages 2 \
   --column label:50:240 \
   --column amount:420:520 \
@@ -67,7 +67,7 @@ uv run tabuflow pdf extract path/to/file.pdf tables coordinate \
 Use for stacked amount rows, repeated amount sections, and pages where labels and values are visually paired.
 
 ```bash
-uv run tabuflow pdf extract path/to/file.pdf tables line-value \
+tabuflow pdf extract path/to/file.pdf tables line-value \
   --value-preset money \
   --label-column label \
   --value-column amount \
@@ -79,7 +79,7 @@ uv run tabuflow pdf extract path/to/file.pdf tables line-value \
 Split sections when the carried section should become separate CSV outputs:
 
 ```bash
-uv run tabuflow pdf extract path/to/file.pdf tables line-value \
+tabuflow pdf extract path/to/file.pdf tables line-value \
   --value-preset money \
   --label-column label \
   --value-column amount \
@@ -93,7 +93,7 @@ uv run tabuflow pdf extract path/to/file.pdf tables line-value \
 Use for known labels with multiline values.
 
 ```bash
-uv run tabuflow pdf extract path/to/file.pdf tables field-value \
+tabuflow pdf extract path/to/file.pdf tables field-value \
   --field 'GPU=^GPU$' \
   --field 'Networking=^Networking$' \
   --field 'Support=^Support$' \

@@ -22,17 +22,19 @@ Turn messy local business files into inspectable SQLite-backed artifacts that ca
 
 ## Start Here
 
-From the repo root, prefer the installed command when available:
+From the repo root, prefer the installed CLI when available:
 
 ```bash
 tabuflow --help
 ```
 
-If the command is not on PATH, use the project runner:
+If the command is not on PATH, use the repo-local runner as a fallback:
 
 ```bash
 uv run tabuflow --help
 ```
+
+For OpenCode or another shell-capable coding agent, do not copy Tabuflow scripts into the agent's tool directory. Call the installed `tabuflow` CLI and keep Tabuflow's implementation in the Python package.
 
 All CLI commands print JSON. Treat a nonzero exit or a JSON payload with `status: "error"` as a real failure to inspect and fix.
 

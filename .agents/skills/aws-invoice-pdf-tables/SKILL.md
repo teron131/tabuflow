@@ -20,8 +20,8 @@ Preserve table boundaries, titles, row order, parent/child hierarchy, and totals
 When invoice folders include `.eml` or `.msg` files, inspect them as references before final reporting:
 
 ```bash
-uv run tabuflow email inspect <message.eml>
-uv run tabuflow email inspect <message.msg>
+tabuflow email inspect <message.eml>
+tabuflow email inspect <message.msg>
 ```
 
 Use the result's subject, sender/date, attachments, and body preview to understand approvals and package grouping. Infer message type, provider, account, period, and amount from the email text when useful, but keep `reference_only: true` emails separate from PDF table outputs.
@@ -39,8 +39,8 @@ Use Tabuflow's generic PyMuPDF line/value extractor for text-based AWS invoice P
 Run shape from the repo root:
 
 ```bash
-uv run tabuflow pdf inspect <invoice.pdf>
-uv run tabuflow pdf extract <invoice.pdf> tables line-value \
+tabuflow pdf inspect <invoice.pdf>
+tabuflow pdf extract <invoice.pdf> tables line-value \
   --name amount_lines \
   --value-preset money \
   --label-column label \
@@ -56,7 +56,7 @@ uv run tabuflow pdf extract <invoice.pdf> tables line-value \
 If a specific AWS invoice family needs reusable cleanup rules, use the optional sidecar:
 
 ```bash
-uv run tabuflow pdf extract <invoice.pdf> --rules .agents/skills/aws-invoice-pdf-tables/rules/aws_invoice_text.yaml
+tabuflow pdf extract <invoice.pdf> --rules .agents/skills/aws-invoice-pdf-tables/rules/aws_invoice_text.yaml
 ```
 
 Expected common section outputs:

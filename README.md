@@ -44,6 +44,12 @@ The reusable tools are intentionally small:
 - `tabuflow.email`: inspect EML/MSG as reference context.
 - `tabuflow.artifacts`: list, rediscover, describe, query, repair, and save SQLite-backed artifacts.
 
+For cross-agent shell use, install the CLI once:
+
+```bash
+uv tool install /Users/teron/Projects/tabuflow
+```
+
 The CLI mirrors those useful presets:
 
 ```bash

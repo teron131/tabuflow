@@ -42,8 +42,8 @@ Do not use emails to:
 - Prefer the standalone CLI when available:
 
 ```bash
-uv run tabuflow email inspect <message.eml>
-uv run tabuflow email inspect <message.msg>
+tabuflow email inspect <message.eml>
+tabuflow email inspect <message.msg>
 ```
 
 - The CLI output is structural: subject, sender/recipients/date, body source, body preview, body length, and attachments. Derive provider/account/period/amount and approval status from that text; they are not generic tool fields.
