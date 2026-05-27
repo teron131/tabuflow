@@ -10,9 +10,9 @@ Use `pdf inspect` to produce evidence for an extraction plan, not to declare the
 
 `row_geometry` is the word-row evidence for coordinate or line-based extraction. Use it when visual x-bands, wrapped labels, or nearby value lines are more reliable than detected table cells.
 
-`overview_batches` are 2x2 page contact sheets. Use them to find layout families, page transitions, table starts/ends, repeated sections, and continuation edges.
+`overview_batches` are selected 2x2 page contact sheets chosen from layout-profile sample pages. Use them to find layout families, page transitions, table starts/ends, repeated sections, and continuation edges without loading every rendered batch into agent context. `overview_batch_index` lists the other rendered batches by page range for optional follow-up.
 
-Focused `image_path` pages from `--include-images` are for ambiguous pages only. Use them when the 2x2 overview or row geometry is not enough to resolve a boundary or visual hierarchy.
+Focused full-page images are for ambiguous pages only. Use prepared page artifacts or a focused render action when the 2x2 overview or row geometry is not enough to resolve a boundary or visual hierarchy.
 
 Raw page `text` is supporting evidence. Use it for exact spelling, punctuation, table titles, and wrapped values after a structured candidate exists. Do not make raw linear text the first table strategy.
 

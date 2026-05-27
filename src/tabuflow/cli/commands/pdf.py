@@ -24,13 +24,12 @@ from ..pdf_spec import (
 
 
 def add_pdf_inspect_command(pdf_subparsers: Any) -> None:
-    """Add the PDF text and image inspection command."""
-    inspect = pdf_subparsers.add_parser("inspect", help="Inspect PDF profile hints, default 2x2 overview batches, row geometry, text, and optional page images.")
+    """Add the PDF profile inspection command."""
+    inspect = pdf_subparsers.add_parser("inspect", help="Inspect PDF profile hints and selected 2x2 overview batches.")
     inspect.add_argument("path")
     inspect.add_argument("--page-start", type=int, default=1)
-    inspect.add_argument("--page-limit", type=int, default=DEFAULT_INSPECT_PAGE_LIMIT)
+    inspect.add_argument("--page-limit", type=int, default=DEFAULT_INSPECT_PAGE_LIMIT, help="Number of focused pages to inspect in detail; default 0 returns profile-only output.")
     inspect.add_argument("--max-text-chars", type=int, default=DEFAULT_INSPECT_TEXT_CHARS)
-    inspect.add_argument("--include-images", action="store_true")
     inspect.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     inspect.set_defaults(
         handler=lambda args: inspect_pdf_file(
@@ -38,7 +37,6 @@ def add_pdf_inspect_command(pdf_subparsers: Any) -> None:
             page_start=args.page_start,
             page_limit=args.page_limit,
             max_text_chars=args.max_text_chars,
-            include_images=args.include_images,
             dpi=args.dpi,
         )
     )

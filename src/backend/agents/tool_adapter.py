@@ -287,16 +287,14 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
         page_start: int = 1,
         page_limit: int = DEFAULT_INSPECT_PAGE_LIMIT,
         max_text_chars: int = DEFAULT_INSPECT_TEXT_CHARS,
-        include_images: bool = False,
     ) -> dict[str, Any]:
-        """Inspect a PDF with profile hints, default 2x2 overview batches, row geometry, raw text, and optional page images.
+        """Inspect a PDF with profile hints and selected 2x2 overview batches.
 
         Args:
             path: Path to the PDF file to inspect.
-            page_start: One-based page number where inspection begins.
-            page_limit: Maximum number of pages to inspect.
-            max_text_chars: Maximum text characters to include per page; raw text is supplemental to row geometry for tables.
-            include_images: Whether to render inspected pages to image artifacts.
+            page_start: One-based page number where optional detailed inspection begins.
+            page_limit: Number of focused pages to inspect in detail; default 0 returns profile-only output.
+            max_text_chars: Maximum text characters to include per page when page_limit is greater than 0.
         """
         return inspect_pdf_file(
             _workspace_source_path(
@@ -306,7 +304,6 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             page_start=page_start,
             page_limit=page_limit,
             max_text_chars=max_text_chars,
-            include_images=include_images,
         )
 
     @tool(parse_docstring=True)
