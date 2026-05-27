@@ -40,9 +40,9 @@ flowchart LR
 The reusable tools are intentionally small:
 
 - `tabuflow.tabular`: inspect/profile/extract CSV, XLS, and XLSX files.
-- `tabuflow.pdf`: inspect PDF text/images and prepare PDF artifact workspaces.
+- `tabuflow.pdf`: inspect PDF text/images, prepare PDF artifact workspaces, and extract reviewed table drafts.
 - `tabuflow.email`: inspect EML/MSG as reference context.
-- `tabuflow.artifacts`: list, rediscover, describe, query, repair, and save SQLite-backed artifacts.
+- `tabuflow.artifacts`: list, rediscover, suggest, describe, query, repair, and save SQLite-backed artifacts.
 
 For cross-agent shell use, install the CLI once:
 
@@ -56,7 +56,9 @@ Tabuflow also exposes a minimal stdio MCP server for coding agents that support 
 tabuflow-mcp
 ```
 
-Run Tabuflow from the project root. CLI and MCP tools always resolve artifact paths under the current working directory's `./artifacts/` path.
+Run Tabuflow from the project root. CLI and MCP tools always resolve artifact paths under the current working directory's `./artifacts/` path; callers choose source paths, sheet/page options, and SQL text, not storage roots or output directories.
+
+The MCP server mirrors the standalone tool layer with `tabular_inspect`, `tabular_profile`, `tabular_extract`, `pdf_inspect`, `pdf_prepare`, `pdf_extract`, `email_inspect`, `artifacts_list`, `artifacts_from_source`, `artifacts_describe`, `artifacts_query`, and `artifacts_save_view`.
 
 The CLI mirrors those useful presets:
 
@@ -68,7 +70,9 @@ tabuflow tabular extract path/to/file.csv
 tabuflow pdf inspect path/to/file.pdf
 tabuflow pdf prepare path/to/file.pdf
 tabuflow email inspect path/to/message.msg
+tabuflow artifacts list
 tabuflow artifacts from-source path/to/file.xlsx
+tabuflow artifacts suggest "..."
 tabuflow artifacts describe artifact_name
 tabuflow artifacts query @query.sql
 tabuflow artifacts save-view saved_view_name @query.sql

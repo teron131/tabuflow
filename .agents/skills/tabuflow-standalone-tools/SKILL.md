@@ -1,13 +1,13 @@
 ---
 name: tabuflow-standalone-tools
-description: Use when inspecting, extracting, or querying messy CSV, XLS, XLSX, EML, MSG, or PDF business data with Tabuflow's standalone CLI or Python tool layer.
+description: Use when inspecting, extracting, or querying messy CSV, XLS, XLSX, EML, MSG, or PDF business data with Tabuflow CLI or Python calls.
 ---
 
 # Tabuflow Standalone Tools
 
-Use this skill when you need Tabuflow's robust data-file presets for local business files.
+Use this skill when you need Tabuflow's data-file commands for local business files.
 
-The useful boundary is simple: use Tabuflow for best-fit presets around messy data preparation and artifact queries; use ordinary shell/editor tools for file reading, editing, reports, SQL draft files, and one-off exploration. Do not hardcode generated names, row counts, months, or vendor-specific layouts as if they were stable contracts.
+Use Tabuflow for messy data preparation and artifact queries. Use ordinary shell/editor tools for file reading, editing, reports, SQL draft files, and one-off exploration. Do not hardcode generated names, row counts, months, or vendor-specific layouts as stable contracts.
 
 For runs from a project root, Tabuflow-owned working files always live under `./artifacts/`. Tabular extraction creates `artifacts/tabular.sqlite`; PDF preparation/extraction writes `artifacts/pdf/<source>/...`; reusable SQL or scratch transformation files belong in `artifacts/sql/`; validated CSV/XLSX deliverables belong in `artifacts/outputs/`.
 
@@ -36,9 +36,9 @@ If the command is not on PATH, use the repo-local runner as a fallback:
 uv run tabuflow --help
 ```
 
-For OpenCode or another shell-capable coding agent, do not copy Tabuflow scripts into the agent's tool directory. Call the installed `tabuflow` CLI and keep Tabuflow's implementation in the Python package.
+For OpenCode or another shell-capable coding agent, call the installed `tabuflow` CLI. Do not copy Tabuflow scripts into the agent's tool directory.
 
-For MCP tool calls, do not pass workspace or output directory arguments. Run the MCP server from the project root so Tabuflow writes to `./artifacts/`.
+For MCP tool calls, run the MCP server from the project root and use the equivalent inspect, extract, email, and artifact query tools. Do not pass workspace or output directory arguments.
 
 All CLI commands print JSON. Treat a nonzero exit or a JSON payload with `status: "error"` as a real failure to inspect and fix.
 
@@ -85,7 +85,7 @@ tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3
 tabuflow pdf prepare path/to/file.pdf
 ```
 
-`pdf inspect` is profile-first: by default it returns `path`, `page_count`, selected 2x2 `overview_batches`, a lightweight `overview_batch_index`, and `profile.visual_samples` plus layout signatures. It omits heavy page details by default; pass a page window when focused page text, row geometry, table detections, and table region hints are needed. Inspect profile caches and overview images live under the source-owned `artifacts/pdf/<source>/inspect/` directory. `pdf prepare` copies the source PDF, renders every page, and creates a normalized-filename workspace with `manifest.json`, `pages/*.jpg`, `text/*.txt`, and `work/` under the root-owned `artifacts/pdf/...` path.
+`pdf inspect` is profile-first: by default it returns selected 2x2 `overview_batches`, an `overview_batch_index`, visual samples, and layout signatures. Pass `--page-start` and `--page-limit` when focused page text, row geometry, table detections, and table region hints are needed. Use `pdf prepare` when you need rendered pages, text files, and a work folder under `artifacts/pdf/...`.
 
 Visual cues are mandatory for accepting PDF table artifacts. Before declaring a PDF table set correct, pruning detector output, or naming copied sample artifacts, inspect the rendered overview images for the relevant page range and use focused full-page images for page boundaries, same-page repeated tables, generic columns, low-confidence output, or any table count mismatch. CSV shape checks prove content after visual identity is established; they do not replace visual review. Use `--dpi 240` or `--dpi 300` when the default 2x2 overview images are too soft for table-boundary triage; focused full-page images remain the detail view for acceptance decisions.
 
@@ -120,7 +120,7 @@ tabuflow pdf extract path/to/file.pdf tables line-value --value-preset money --s
 tabuflow pdf extract path/to/file.pdf tables coordinate --pages 2 --y-min 180 --y-max 760 --column model:50:190 --column score:190:260 --required-columns model,score
 ```
 
-Use `extract` when the PDF fits simple repeatable mechanics. It is a narrow preset layer over PyMuPDF, not a replacement for the generic `python -m pymupdf` utility commands. Use `tables detected` for PyMuPDF-detected tables, `tables coordinate` for x-coordinate table bands, `tables field-value` for configured field labels, and `tables line-value` for adjacent label/value lines. The command should name the target and preset, page ranges, cleanup rules, output columns, coordinate bands or value patterns, PyMuPDF table strategies, and optional clip rectangles, but it cannot choose output paths. Outputs always go to the root-owned PDF artifact workspace at `artifacts/pdf/<normalized-source>/work/tables`, and the manifest records the effective extraction arguments. Table CSV filenames use the source stem plus a page tag such as `p01p88`, padded to the source PDF page count width; a section/header descriptor and then a short fingerprint are appended only when the page tag collides. Do not use page-tag filenames as proof that a table is correct: one visual table may span pages, and one page may contain several separate visual tables. For text-positioned tables without ruling lines, try `tables detected --strategy text`; when detector noise creates generic `column_1` tables, use `--require-header`; for page chrome or footers around the table, constrain the detector with `--clip X0,Y0,X1,Y1`. For one logical table split across pages whose later headers drift, pass `--output-columns` and, when needed, `--min-filled-cells`; page-leading first-column continuations are joined to the previous row while adjacent chunks with the same forced schema merge according to `--merge-tables auto`. Use `--merge-tables never` when repeated same-schema tables are visually separate, and `--merge-tables always` when inspection shows the detector split one logical table into fragments. For field/value specs with multiline values, use `--collect-until-next-field`; for line/value or field/value PDFs with repeated sections or parent labels, use `--value-preset money`, `--section REGEX`, `--context FIELD=REGEX`, and `--clear-context FIELD=REGEX` to carry bounded context columns alongside the raw rows. A context regex may use a named `value` capture, otherwise the first capture or full line is used. Use `--split-by FIELD`, or `--split-sections` for the common section case, when a carried context column should become separate CSV outputs; use `--drop-empty-split` when header metadata should not become its own table. For coordinate tables where a label column wraps across multiple baselines, use `--continuation-column` and, if needed, `--anchor-y-slop`; stable required columns then anchor each row and nearby continuation text joins that row. `tables detected` defaults to `--merge-tables auto`, which merges same-schema chunks only when geometry looks continuous, and records source pages/tables/bounding boxes in the manifest; treat those outputs as raw detector tables and inspect them visually before import. Empty outputs include diagnostics so no-table text PDFs can be distinguished from PDFs with no extractable text. If the layout family is not clear, inspect text and a few page images first; do not feed all page images by default.
+Use `extract` when the PDF fits simple repeatable mechanics. Use `tables detected` for detected tables, `tables coordinate` for x-coordinate bands, `tables field-value` for configured field labels, and `tables line-value` for adjacent label/value lines. The command should name the target and preset, page ranges, cleanup rules, output columns, coordinate bands or value patterns, table strategies, and optional clip rectangles. Outputs go to `artifacts/pdf/<normalized-source>/work/tables`, and the manifest records the effective extraction arguments. Do not use page-tag filenames as proof that a table is correct: one visual table may span pages, and one page may contain several separate visual tables. For text-positioned tables without ruling lines, try `tables detected --strategy text`; when detector noise creates generic `column_1` tables, use `--require-header`; for page chrome or footers around the table, constrain the detector with `--clip X0,Y0,X1,Y1`. For one logical table split across pages whose later headers drift, pass `--output-columns` and, when needed, `--min-filled-cells`. Use `--merge-tables never` when repeated same-schema tables are visually separate, and `--merge-tables always` when inspection shows the detector split one logical table into fragments. For field/value specs with multiline values, use `--collect-until-next-field`; for line/value or field/value PDFs with repeated sections or parent labels, use `--value-preset money`, `--section REGEX`, `--context FIELD=REGEX`, and `--clear-context FIELD=REGEX`. Use `--split-by FIELD` or `--split-sections` when a carried context column should become separate CSV outputs; use `--drop-empty-split` when header metadata should not become its own table. For coordinate tables where a label column wraps across multiple baselines, use `--continuation-column` and, if needed, `--anchor-y-slop`. Empty outputs include diagnostics so no-table text PDFs can be distinguished from PDFs with no extractable text. If the layout family is not clear, inspect text and a few page images first; do not feed all page images by default.
 
 ## Email Reference Workflow
 
@@ -140,17 +140,18 @@ After extraction, use artifacts as the stable query boundary.
 ```bash
 tabuflow artifacts list
 tabuflow artifacts from-source path/to/file.xlsx
+tabuflow artifacts suggest "service usage by account"
 tabuflow artifacts describe artifact_name
 tabuflow artifacts query "select * from artifact_name limit 20"
 tabuflow artifacts query @query.sql
 tabuflow artifacts save-view saved_view_name @query.sql
 ```
 
-`artifacts list` returns a compact, bounded index by default. Use `--max-items`, `--all`, or `--detail full` when the compact index is not enough; use `describe` for a focused schema/sample payload before writing SQL.
+`artifacts list` returns a compact, bounded index by default. Use `--max-items`, `--all`, or `--detail full` when the compact index is not enough. Use `artifacts suggest` as a lightweight question-to-artifact discovery aid, then use `describe` for a focused schema/sample payload before writing SQL.
 
 Write non-trivial SQL in an ordinary `.sql` file and pass it with `@query.sql`. This keeps SQL reviewable and avoids hiding logic inside chat history.
 
-Use `from-source` after extraction to find the reusable artifacts produced by a specific input. For PDFs, prepare the visual/text workspace first, then import reviewed table artifacts into SQLite before querying.
+Use `from-source` after extraction to find the artifacts produced by a specific input. For PDFs, prepare the visual/text workspace first, then import reviewed table artifacts into SQLite before querying.
 
 Generated artifact names often contain hyphens. Quote them as SQLite identifiers in SQL, for example:
 
@@ -158,7 +159,7 @@ Generated artifact names often contain hyphens. Quote them as SQLite identifiers
 select * from "service-usage-1cca2e" limit 20;
 ```
 
-Source-backed table and PDF workspace names use normalized filenames such as `abc_def` or `abc_def_(2)`. If different content collides on the same normalized name, Tabuflow appends `_2`, `_3`, and so on; identical table content reuses the existing fingerprint-backed table.
+Source-backed table and PDF workspace names use normalized filenames such as `abc_def` or `abc_def_(2)`. Use those names as local handles, not business meaning.
 
 ## Python API Option
 
@@ -171,9 +172,9 @@ When CLI JSON is awkward, call the standalone Python functions directly from rep
 ## Boundaries
 
 - Do not use Tabuflow as a generic filesystem wrapper. Ordinary shell/read/edit tools are better for that.
-- Do not ask the model to choose artifact storage roots or database paths. Tabuflow resolves those from local runtime configuration.
+- Do not ask the model to choose artifact storage roots or database paths.
 - Do not treat generated table names, content hashes, page chunk names, row counts, or one run's view names as durable business concepts.
-- Keep source paths and SQL text under caller/user control; keep artifact storage configuration outside model-editable arguments.
+- Keep source paths and SQL text under caller/user control.
 
 ## Validation Bar
 

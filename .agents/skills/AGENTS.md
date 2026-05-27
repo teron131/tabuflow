@@ -1,8 +1,8 @@
 # Tabuflow Skill Context
 
-These repo skills are for choosing the right Tabuflow data tools and domain workflow.
+Use these repo skills to choose the right Tabuflow command flow for local data work.
 
-The important boundary is simple: `src/tabuflow` and the `tabuflow` CLI are the reusable tool layer. Use them for direct data inspection, extraction, artifact lookup, SQL querying, and saved views.
+Start from the project root. Use the CLI, or MCP when available, to inspect sources, extract tables, find artifacts, query data, and save views. Keep generated work under `./artifacts/`.
 
 ## Skill Routing
 
@@ -28,7 +28,7 @@ If it is not on PATH, use the repo-local runner as a fallback:
 uv run tabuflow --help
 ```
 
-For OpenCode or another shell-capable coding agent, do not copy Tabuflow scripts into the agent's tool directory. Call the installed `tabuflow` CLI and keep Tabuflow's implementation in the Python package.
+For OpenCode or another shell-capable coding agent, call the installed `tabuflow` CLI. Do not copy Tabuflow scripts into the agent's tool directory.
 
 All CLI commands print JSON. Treat a nonzero exit or a payload with `status: "error"` as a real failure. Inspect the message, fix the source path or options, and rerun the smallest relevant command.
 
@@ -46,7 +46,6 @@ Use PDF tools in two passes:
 
 ```bash
 tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3
-tabuflow pdf inspect path/to/file.pdf --page-start 1 --page-limit 3 --include-images
 tabuflow pdf prepare path/to/file.pdf
 tabuflow pdf extract path/to/file.pdf tables detected --page-start 1 --min-rows 2
 tabuflow pdf extract path/to/file.pdf tables detected --strategy text --require-header --page-start 2 --page-end 3 --min-rows 2
@@ -55,11 +54,11 @@ tabuflow pdf extract path/to/file.pdf tables line-value --value-pattern '^\d+\s*
 tabuflow pdf extract path/to/file.pdf tables coordinate --pages 2 --y-min 180 --y-max 760 --column model:50:190 --column score:190:260 --required-columns model,score
 ```
 
-`pdf inspect` is for bounded page text, row geometry, and default 2x2 overview batches of four pages each. Use `--include-images` only for focused full-page image inspection. `pdf prepare` copies the source PDF, renders every page, and creates a normalized-filename workspace under the root-owned `artifacts/pdf/...` path with `manifest.json`, `pages/*.jpg`, `text/*.txt`, and `work/`.
+`pdf inspect` is profile-first. With the default page limit it returns selected 2x2 overview batches and profile visual samples; pass `--page-start` and `--page-limit` for bounded page text, row geometry, table detections, and table region hints. Use `pdf prepare` when you need rendered pages, text files, and a work folder under `artifacts/pdf/...`.
 
 Do not assume one PDF has one extraction strategy. Treat PDF extraction like writing a small script from inspectable puzzle pieces: inspect the page profile, table detections, row geometry, default 2x2 overview batches, focused page images when needed, and text; then make one independent extraction decision per visual table, grouped logical table, or coordinate/text region. A single PDF may need `tables detected` for ruled grids, `tables field-value` or `tables line-value` for headerless label/value blocks, `tables coordinate` for stable x-bands, and explicit ignore rules for false positive one-cell detections. Use priority inside a region, not as a global document choice: `table_region_hints` first when present, with each group treated as its own decision unit; plausible table detections next, especially `interpretation.rows` when `interpretation.usable` is true; row/field geometry for weak or missing detection; overview batches for layout and continuation checks; raw linear text only to confirm exact spelling and wrapped values.
 
-Use `pdf extract` only after the layout mechanics are understood. It is an LLM-free, argument-driven preset layer over PyMuPDF: `tables detected` uses PyMuPDF table detection, `tables coordinate` groups words into configured x-coordinate bands, `tables field-value` collects configured fields from extracted text, and `tables line-value` pairs text lines with matching value lines. The command owns source-specific context such as page ranges, stop/skip lines, value patterns, output columns, x-coordinate bands, PyMuPDF table strategies, and optional clip rectangles, but not output paths. Outputs always go to `artifacts/pdf/<normalized-source>/work/tables` under the selected root, and the manifest records the effective extraction arguments. Table CSV filenames use page tags such as `p01p88` rather than cascade indexes; descriptor and fingerprint suffixes are fallback disambiguators only. For text-positioned tables without ruling lines, try `tables detected --strategy text`; when detector noise creates generic `column_1` tables, use `--require-header`; for page chrome or footers around the table, constrain the detector with `--clip X0,Y0,X1,Y1`. For one continuing table whose detected headers drift across pages, pass `--output-columns` and, when useful, `--min-filled-cells`; page-leading first-column continuations join the previous row before chunks are merged by `--merge-tables auto`. Use `--merge-tables never` for repeated same-schema tables that are visually separate, and `--merge-tables always` when inspection shows one logical table split into fragments. For field/value specs with multiline values, pass `--collect-until-next-field`. For coordinate tables with wrapped labels, pass `--continuation-column` so stable required columns anchor each row and nearby wrapped text joins the right row; tune `--anchor-y-slop` when continuations drift between adjacent rows. `tables detected` records source pages/tables/bounding boxes in the manifest. Empty outputs include diagnostics so no-table text PDFs can be distinguished from PDFs with no extractable text. Use images as verification evidence when text order or column bands are ambiguous, not as the default input.
+Use `pdf extract` only after the layout mechanics are understood. Use `tables detected` for detected tables, `tables coordinate` for x-coordinate bands, `tables field-value` for configured field labels, and `tables line-value` for adjacent label/value lines. The command should name the target and preset, page ranges, cleanup rules, output columns, coordinate bands or value patterns, table strategies, and optional clip rectangles. Outputs go to `artifacts/pdf/<normalized-source>/work/tables`, and the manifest records the effective extraction arguments. Do not use page-tag filenames as proof that a table is correct: one visual table may span pages, and one page may contain several separate visual tables. For text-positioned tables without ruling lines, try `tables detected --strategy text`; when detector noise creates generic `column_1` tables, use `--require-header`; for page chrome or footers around the table, constrain the detector with `--clip X0,Y0,X1,Y1`. For one logical table split across pages whose later headers drift, pass `--output-columns` and, when needed, `--min-filled-cells`. Use `--merge-tables never` when repeated same-schema tables are visually separate, and `--merge-tables always` when inspection shows the detector split one logical table into fragments. For field/value specs with multiline values, use `--collect-until-next-field`; for line/value or field/value PDFs with repeated sections or parent labels, use `--value-preset money`, `--section REGEX`, `--context FIELD=REGEX`, and `--clear-context FIELD=REGEX`. Use `--split-by FIELD` or `--split-sections` when a carried context column should become separate CSV outputs; use `--drop-empty-split` when header metadata should not become its own table. For coordinate tables where a label column wraps across multiple baselines, use `--continuation-column` and, if needed, `--anchor-y-slop`. Empty outputs include diagnostics so no-table text PDFs can be distinguished from PDFs with no extractable text. Use images as verification evidence when text order or column bands are ambiguous, not as the default input.
 
 Use email tools only for reference context:
 
@@ -75,13 +74,14 @@ Use artifact tools after extraction:
 ```bash
 tabuflow artifacts list
 tabuflow artifacts from-source path/to/file.xlsx
+tabuflow artifacts suggest "service usage by account"
 tabuflow artifacts describe artifact_name
 tabuflow artifacts query "select * from artifact_name limit 20"
 tabuflow artifacts query @query.sql
 tabuflow artifacts save-view saved_view_name @query.sql
 ```
 
-Use `artifacts from-source` to find outputs for a specific input file. Use `describe` before writing SQL. Start with a small `limit` query. Put non-trivial SQL in a normal `.sql` file and pass it as `@query.sql` so the logic stays reviewable. Quote generated artifact names that contain hyphens: `select * from "service-usage-1cca2e" limit 20;`.
+Use `artifacts from-source` to find outputs for a specific input file. Use `artifacts suggest` only as a lightweight discovery aid for a question; still `describe` the chosen artifact before writing SQL. Start with a small `limit` query. Put non-trivial SQL in a normal `.sql` file and pass it as `@query.sql` so the logic stays reviewable. Quote generated artifact names that contain hyphens: `select * from "service-usage-1cca2e" limit 20;`.
 
 ## Use Ordinary Tools For Ordinary Work
 
@@ -89,7 +89,7 @@ Keep normal repo work in ordinary shell/editor tools: `rg`, focused file reads, 
 
 Use Tabuflow when it adds domain value: robust spreadsheet/PDF inspection, conservative extraction, artifact catalog lookup, read-only SQLite querying, saved views, and schema-aware SQL repair hints. Use plain shell/editor tools for everything else.
 
-Do not ask the model to choose artifact storage roots or database paths. Tabuflow resolves those from local runtime configuration. The caller may choose source paths, sheet/page options, bounded limits, and SQL text.
+Do not ask the model to choose artifact storage roots or database paths. Choose source paths, sheet/page options, bounded limits, and SQL text.
 
 ## Python Tool Layer
 

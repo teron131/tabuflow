@@ -9,7 +9,8 @@ Any Coding Agent means a normal coding agent such as Codex, Pi, OpenCode, or ano
 ## Boundary
 
 - `src/tabuflow` is the reusable layer. It should expose ordinary Python functions for tabular inspection/extraction, PDF inspection/preparation, email reference inspection, artifact catalog/query/view operations, and deterministic repair hints.
-- `src/tabuflow/cli.py` is a small preset surface over the useful standalone operations. It should wrap robust data workflows, not generic file reading/editing that coding agents already have.
+- `src/tabuflow/cli/` is a small preset surface over the useful standalone operations. It should wrap robust data workflows, not generic file reading/editing that coding agents already have.
+- `src/tabuflow/mcp/` is the FastMCP stdio adapter over the same reusable tool layer. It should expose source paths, page/sheet options, and SQL text, not model-chosen workspace roots or output directories.
 - `src/backend/agents` owns custom Tabuflow workbench behavior: prep agents, Query Stage SQL reuse/history, SQL-file edits, validation retries, fixer, orchestration state, and graph routing.
 - `src/backend/agents/tool_adapter.py` is a compatibility adapter for LangChain. LangChain is a consumer of the tool layer, not the foundation.
 - `src/tabuflow/artifacts` owns concrete run outputs and SQLite-backed artifact metadata. SQL files should also live with artifacts because they are produced/reusable project work, while skills stay as guidance contracts about desired outcomes, validation, and failure modes.
@@ -44,7 +45,7 @@ The latest tabular improvement made the useful hints explicit:
 - `tabular profile --all-sheets` summarizes workbook sheets in one call.
 - `tabular extract` returns `excluded_row_hints` for footer-like rows left outside the loaded table, such as `Rounding error` and `Total`.
 
-The artifact tools are useful because they turn extracted data into a repeatable query boundary: `list`, `from-source`, `describe`, bounded read-only `query`, SQL repair hints, and saved views. `artifacts from-source` now returns a preferred artifact plus quoted preview SQL so agents can start from source lineage instead of memorizing generated table names.
+The artifact tools are useful because they turn extracted data into a repeatable query boundary: `list`, `from-source`, lightweight natural-language `suggest`, `describe`, bounded read-only `query`, SQL repair hints, and saved views. `artifacts from-source` now returns a preferred artifact plus quoted preview SQL so agents can start from source lineage instead of memorizing generated table names.
 
 The artifact database is the working data warehouse for prepared files. Users may already have many source files loaded into SQLite, so normal analysis should begin by listing/describing artifacts and writing ordinary SQL files against the database, not by asking an agent to remember file names or table names from chat history. Agents can author and run SQL, but the reusable unit should be the `.sql` artifact and the saved view/output it proves.
 
@@ -117,7 +118,7 @@ Adjacent `.eml` and `.msg` files are supporting reference context, not default s
 
 ## Improvement Priorities
 
-1. Keep roots and database paths explicit for repeatable CLI work. `--root-dir` and artifact `--database-path` are useful for coding agents running from different working directories.
+1. Keep artifact ownership explicit for repeatable CLI/MCP work. Run from the project root so `./artifacts/` is the stable workspace, and keep source paths, SQL, sheet/page options, and business outputs as the caller-controlled parts.
 
 2. Improve extraction efficiency only where it beats freestyle. Large CSV extraction still has a full-layout safety cap; if large CSVs matter, add streaming/chunked ingestion or document when direct SQLite/DuckDB/Python is better.
 
@@ -125,36 +126,38 @@ Adjacent `.eml` and `.msg` files are supporting reference context, not default s
 
 4. Keep generated artifact names out of business logic. Use `from-source`, `describe`, catalog metadata, saved views, and recipe-level stable names to bridge generic extraction to repeatable outputs.
 
-5. Add first-class artifact file structures for SQL and PDF work. The expected direction is `artifacts/sql/` for reusable query files, `artifacts/pdf/` for PDF evidence and table drafts, and `artifacts/outputs/` for validated CSV/XLSX-style outputs, with SQLite catalog/run metadata indexing those files instead of hiding SQL in chat or graph state.
+5. Keep first-class artifact file structures for SQL, PDF work, and deliverables. The expected direction is `artifacts/sql/` for reusable query files, `artifacts/pdf/` for PDF evidence and table drafts, and `artifacts/outputs/` for validated CSV/XLSX-style outputs, with SQLite catalog/run metadata indexing those files instead of hiding SQL in chat or graph state.
 
 6. Keep the app/workbench generic. UI and API defaults should expose prepared sources, artifacts, saved views, SQL files, and output files without baking GCP/AWS-specific result columns into the core product.
 
 ## Code Improvements Landed
 
-- `src/tabuflow/cli.py` accepts `--root-dir` on `tabular`, `pdf`, `email`, and `artifacts` command groups.
-- `artifacts` accepts `--database-path`, with relative database paths resolved under `--root-dir`.
+- The flat `src/tabuflow/cli.py` was replaced by `src/tabuflow/cli/` with command modules for `tabular`, `pdf`, `email`, and `artifacts`.
+- `tabuflow-mcp` starts a FastMCP stdio adapter with the same command-first boundary and attaches artifact workspace metadata to tool payloads.
+- CLI and MCP tools now resolve artifact storage from the current working directory's fixed `artifacts/` workspace instead of accepting model-selected root/output/database arguments.
 - `tabular inspect/profile` expose likely header and data-start hints directly.
 - Workbook profiling can run across all sheets with `--all-sheets`.
 - Extraction reports footer-like rows it left outside the loaded table.
 - `artifacts from-source` returns a preferred typed target and a ready `SELECT ... LIMIT 20` query hint.
+- `artifacts suggest` provides a lightweight token-based way to find likely tables or views for a natural-language question before describing or querying them.
 - SQLite tabular catalog identity is fingerprint-only: `_tabular_contents.fingerprint` is the primary key and `_tabular_sources.fingerprint` is the lineage key. The old `content_id` path was removed rather than shimmed.
+- Artifact catalog code moved under `src/tabuflow/artifacts/catalog/` so metadata, payloads, and query/suggestion surfaces have clearer ownership.
 - PDF preparation keeps each PDF workspace self-contained: copied normalized source PDF, `manifest.json`, `pages/*.jpg`, `text/*.txt`, and `work/tables/`. Extraction belongs to `pdf extract <pdf> tables <preset> [options]`, which writes reviewed CSV outputs and provenance into the tables workspace.
 - PDF extraction adds CLI-shaped PyMuPDF presets for repeatable text-first layouts: `tables detected`, `tables coordinate`, `tables field-value`, and `tables line-value`. Field/value rows can collect multiline values until the next configured field. Coordinate rows can set `--continuation-column` for wrapped label cells while stable columns anchor the row. PyMuPDF table detection merges adjacent same-column detections into one CSV and now exposes `--strategy`, `--vertical-strategy`, `--horizontal-strategy`, `--clip`, `--require-header`, `--output-columns`, and `--min-filled-cells` for text-positioned tables, cropped detection, stable schemas, continuation rows, and noise control. The CLI cannot select `output_dir`; outputs stay in the root-owned PDF artifact workspace. Images are verification/fallback evidence, not mandatory input.
 - Extraction no longer exposes `sample_rows`; it stores full recovered tables. Preview defaults were raised so inspect/profile/describe are more useful without changing ingest: `tabular inspect` defaults to 20 rows, tabular profile uses 20 sample rows, and `artifacts describe` defaults to 10 sample rows with a 20-row cap.
 
-Recent verification used:
+Current useful verification:
 
-- `uv run ruff check src/tabuflow/tabular src/tabuflow/artifacts src/tabuflow/cli.py --fix`
-- `uv run ruff format src/tabuflow/tabular src/tabuflow/artifacts src/tabuflow/cli.py`
+- `uv run ruff check src/tabuflow/tabular src/tabuflow/artifacts src/tabuflow/cli src/tabuflow/mcp --fix`
+- `uv run ruff format src/tabuflow/tabular src/tabuflow/artifacts src/tabuflow/cli src/tabuflow/mcp`
 - `uv run python -m pytest tests/test_cli.py tests/test_tabular_xls.py tests/test_sql_artifact_reuse.py`
 - `uv run tabuflow tabular profile examples/gcp/cost_table.csv --max-sample-rows 3`
 - `uv run tabuflow tabular profile examples/gcp/IBS_ChargeItemUploadTemplate_Cloud_GCP_20260312.xls --all-sheets --max-sample-rows 2`
-- `uv run ruff check src/tabuflow/tabular/storage.py src/tabuflow/tabular/tools.py src/tabuflow/artifacts/catalog_metadata.py src/tabuflow/artifacts/catalog.py src/tabuflow/pdf/tools.py src/tabuflow/cli.py src/backend/agents/tool_adapter.py tests/test_cli.py`
-- `uv run python -m pytest`
+- `uv run python -c "from tabuflow.mcp import create_mcp_server; create_mcp_server(); print('mcp ok')"`
 - `uv run tabuflow tabular inspect examples/gcp/cost_table.csv`
 - `uv run tabuflow tabular profile examples/gcp/cost_table.csv`
-- `uv run tabuflow artifacts --root-dir . describe billing-account-23ac1d_typed`
-- `uv run tabuflow artifacts --root-dir . list --max-items 3 --detail compact`
+- `uv run tabuflow artifacts describe billing-account-23ac1d_typed`
+- `uv run tabuflow artifacts list --max-items 3 --detail compact`
 
 ## Decision Rule
 
