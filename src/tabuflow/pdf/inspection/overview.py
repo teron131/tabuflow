@@ -14,6 +14,7 @@ OVERVIEW_MARGIN = 14
 OVERVIEW_BATCH_COLUMNS = 2
 OVERVIEW_BATCH_ROWS = 2
 OVERVIEW_BATCH_PAGE_COUNT = OVERVIEW_BATCH_COLUMNS * OVERVIEW_BATCH_ROWS
+OVERVIEW_MAX_DPI = 300
 
 
 def _overview_page_tag(
@@ -59,7 +60,7 @@ def _write_overview_image(
                 y + OVERVIEW_LABEL_HEIGHT + OVERVIEW_THUMB_HEIGHT,
             )
             sheet.show_pdf_page(page_rect, document, page_number - 1, keep_proportion=True)
-        sheet.get_pixmap(dpi=min(dpi, 160), alpha=False).save(image_path)
+        sheet.get_pixmap(dpi=min(dpi, OVERVIEW_MAX_DPI), alpha=False).save(image_path)
     finally:
         overview.close()
 

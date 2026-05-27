@@ -79,7 +79,7 @@ tabuflow pdf prepare path/to/file.pdf
 
 `pdf inspect` is for bounded page text, row geometry, and default 2x2 overview batches of four pages each. Use `--include-images` only for focused full-page image inspection. `pdf prepare` copies the source PDF, renders every page, and creates a normalized-filename workspace with `manifest.json`, `pages/*.jpg`, `text/*.txt`, and `work/` under the root-owned `artifacts/pdf/...` path.
 
-Visual cues are mandatory for accepting PDF table artifacts. Before declaring a PDF table set correct, pruning detector output, or naming copied sample artifacts, inspect the rendered overview images for the relevant page range and use focused full-page images for page boundaries, same-page repeated tables, generic columns, low-confidence output, or any table count mismatch. CSV shape checks prove content after visual identity is established; they do not replace visual review.
+Visual cues are mandatory for accepting PDF table artifacts. Before declaring a PDF table set correct, pruning detector output, or naming copied sample artifacts, inspect the rendered overview images for the relevant page range and use focused full-page images for page boundaries, same-page repeated tables, generic columns, low-confidence output, or any table count mismatch. CSV shape checks prove content after visual identity is established; they do not replace visual review. Use `--dpi 240` or `--dpi 300` when the default 2x2 overview images are too soft for table-boundary triage; focused full-page images remain the detail view for acceptance decisions.
 
 For PDF candidate and strategy details, read the focused references instead of expanding this quick workflow:
 
