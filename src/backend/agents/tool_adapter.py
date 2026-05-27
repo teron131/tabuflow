@@ -301,6 +301,7 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
                 path,
                 root_dir=resolved_root_dir,
             ),
+            root_dir=resolved_root_dir,
             page_start=page_start,
             page_limit=page_limit,
             max_text_chars=max_text_chars,

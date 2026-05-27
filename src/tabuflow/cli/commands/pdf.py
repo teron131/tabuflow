@@ -34,6 +34,7 @@ def add_pdf_inspect_command(pdf_subparsers: Any) -> None:
     inspect.set_defaults(
         handler=lambda args: inspect_pdf_file(
             resolve_cli_path(args.path, args),
+            root_dir=resolve_cli_root(args),
             page_start=args.page_start,
             page_limit=args.page_limit,
             max_text_chars=args.max_text_chars,

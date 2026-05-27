@@ -12,7 +12,6 @@ from ..artifacts.naming import normalize_source_filename, normalize_source_stem
 from ..workspace_db import resolve_root_dir
 
 DEFAULT_DPI = 150
-DEFAULT_PDF_INSPECT_OUTPUT_DIR = Path("data/pdf_inspect")
 DEFAULT_PDF_PREPARE_OUTPUT_DIR = Path("artifacts/pdf")
 DEFAULT_INSPECT_PAGE_LIMIT = 0
 DEFAULT_INSPECT_TEXT_CHARS = 4_000
@@ -20,6 +19,7 @@ DEFAULT_MAX_PREPARE_PAGES = 300
 MIN_PREPARE_DPI = 72
 MAX_PREPARE_DPI = 300
 PDF_ARTIFACT_VERSION = 1
+PDF_INSPECT_DIR_NAME = "inspect"
 PDF_TABLES_DIR_NAME = "tables"
 PDF_TABLES_MANIFEST_NAME = "tables_manifest.json"
 PDF_TABLE_SCALAR_TUNING_OPTIONS = (
@@ -42,6 +42,7 @@ class PdfArtifactWorkspace:
     source_fingerprint: str
     normalized_filename: str
     artifact_dir: Path
+    inspect_dir: Path
     pages_dir: Path
     text_dir: Path
     work_dir: Path
@@ -127,6 +128,7 @@ def pdf_artifact_workspace(
         source_fingerprint=source_fingerprint,
         normalized_filename=normalized_filename,
         artifact_dir=artifact_dir,
+        inspect_dir=artifact_dir / PDF_INSPECT_DIR_NAME,
         pages_dir=artifact_dir / "pages",
         text_dir=artifact_dir / "text",
         work_dir=work_dir,
@@ -135,6 +137,7 @@ def pdf_artifact_workspace(
         source_artifact_path=artifact_dir / normalized_filename,
     )
     if create:
+        workspace.inspect_dir.mkdir(parents=True, exist_ok=True)
         workspace.tables_dir.mkdir(parents=True, exist_ok=True)
         manifest_path = artifact_dir / "manifest.json"
         if not manifest_path.exists():

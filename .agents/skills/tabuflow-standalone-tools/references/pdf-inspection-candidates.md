@@ -4,7 +4,7 @@ Use `pdf inspect` to produce evidence for an extraction plan, not to declare the
 
 ## Candidate Surfaces
 
-`table_region_hints` is the preferred candidate list when present after a focused page-window inspect. Each group is already a recommended unit with pages, source detections, likely columns, and repaired row previews.
+`table_region_hints` is the preferred candidate list when present after a focused page-window inspect. Each group is already a recommended unit with pages, `detection_refs`, likely columns, and row counts; read the referenced `table_detections[].interpretation.rows` for row previews.
 
 `table_detections` is the raw per-page PyMuPDF table detector view. Use candidates where `interpretation.usable` is true and read `interpretation.kind`, `suggested_method`, `columns`, `rows`, and `diagnostics` before extracting. Ignore `false_positive` candidates instead of forcing them into tables.
 
@@ -35,7 +35,7 @@ When turning inspection evidence into a plan, keep this shape in mind:
 candidate_id
 layout_type
 pages
-region or source_detections
+region or detection_refs
 suggested_method
 columns
 row_preview

@@ -71,14 +71,17 @@ def write_overview_batches(
     *,
     pdf_stem: str,
     dpi: int,
+    cache_key: str | None = None,
 ) -> list[dict[str, Any]]:
     """Write default 2x2 page overview batches for selective visual inspection."""
     batches: list[dict[str, Any]] = []
+    output_stem = f"{pdf_stem}_{cache_key}" if cache_key else pdf_stem
     for page_start in range(1, document.page_count + 1, OVERVIEW_BATCH_PAGE_COUNT):
         page_end = min(document.page_count, page_start + OVERVIEW_BATCH_PAGE_COUNT - 1)
         page_tag = _overview_page_tag(start_page=page_start, end_page=page_end, page_count=document.page_count)
-        image_path = output_path / f"{pdf_stem}_overview_{page_tag}.jpg"
-        _write_overview_image(document, image_path, page_start=page_start, page_end=page_end, dpi=dpi)
+        image_path = output_path / f"{output_stem}_overview_{page_tag}.jpg"
+        if not image_path.is_file():
+            _write_overview_image(document, image_path, page_start=page_start, page_end=page_end, dpi=dpi)
         batches.append(
             {
                 "pages": list(range(page_start, page_end + 1)),

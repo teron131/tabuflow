@@ -293,9 +293,7 @@ def profile_pdf_document(document: pymupdf.Document) -> dict[str, Any]:
         signature_counts[signature] = signature_counts.get(signature, 0) + 1
 
     return {
-        "summary": {
-            "visual_samples": _layout_sample_pages(page_profiles, page_count=document.page_count),
-        },
+        "visual_samples": _layout_sample_pages(page_profiles, page_count=document.page_count),
         "layout_signatures": [
             {
                 "signature": signature,

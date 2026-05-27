@@ -312,14 +312,12 @@ def _candidate_plan_item(
     page_payload: dict[str, Any],
     candidate: dict[str, Any],
 ) -> dict[str, Any]:
-    """Return compact candidate identity and rows for extraction plan hints."""
-    interpretation = candidate["interpretation"]
+    """Return compact candidate identity for extraction plan hints."""
     return {
         "page": page_payload["page_number"],
         "table_id": candidate["table_id"],
         "bbox": candidate["bbox"],
-        "columns": interpretation["columns"],
-        "rows": interpretation["rows"],
+        "row_count": candidate["row_count"],
     }
 
 
@@ -342,14 +340,14 @@ def _field_value_groups(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "suggested_method": "field_value",
                     "pages": [],
                     "columns": ["Field", "Value"],
-                    "source_detections": [],
-                    "rows": [],
+                    "detection_refs": [],
+                    "row_count": 0,
                 }
                 groups.append(current_group)
             if page_number not in current_group["pages"]:
                 current_group["pages"].append(page_number)
-            current_group["source_detections"].append(_candidate_plan_item(page_payload, candidate))
-            current_group["rows"].extend(rows)
+            current_group["detection_refs"].append(_candidate_plan_item(page_payload, candidate))
+            current_group["row_count"] += len(rows)
     return groups
 
 
@@ -386,7 +384,7 @@ def _grid_groups(
             previous_group = groups[-1] if groups else None
             should_continue = False
             if previous_group and previous_group["columns"] == columns and page_number == int(previous_group["pages"][-1]) + 1:
-                previous_bbox = previous_group["source_detections"][-1]["bbox"]
+                previous_bbox = previous_group["detection_refs"][-1]["bbox"]
                 should_continue = _looks_like_grid_continuation(
                     previous_bbox=previous_bbox,
                     current_bbox=bbox,
@@ -399,14 +397,14 @@ def _grid_groups(
                     "suggested_method": "detected_table",
                     "pages": [],
                     "columns": columns,
-                    "source_detections": [],
-                    "rows": [],
+                    "detection_refs": [],
+                    "row_count": 0,
                 }
                 groups.append(previous_group)
             if page_number not in previous_group["pages"]:
                 previous_group["pages"].append(page_number)
-            previous_group["source_detections"].append(_candidate_plan_item(page_payload, candidate))
-            previous_group["rows"].extend(interpretation["rows"])
+            previous_group["detection_refs"].append(_candidate_plan_item(page_payload, candidate))
+            previous_group["row_count"] += len(interpretation["rows"])
             last_group_page_height = page_height
     return groups
 
