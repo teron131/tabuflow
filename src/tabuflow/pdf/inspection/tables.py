@@ -77,9 +77,10 @@ def detected_table_quality(
         and metrics["filled_first_row_cells"] >= 2
         and metrics["short_header_cell_count"] < max(2, metrics["header_cell_count"] // 2)
     )
+    diagnostics = detected_table_diagnostics(rows, header_names)
     return {
         "quality": "plausible" if plausible else "suspicious",
-        **detected_table_diagnostics(rows, header_names),
+        "warnings": diagnostics["warnings"],
     }
 
 
@@ -299,7 +300,7 @@ def _bounded_interpretation(
     """Return an interpretation with a bounded row preview."""
     rows = interpretation.get("rows", [])
     if not isinstance(rows, list) or len(rows) <= max_rows:
-        return {**interpretation, "rows_truncated": False}
+        return interpretation
     return {
         **interpretation,
         "rows": rows[:max_rows],
@@ -317,7 +318,6 @@ def _candidate_plan_item(
         "page": page_payload["page_number"],
         "table_id": candidate["table_id"],
         "bbox": candidate["bbox"],
-        "page_height": candidate["page_height"],
         "columns": interpretation["columns"],
         "rows": interpretation["rows"],
     }
@@ -353,9 +353,27 @@ def _field_value_groups(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return groups
 
 
-def _grid_groups(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _looks_like_grid_continuation(
+    *,
+    previous_bbox: list[float],
+    current_bbox: list[float],
+    previous_page_height: float,
+    current_page_height: float,
+) -> bool:
+    """Return whether adjacent same-column grid candidates cross a page break."""
+    if previous_page_height <= 0 or current_page_height <= 0:
+        return False
+    return float(previous_bbox[3]) >= previous_page_height * 0.75 and float(current_bbox[1]) <= current_page_height * 0.25
+
+
+def _grid_groups(
+    pages: list[dict[str, Any]],
+    *,
+    page_heights: dict[int, float],
+) -> list[dict[str, Any]]:
     """Group adjacent grid candidates that visibly continue across a page break."""
     groups: list[dict[str, Any]] = []
+    last_group_page_height = 0.0
     for page_payload in pages:
         for candidate in page_payload.get("table_detections", {}).get("detections", []):
             interpretation = candidate["interpretation"]
@@ -364,13 +382,17 @@ def _grid_groups(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             page_number = int(page_payload["page_number"])
             columns = interpretation["columns"]
             bbox = candidate["bbox"]
-            page_height = float(candidate["page_height"])
+            page_height = float(page_heights.get(page_number, 0))
             previous_group = groups[-1] if groups else None
             should_continue = False
             if previous_group and previous_group["columns"] == columns and page_number == int(previous_group["pages"][-1]) + 1:
                 previous_bbox = previous_group["source_detections"][-1]["bbox"]
-                previous_page_height = float(previous_group["source_detections"][-1]["page_height"])
-                should_continue = float(previous_bbox[3]) >= previous_page_height * 0.75 and float(bbox[1]) <= page_height * 0.25
+                should_continue = _looks_like_grid_continuation(
+                    previous_bbox=previous_bbox,
+                    current_bbox=bbox,
+                    previous_page_height=last_group_page_height,
+                    current_page_height=page_height,
+                )
             if not should_continue:
                 previous_group = {
                     "kind": "grid_table",
@@ -385,14 +407,20 @@ def _grid_groups(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 previous_group["pages"].append(page_number)
             previous_group["source_detections"].append(_candidate_plan_item(page_payload, candidate))
             previous_group["rows"].extend(interpretation["rows"])
+            last_group_page_height = page_height
     return groups
 
 
-def table_region_hints(pages: list[dict[str, Any]]) -> dict[str, Any]:
+def table_region_hints(
+    pages: list[dict[str, Any]],
+    *,
+    page_heights: dict[int, float] | None = None,
+) -> dict[str, Any]:
     """Return script-like candidate groups for an agent to assemble final tables."""
+    safe_page_heights = page_heights or {}
     return {
         "field_value_groups": _field_value_groups(pages),
-        "grid_groups": _grid_groups(pages),
+        "grid_groups": _grid_groups(pages, page_heights=safe_page_heights),
     }
 
 
@@ -418,23 +446,24 @@ def table_detections(
         detection = {
             "table_id": table_index,
             "bbox": [round(float(value), 1) for value in table.bbox],
-            "page_height": round(float(page.rect.height), 1),
-            "page_width": round(float(page.rect.width), 1),
             "row_count": len(rows),
             "column_count": max((len(row) for row in rows), default=0),
             "quality": quality,
             "interpretation": interpretation,
         }
         repair_counts = {
-            "dropped_spacer_columns": len(dropped_indexes),
-            "merged_unnamed_columns": len(merged_indexes),
-            "merged_continuation_rows": merged_continuation_row_count,
+            key: value
+            for key, value in {
+                "dropped_spacer_columns": len(dropped_indexes),
+                "merged_unnamed_columns": len(merged_indexes),
+                "merged_continuation_rows": merged_continuation_row_count,
+            }.items()
+            if value
         }
-        if any(repair_counts.values()):
+        if repair_counts:
             detection["repair_counts"] = repair_counts
         detections.append(detection)
     return {
-        "source": "pymupdf_find_tables_default",
         "detection_count": len(tables.tables),
         "detections": detections,
         "truncated": len(tables.tables) > max_tables,

@@ -40,6 +40,7 @@ def inspect_pdf_file(
     output_path.mkdir(parents=True, exist_ok=True)
 
     pages: list[dict[str, Any]] = []
+    page_heights: dict[int, float] = {}
     overview_batches: list[dict[str, Any]] = []
     with pymupdf.open(str(pdf_path)) as document:
         page_count = document.page_count
@@ -51,30 +52,27 @@ def inspect_pdf_file(
             for page_number in range(safe_page_start, page_end + 1):
                 page = document[page_number - 1]
                 text = page.get_text("text").strip()
+                page_heights[page_number] = round(float(page.rect.height), 1)
                 page_payload: dict[str, Any] = {
                     "page_number": page_number,
                     "table_detections": table_detections(page),
                     "row_geometry": visual_text_rows(page),
                     "text": text[:safe_text_chars],
-                    "text_char_count": len(text),
                     "text_truncated": len(text) > safe_text_chars,
                 }
                 pages.append(page_payload)
 
-    output_profile = dict(profile)
-    output_profile.pop("pages", None)
-    output_profile["pages_omitted"] = page_count
+    output_profile = {
+        "summary": profile["summary"],
+        "layout_signatures": profile["layout_signatures"],
+    }
 
     selected_overview_batches = visual_sample_batches(overview_batches, profile["summary"]["visual_samples"])
     selected_overview_batch_numbers = {int(batch["batch"]) for batch in selected_overview_batches}
 
-    return {
+    output: dict[str, Any] = {
         "path": str(pdf_path),
-        "format": "pdf",
-        "status": "ok",
         "page_count": page_count,
-        "page_start": safe_page_start,
-        "page_end": pages[-1]["page_number"] if pages else safe_page_start - 1,
         "overview_batches": selected_overview_batches,
         "overview_batch_index": [
             {
@@ -84,8 +82,15 @@ def inspect_pdf_file(
             }
             for batch_index, batch in enumerate(overview_batches, start=1)
         ],
-        "overview_batches_omitted": max(0, len(overview_batches) - len(selected_overview_batches)),
         "profile": output_profile,
-        "table_region_hints": table_region_hints(pages),
-        "pages": pages,
     }
+    if pages:
+        output.update(
+            {
+                "page_start": safe_page_start,
+                "page_end": pages[-1]["page_number"],
+                "table_region_hints": table_region_hints(pages, page_heights=page_heights),
+                "pages": pages,
+            }
+        )
+    return output

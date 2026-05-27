@@ -4,11 +4,11 @@ Use `pdf inspect` to produce evidence for an extraction plan, not to declare the
 
 ## Candidate Surfaces
 
-`table_region_hints` is the preferred candidate list when present. Each group is already a recommended unit with pages, source detections, likely columns, and repaired row previews.
+`table_region_hints` is the preferred candidate list when present after a focused page-window inspect. Each group is already a recommended unit with pages, source detections, likely columns, and repaired row previews.
 
 `table_detections` is the raw per-page PyMuPDF table detector view. Use candidates where `interpretation.usable` is true and read `interpretation.kind`, `suggested_method`, `columns`, `rows`, and `diagnostics` before extracting. Ignore `false_positive` candidates instead of forcing them into tables.
 
-`row_geometry` is the word-row evidence for coordinate or line-based extraction. Use it when visual x-bands, wrapped labels, or nearby value lines are more reliable than detected table cells.
+`row_geometry` is compact row evidence for coordinate or line-based extraction. Use row text and bounding boxes when visual x-bands, wrapped labels, or nearby value lines are more reliable than detected table cells.
 
 `overview_batches` are selected 2x2 page contact sheets chosen from layout-profile sample pages. Use them to find layout families, page transitions, table starts/ends, repeated sections, and continuation edges without loading every rendered batch into agent context. `overview_batch_index` lists the other rendered batches by page range for optional follow-up.
 

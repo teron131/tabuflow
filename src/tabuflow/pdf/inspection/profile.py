@@ -80,14 +80,10 @@ def visual_text_rows(
                 "y": round(float(row["y"]), 1),
                 "bbox": [round(float(value), 1) for value in row["bbox"]],
                 "text": " ".join(str(word["text"]) for word in words),
-                "words": words,
-                "truncated_words": bool(row.get("truncated_words")),
             }
         )
 
     return {
-        "source": "pymupdf_words_grouped_by_visual_y",
-        "y_tolerance": y_tolerance,
         "row_count": len(grouped_rows),
         "rows": rows,
         "truncated": len(grouped_rows) > max_rows,
@@ -236,7 +232,7 @@ def _layout_sample_pages(
     page_count: int,
 ) -> dict[str, Any]:
     """Choose representative pages for selective visual inspection."""
-    pages: list[int] = [1]
+    sample_pages: list[int] = [1]
     seen_signatures: set[str] = set()
     reasons: dict[int, list[str]] = {1: ["first_page"]}
     selected_signature_count = 0
@@ -246,25 +242,22 @@ def _layout_sample_pages(
             continue
         seen_signatures.add(signature)
         page_number = int(page_profile["page_number"])
-        if page_number in pages:
-            reasons.setdefault(page_number, []).append(f"layout_signature:{signature}")
-            selected_signature_count += 1
-        elif len(pages) < PROFILE_IMAGE_PAGE_LIMIT - 1:
-            pages.append(page_number)
-            reasons.setdefault(page_number, []).append(f"layout_signature:{signature}")
-            selected_signature_count += 1
-    if page_count not in pages:
-        pages.append(page_count)
+        if page_number not in sample_pages:
+            if len(sample_pages) >= PROFILE_IMAGE_PAGE_LIMIT - 1:
+                continue
+            sample_pages.append(page_number)
+        reasons.setdefault(page_number, []).append("layout_signature")
+        selected_signature_count += 1
+    if page_count not in sample_pages:
+        sample_pages.append(page_count)
     reasons.setdefault(page_count, []).append("last_page")
-    selected_pages = pages[:PROFILE_IMAGE_PAGE_LIMIT]
-    if len(pages) > PROFILE_IMAGE_PAGE_LIMIT:
-        selected_pages = [*pages[: PROFILE_IMAGE_PAGE_LIMIT - 1], page_count]
+    selected_pages = sample_pages[:PROFILE_IMAGE_PAGE_LIMIT]
+    if len(sample_pages) > PROFILE_IMAGE_PAGE_LIMIT:
+        selected_pages = [*sample_pages[: PROFILE_IMAGE_PAGE_LIMIT - 1], page_count]
     selected_pages = sorted(selected_pages)
     return {
         "pages": selected_pages,
-        "method": "first page, first page per layout signature up to the profile sample cap, last page",
         "reasons": {str(page_number): reasons.get(page_number, []) for page_number in selected_pages},
-        "sample_cap": PROFILE_IMAGE_PAGE_LIMIT,
         "omitted_layout_signature_count": max(0, len(seen_signatures) - selected_signature_count),
     }
 
@@ -301,11 +294,6 @@ def profile_pdf_document(document: pymupdf.Document) -> dict[str, Any]:
 
     return {
         "summary": {
-            "page_count": document.page_count,
-            "text_char_count": sum(int(page["text_char_count"]) for page in page_profiles),
-            "word_count": sum(int(page["word_count"]) for page in page_profiles),
-            "drawn_line_count": sum(int(page["drawn_lines"]["total"]) for page in page_profiles),
-            "layout_signature_count": len(signature_counts),
             "visual_samples": _layout_sample_pages(page_profiles, page_count=document.page_count),
         },
         "layout_signatures": [
