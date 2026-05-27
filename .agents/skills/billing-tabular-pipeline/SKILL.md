@@ -9,6 +9,8 @@ Use this skill for accountant-style billing exports that should keep working whe
 
 This is an outcome-first skill. It defines the correctness bar for billing tables; it does not require a particular app tool, command, or storage engine.
 
+For Tabuflow-backed runs, keep generated work under the current working directory's `artifacts/` directory: extracted tabular data in `artifacts/tabular.sqlite`, reusable SQL or scratch transformation files in `artifacts/sql/`, and final validated CSV/XLSX outputs in `artifacts/outputs/`. Treat source/example directories as read-only inputs unless the user explicitly asks to edit them.
+
 ## Goal
 
 Turn a billing spreadsheet or CSV into reliable business outputs:
@@ -40,6 +42,7 @@ Turn a billing spreadsheet or CSV into reliable business outputs:
    - Use SQL, dataframe logic, or another tabular method when it makes the transformation easier to inspect and validate.
    - Avoid manual spreadsheet reasoning for non-trivial transformations.
    - Prefer explicit intermediate semantic fields over hidden workbook formulas.
+   - When Tabuflow is available, extract the source into the artifact store before writing business-output scripts, then rediscover the table with artifact listing/description tools.
 
 5. Validate the output.
    - Reconcile totals back to the current source file.

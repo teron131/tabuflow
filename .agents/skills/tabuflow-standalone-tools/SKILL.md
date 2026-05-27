@@ -9,6 +9,8 @@ Use this skill when you need Tabuflow's robust data-file presets for local busin
 
 The useful boundary is simple: use Tabuflow for best-fit presets around messy data preparation and artifact queries; use ordinary shell/editor tools for file reading, editing, reports, SQL draft files, and one-off exploration. Do not hardcode generated names, row counts, months, or vendor-specific layouts as if they were stable contracts.
 
+For runs from a project root, Tabuflow-owned working files always live under `./artifacts/`. Tabular extraction creates `artifacts/tabular.sqlite`; PDF preparation/extraction writes `artifacts/pdf/<source>/...`; reusable SQL or scratch transformation files belong in `artifacts/sql/`; validated CSV/XLSX deliverables belong in `artifacts/outputs/`.
+
 ## Goal
 
 Turn messy local business files into inspectable SQLite-backed artifacts that can be queried and saved:
@@ -36,6 +38,8 @@ uv run tabuflow --help
 
 For OpenCode or another shell-capable coding agent, do not copy Tabuflow scripts into the agent's tool directory. Call the installed `tabuflow` CLI and keep Tabuflow's implementation in the Python package.
 
+For MCP tool calls, do not pass workspace or output directory arguments. Run the MCP server from the project root so Tabuflow writes to `./artifacts/`.
+
 All CLI commands print JSON. Treat a nonzero exit or a JSON payload with `status: "error"` as a real failure to inspect and fix.
 
 ## CSV, XLS, and XLSX Workflow
@@ -61,6 +65,8 @@ tabuflow tabular extract path/to/file.csv
 tabuflow tabular extract path/to/file.xls --sheet "Bill Item"
 tabuflow tabular extract path/to/file.xlsx --sheet "Sheet1"
 ```
+
+Extraction is the step that creates the tabular artifact store. If no `artifacts/tabular.sqlite` appears under the project root, the workflow has not yet created queryable tabular artifacts.
 
 Do not assume row 1 is the header. Watch for metadata rows, repeated headers, blank spacer rows, footers, and several sparse tables in one sheet.
 

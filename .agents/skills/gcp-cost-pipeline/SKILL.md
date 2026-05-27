@@ -53,6 +53,16 @@ Use `references/gcp-cost-view-contract.md` for the semantic field mapping, formu
 
 ## Outputs
 
+Write workflow artifacts under the current working directory's `artifacts/` path, not beside source fixtures:
+
+- reusable SQL or scratch transformation files: `artifacts/sql/`
+- final review/upload files: `artifacts/outputs/`
+- prepared tabular data: `artifacts/tabular.sqlite`
+
+Do not write generated workbooks into `examples/gcp/` or overwrite source and reference files there. If a one-off script is needed, keep it artifact-owned under `artifacts/sql/` or promote the logic into maintained repo code.
+
+Run Tabuflow from the project root. Do not pass workspace/output directory arguments to Tabuflow tools.
+
 Output 1: aggregated GCP result.
 
 - Purpose: reconcile the monthly cost table by account, category, and summary.
@@ -85,7 +95,9 @@ Output 2: IBS charge-item upload.
 
 2. Load the cost table into a queryable tabular layer.
    - The workflow is mostly filtering, grouping, joining, and deriving stable output rows.
-   - Any implementation is acceptable if it preserves the same semantics and is inspectable enough to validate.
+   - Prefer `tabuflow tabular extract ...` or the equivalent MCP tool so the raw table is represented in `artifacts/tabular.sqlite`.
+   - After extraction, use `tabuflow artifacts from-source`, `describe`, and bounded `query` calls to discover and validate the artifact rather than copying generated table names from memory.
+   - Any additional dataframe/script implementation is acceptable only if the same semantics are inspectable and the reusable work files stay under `artifacts/`.
 
 3. Normalize raw columns into semantic fields.
    - Map the exact raw headers into names such as `account_id`, `account_name`, `credit_type`, `cost_type`, `unrounded_cost_usd`, and `cost_usd`.
@@ -100,7 +112,8 @@ Output 2: IBS charge-item upload.
 5. Produce both outputs.
    - The aggregated result should expose summary, category, and account/customer rows with semantic columns.
    - The IBS result should expose `Bill Item` rows in the upload-template shape.
-   - Produce a reviewable aggregated file and a template-like IBS upload workbook or CSV. The exact implementation can vary, but the output contract cannot.
+   - Produce a reviewable aggregated file and a template-like IBS upload workbook or CSV under `artifacts/outputs/`. The exact implementation can vary, but the output contract and artifact location cannot.
+   - Use recognizable names such as `aggregated_cost_table.xlsx` and `IBS_ChargeItemUpload_GCP.xlsx` inside `artifacts/outputs/`.
 
 6. Validate before treating the output as done.
    - Aggregated totals should reconcile to the raw cost table after footer rows such as `Rounding error` and `Total` are excluded.

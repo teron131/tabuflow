@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import dataclass
 import os
 from pathlib import Path
 import sqlite3
@@ -10,10 +11,43 @@ import time
 
 SQLITE_FILENAME = "tabular.sqlite"
 ARTIFACTS_DIRNAME = "artifacts"
+ARTIFACTS_SQL_DIRNAME = "sql"
+ARTIFACTS_OUTPUTS_DIRNAME = "outputs"
+ARTIFACTS_PDF_DIRNAME = "pdf"
 SQLITE_CONTENTS_TABLE = "_tabular_contents"
 SQLITE_SOURCES_TABLE = "_tabular_sources"
 LOCK_POLL_SECONDS = 0.1
 LOCK_TIMEOUT_SECONDS = 10.0
+
+
+@dataclass(frozen=True)
+class ArtifactWorkspace:
+    """Fixed artifact directories owned by one Tabuflow workspace."""
+
+    workspace_dir: Path
+    artifacts_dir: Path
+    tabular_database_path: Path
+    pdf_dir: Path
+    sql_dir: Path
+    outputs_dir: Path
+
+    def relative_path(self, path: Path) -> str:
+        """Return a workspace-relative path when possible."""
+        try:
+            return str(path.resolve().relative_to(self.workspace_dir))
+        except ValueError:
+            return str(path.resolve())
+
+    def as_payload(self) -> dict[str, str]:
+        """Return the JSON-friendly artifact workspace metadata."""
+        return {
+            "workspace_dir": str(self.workspace_dir),
+            "artifacts_dir": str(self.artifacts_dir),
+            "tabular_database_path": str(self.tabular_database_path),
+            "pdf_dir": str(self.pdf_dir),
+            "sql_dir": str(self.sql_dir),
+            "outputs_dir": str(self.outputs_dir),
+        }
 
 
 def resolve_root_dir(*, root_dir: str | Path | None = None) -> Path:
@@ -23,10 +57,26 @@ def resolve_root_dir(*, root_dir: str | Path | None = None) -> Path:
 
 def sqlite_database_path(*, root_dir: str | Path | None = None) -> Path:
     """Return the shared SQLite path for extracted tabular data."""
-    resolved_root = resolve_root_dir(root_dir=root_dir)
-    artifacts_dir = resolved_root / ARTIFACTS_DIRNAME
-    artifacts_dir.mkdir(parents=True, exist_ok=True)
-    return artifacts_dir / SQLITE_FILENAME
+    database_path = artifact_workspace(root_dir=root_dir).tabular_database_path
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    return database_path
+
+
+def artifact_workspace(
+    *,
+    root_dir: str | Path | None = None,
+) -> ArtifactWorkspace:
+    """Return the fixed artifact workspace paths without creating directories."""
+    workspace_dir = resolve_root_dir(root_dir=root_dir)
+    artifacts_dir = workspace_dir / ARTIFACTS_DIRNAME
+    return ArtifactWorkspace(
+        workspace_dir=workspace_dir,
+        artifacts_dir=artifacts_dir,
+        tabular_database_path=artifacts_dir / SQLITE_FILENAME,
+        pdf_dir=artifacts_dir / ARTIFACTS_PDF_DIRNAME,
+        sql_dir=artifacts_dir / ARTIFACTS_SQL_DIRNAME,
+        outputs_dir=artifacts_dir / ARTIFACTS_OUTPUTS_DIRNAME,
+    )
 
 
 def requested_database_path(
@@ -35,7 +85,7 @@ def requested_database_path(
     database_path: str | Path | None = None,
 ) -> Path:
     """Return the requested SQLite path before existence checks."""
-    return sqlite_database_path(root_dir=root_dir) if database_path is None else Path(database_path)
+    return artifact_workspace(root_dir=root_dir).tabular_database_path if database_path is None else Path(database_path)
 
 
 def open_read_only_connection(database_path: Path) -> sqlite3.Connection:

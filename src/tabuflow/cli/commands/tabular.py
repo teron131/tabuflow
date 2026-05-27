@@ -12,13 +12,12 @@ from ...tabular import (
     profile_tabular_file,
     profile_tabular_workbook_sheets,
 )
-from ..paths import add_root_argument, resolve_cli_path, resolve_cli_root
+from ..paths import resolve_cli_path
 
 
 def add_tabular_commands(subparsers: Any) -> None:
     """Add CSV/XLS/XLSX inspection and extraction commands."""
     tabular = subparsers.add_parser("tabular", help="Inspect or extract CSV/XLS/XLSX files.")
-    add_root_argument(tabular)
     tabular_subparsers = tabular.add_subparsers(dest="tabular_command", required=True)
 
     inspect = tabular_subparsers.add_parser("inspect", help="Inspect a bounded raw grid window.")
@@ -30,7 +29,7 @@ def add_tabular_commands(subparsers: Any) -> None:
     inspect.add_argument("--sheet", default=None)
     inspect.set_defaults(
         handler=lambda args: inspect_tabular_file(
-            resolve_cli_path(args.path, args),
+            resolve_cli_path(args.path),
             start_row=args.start_row,
             limit=args.limit,
             start_col=args.start_col,
@@ -47,12 +46,12 @@ def add_tabular_commands(subparsers: Any) -> None:
     profile.set_defaults(
         handler=lambda args: (
             profile_tabular_workbook_sheets(
-                resolve_cli_path(args.path, args),
+                resolve_cli_path(args.path),
                 max_sample_rows=args.max_sample_rows,
             )
             if args.all_sheets
             else profile_tabular_file(
-                resolve_cli_path(args.path, args),
+                resolve_cli_path(args.path),
                 max_sample_rows=args.max_sample_rows,
                 sheet=args.sheet,
             )
@@ -66,7 +65,6 @@ def add_tabular_commands(subparsers: Any) -> None:
     extract.set_defaults(
         handler=lambda args: extract_tabular_file(
             args.path,
-            root_dir=resolve_cli_root(args),
             metadata_rows=args.metadata_rows,
             sheet=args.sheet,
         )

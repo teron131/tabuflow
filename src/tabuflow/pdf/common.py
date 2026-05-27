@@ -9,10 +9,10 @@ import json
 from pathlib import Path
 
 from ..artifacts.naming import normalize_source_filename, normalize_source_stem
-from ..workspace_db import resolve_root_dir
+from ..workspace_db import ARTIFACTS_DIRNAME, ARTIFACTS_PDF_DIRNAME, artifact_workspace, resolve_root_dir
 
 DEFAULT_DPI = 150
-DEFAULT_PDF_PREPARE_OUTPUT_DIR = Path("artifacts/pdf")
+DEFAULT_PDF_PREPARE_OUTPUT_DIR = Path(ARTIFACTS_DIRNAME) / ARTIFACTS_PDF_DIRNAME
 DEFAULT_INSPECT_PAGE_LIMIT = 0
 DEFAULT_INSPECT_TEXT_CHARS = 4_000
 DEFAULT_MAX_PREPARE_PAGES = 300
@@ -79,7 +79,7 @@ def _manifest_source_fingerprint(artifact_dir: Path) -> str | None:
 
 def _pdf_artifact_dir(
     *,
-    output_path: Path,
+    pdf_dir: Path,
     source_stem: str,
     source_fingerprint: str,
 ) -> Path:
@@ -87,7 +87,7 @@ def _pdf_artifact_dir(
     index = 1
     while True:
         artifact_stem = source_stem if index == 1 else f"{source_stem}_{index}"
-        artifact_dir = output_path / artifact_stem
+        artifact_dir = pdf_dir / artifact_stem
         if not artifact_dir.exists() or _manifest_source_fingerprint(artifact_dir) == source_fingerprint:
             return artifact_dir
         index += 1
@@ -108,14 +108,15 @@ def pdf_artifact_workspace(
     if not pdf_path.is_file():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    output_path = resolved_root_dir / DEFAULT_PDF_PREPARE_OUTPUT_DIR
+    artifacts = artifact_workspace(root_dir=resolved_root_dir)
+    pdf_dir = artifacts.pdf_dir
     source_fingerprint = pdf_source_fingerprint(pdf_path)
     normalized_filename = normalize_source_filename(pdf_path.name)
     source_stem = normalize_source_stem(pdf_path.name)
-    artifact_dir = output_path / source_stem
+    artifact_dir = pdf_dir / source_stem
     if not artifact_dir.exists() or _manifest_source_fingerprint(artifact_dir) not in {None, source_fingerprint}:
         artifact_dir = _pdf_artifact_dir(
-            output_path=output_path,
+            pdf_dir=pdf_dir,
             source_stem=source_stem,
             source_fingerprint=source_fingerprint,
         )
@@ -150,10 +151,10 @@ def pdf_artifact_workspace(
                 "source_filename": pdf_path.name,
                 "normalized_filename": normalized_filename,
                 "source_fingerprint": source_fingerprint,
-                "artifact_dir": _relative_to_root(artifact_dir, resolved_root_dir),
-                "work_dir": _relative_to_root(work_dir, resolved_root_dir),
-                "tables_dir": _relative_to_root(tables_dir, resolved_root_dir),
-                "tables_manifest_path": _relative_to_root(tables_manifest_path, resolved_root_dir),
+                "artifact_dir": artifacts.relative_path(artifact_dir),
+                "work_dir": artifacts.relative_path(work_dir),
+                "tables_dir": artifacts.relative_path(tables_dir),
+                "tables_manifest_path": artifacts.relative_path(tables_manifest_path),
             }
             manifest_path.write_text(
                 json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",

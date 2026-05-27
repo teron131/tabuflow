@@ -56,9 +56,7 @@ Tabuflow also exposes a minimal stdio MCP server for coding agents that support 
 tabuflow-mcp
 ```
 
-For MCP clients, pass the project/workspace directory as `root_dir` on Tabuflow
-tool calls. MCP servers may run with a different process cwd than the coding
-agent, so relying on the server cwd can put `artifacts/` in the wrong place.
+Run Tabuflow from the project root. CLI and MCP tools always resolve artifact paths under the current working directory's `./artifacts/` path.
 
 The CLI mirrors those useful presets:
 
@@ -82,23 +80,14 @@ The tool output should help a coding agent avoid dumb mistakes:
 - `excluded_row_hints` reports footer-like rows left outside extracted tables.
 - `artifacts from-source` returns a preferred artifact and quoted preview SQL.
 
-Use `--root-dir` and artifact `--database-path` for repeatable local runs across working directories. Workbench and adapter paths should still bind workspace/storage outside model-visible schemas.
-
-For CLI calls, `--root-dir` belongs on the tool family command:
-
-```bash
-tabuflow tabular --root-dir /path/to/workspace extract examples/gcp/cost_table.csv
-tabuflow artifacts --root-dir /path/to/workspace list
-```
-
 Artifact layout is part of the contract for coding-agent workflows:
 
 - `artifacts/tabular.sqlite` for extracted CSV/XLS/XLSX tables.
 - `artifacts/pdf/<source>/` for PDF visual/text workspaces and extracted table drafts.
-- `artifacts/sql/<domain>/` for reusable SQL or scratch transformation files.
-- `artifacts/outputs/<domain>/` for validated CSV/XLSX deliverables.
+- `artifacts/sql/` for reusable SQL or scratch transformation files.
+- `artifacts/outputs/` for validated CSV/XLSX deliverables.
 
-Inspection commands are read-only. For tabular inputs, run `tabuflow tabular extract ...` before expecting `artifacts/tabular.sqlite` or querying through `tabuflow artifacts ...`.
+Inspection commands do not import source data and may leave the artifact tree absent until a writer needs it. For tabular inputs, run `tabuflow tabular extract ...` before expecting `artifacts/tabular.sqlite` or querying through `tabuflow artifacts ...`.
 
 ## Current Direction
 

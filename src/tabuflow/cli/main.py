@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Any
 
-from .commands.artifacts import add_artifact_commands
+from .commands.artifacts import add_artifacts_commands
 from .commands.email import add_email_commands
 from .commands.pdf import add_pdf_commands
 from .commands.tabular import add_tabular_commands
@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_tabular_commands(subparsers)
     add_pdf_commands(subparsers)
     add_email_commands(subparsers)
-    add_artifact_commands(subparsers)
+    add_artifacts_commands(subparsers)
     return parser
 
 

@@ -77,15 +77,9 @@ def parse_named_pattern(
     return {"name": name.strip(), "pattern": pattern.strip()}
 
 
-def read_pdf_rules(
-    path: str,
-    *,
-    root_dir: Path | None = None,
-) -> dict[str, Any]:
+def read_pdf_rules(path: str) -> dict[str, Any]:
     """Read a YAML PDF extraction rules file."""
     rules_path = Path(path).expanduser()
-    if not rules_path.is_absolute() and root_dir is not None:
-        rules_path = root_dir / rules_path
     payload = yaml.safe_load(rules_path.read_text(encoding="utf-8")) or {}
     if not isinstance(payload, dict):
         raise ValueError(f"PDF rules must be a mapping: {rules_path}")
@@ -273,13 +267,9 @@ def add_coordinate_table_options(
         table["required_columns"] = required_columns
 
 
-def pdf_extract_spec_from_args(
-    args: Any,
-    *,
-    root_dir: Path | None = None,
-) -> dict[str, Any]:
+def pdf_extract_spec_from_args(args: Any) -> dict[str, Any]:
     """Build the internal PDF table extraction spec from preset CLI arguments."""
-    rules = read_pdf_rules(args.rules, root_dir=root_dir) if args.rules else {}
+    rules = read_pdf_rules(args.rules) if args.rules else {}
     target = str(args.target or rules.get("target", "tables"))
     if target != "tables":
         raise ValueError(f"Unsupported PDF extraction target: {target}")

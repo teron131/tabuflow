@@ -13,7 +13,7 @@ from ...pdf import (
     inspect_pdf_file,
     prepare_pdf_file,
 )
-from ..paths import add_root_argument, resolve_cli_path, resolve_cli_root
+from ..paths import resolve_cli_path
 from ..pdf_spec import (
     PDF_TABLE_PRESET_MODES,
     PDF_TABLE_SCALAR_TUNING_OPTIONS,
@@ -33,8 +33,7 @@ def add_pdf_inspect_command(pdf_subparsers: Any) -> None:
     inspect.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     inspect.set_defaults(
         handler=lambda args: inspect_pdf_file(
-            resolve_cli_path(args.path, args),
-            root_dir=resolve_cli_root(args),
+            resolve_cli_path(args.path),
             page_start=args.page_start,
             page_limit=args.page_limit,
             max_text_chars=args.max_text_chars,
@@ -52,7 +51,6 @@ def add_pdf_prepare_command(pdf_subparsers: Any) -> None:
     prepare.set_defaults(
         handler=lambda args: prepare_pdf_file(
             args.path,
-            root_dir=resolve_cli_root(args),
             dpi=args.dpi,
             max_pages=args.max_pages,
         )
@@ -128,9 +126,8 @@ def add_pdf_extract_command(pdf_subparsers: Any) -> None:
     extract.add_argument("--continuation-column", default=None, help="tables coordinate: column whose wrapped text joins anchored rows.")
     extract.set_defaults(
         handler=lambda args: extract_pdf_file(
-            resolve_cli_path(args.path, args),
-            extraction=pdf_extract_spec_from_args(args, root_dir=resolve_cli_root(args)),
-            root_dir=resolve_cli_root(args),
+            resolve_cli_path(args.path),
+            extraction=pdf_extract_spec_from_args(args),
         )
     )
 
@@ -138,7 +135,6 @@ def add_pdf_extract_command(pdf_subparsers: Any) -> None:
 def add_pdf_commands(subparsers: Any) -> None:
     """Add PDF inspection, preparation, and extraction-boundary commands."""
     pdf = subparsers.add_parser("pdf", help="Inspect or extract PDF files.")
-    add_root_argument(pdf)
     pdf_subparsers = pdf.add_subparsers(dest="pdf_command", required=True)
 
     add_pdf_inspect_command(pdf_subparsers)
