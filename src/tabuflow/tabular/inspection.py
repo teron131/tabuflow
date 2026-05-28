@@ -86,6 +86,7 @@ def inspect_tabular_file(
     payload = {
         "path": str(path),
         **summary_payload,
+        "grid_name": str(summary_payload.get("sheet_name") or ""),
         "preview_row_count": preview_row_count,
         "preview_column_count": preview_column_count,
         "start_row": safe_start,

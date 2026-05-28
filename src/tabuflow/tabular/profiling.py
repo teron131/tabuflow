@@ -31,6 +31,35 @@ WORKBOOK_SHEET_PROFILE_FIELDS = {
 }
 
 
+def _grid_name(payload: dict[str, Any]) -> str:
+    """Return the normalized grid name for one profiled sheet-like payload."""
+    return str(payload.get("sheet_name") or "")
+
+
+def _grid_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return one profile grid payload with stable grid naming."""
+    return {
+        "grid_name": _grid_name(payload),
+        **payload,
+    }
+
+
+def _source_payload_from_grids(
+    path: Path,
+    *,
+    format_name: str,
+    grids: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return a normalized source-level profile payload."""
+    return {
+        "path": str(path),
+        "format": format_name,
+        "grid_count": len(grids),
+        "grid_names": [_grid_name(grid) for grid in grids],
+        "grids": grids,
+    }
+
+
 def profile_tabular_file(
     path: str | Path,
     *,
@@ -91,18 +120,18 @@ def profile_tabular_workbook_sheets(
     for sheet_name in sheet_names:
         profile = profile_tabular_file(path, max_sample_rows=max_sample_rows, sheet=sheet_name)
         sheet_profiles.append(
-            {
-                "sheet_name": sheet_name,
-                **{key: value for key, value in profile.items() if key in WORKBOOK_SHEET_PROFILE_FIELDS},
-            }
+            _grid_payload(
+                {
+                    "sheet_name": sheet_name,
+                    **{key: value for key, value in profile.items() if key in WORKBOOK_SHEET_PROFILE_FIELDS},
+                }
+            )
         )
-    return {
-        "path": str(path),
-        "format": path.suffix.lower().removeprefix("."),
-        "sheet_names": sheet_names,
-        "sheet_count": len(sheet_names),
-        "sheets": sheet_profiles,
-    }
+    return _source_payload_from_grids(
+        path,
+        format_name=path.suffix.lower().removeprefix("."),
+        grids=sheet_profiles,
+    )
 
 
 def profile_tabular_source(
@@ -117,7 +146,14 @@ def profile_tabular_source(
             path,
             max_sample_rows=max_sample_rows,
         )
-    return profile_tabular_file(
+    grid = _grid_payload(
+        profile_tabular_file(
+            path,
+            max_sample_rows=max_sample_rows,
+        )
+    )
+    return _source_payload_from_grids(
         path,
-        max_sample_rows=max_sample_rows,
+        format_name=str(grid.get("format") or path.suffix.lower().removeprefix(".")),
+        grids=[grid],
     )

@@ -171,6 +171,42 @@ def _footer_like_row_hints(
     return hints
 
 
+def _grid_name(payload: dict[str, Any]) -> str:
+    """Return the normalized grid name for one extracted sheet-like payload."""
+    return str(payload.get("sheet_name") or "")
+
+
+def _grid_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return one grid payload with stable grid naming."""
+    return {
+        "grid_name": _grid_name(payload),
+        **payload,
+    }
+
+
+def _source_payload_from_grids(
+    path: Path,
+    *,
+    format_name: str,
+    grids: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return a normalized source-level extraction payload."""
+    recovered_table_count = sum(int(grid.get("recovered_table_count", 0)) for grid in grids)
+    formula_count = sum(int(grid.get("formula_count", 0)) for grid in grids)
+    return {
+        "path": str(path),
+        "format": format_name,
+        "status": "loaded" if recovered_table_count else "empty",
+        "artifact_backend": "sqlite",
+        "database_path": next((str(grid.get("database_path") or "") for grid in grids if grid.get("database_path")), ""),
+        "grid_count": len(grids),
+        "grid_names": [_grid_name(grid) for grid in grids],
+        "recovered_table_count": recovered_table_count,
+        "formula_count": formula_count,
+        "grids": grids,
+    }
+
+
 def extract_tabular_file(
     path: str | Path,
     *,
@@ -289,29 +325,22 @@ def extract_tabular_workbook_sheets(
         raise ValueError(f"All-sheet extraction requires an XLS or XLSX workbook: {source_path}")
 
     resolved_source_path = source_path.resolve()
-    sheets = [
-        extract_tabular_file(
-            resolved_source_path,
-            root_dir=root_dir,
-            metadata_rows=metadata_rows,
-            sheet=sheet_name,
+    grids = [
+        _grid_payload(
+            extract_tabular_file(
+                resolved_source_path,
+                root_dir=root_dir,
+                metadata_rows=metadata_rows,
+                sheet=sheet_name,
+            )
         )
         for sheet_name in sheet_names
     ]
-    recovered_table_count = sum(int(sheet_payload["recovered_table_count"]) for sheet_payload in sheets)
-    payload = {
-        "path": str(source_path),
-        "format": source_path.suffix.lower().removeprefix("."),
-        "status": "loaded" if recovered_table_count else "empty",
-        "artifact_backend": "sqlite",
-        "database_path": next((str(sheet_payload.get("database_path") or "") for sheet_payload in sheets if sheet_payload.get("database_path")), ""),
-        "sheet_names": sheet_names,
-        "sheet_count": len(sheet_names),
-        "recovered_table_count": recovered_table_count,
-        "sheets": sheets,
-    }
-    payload["formula_count"] = sum(int(sheet_payload.get("formula_count", 0)) for sheet_payload in sheets)
-    return payload
+    return _source_payload_from_grids(
+        source_path,
+        format_name=source_path.suffix.lower().removeprefix("."),
+        grids=grids,
+    )
 
 
 def extract_tabular_source(
@@ -330,8 +359,15 @@ def extract_tabular_source(
             root_dir=root_dir,
             metadata_rows=metadata_rows,
         )
-    return extract_tabular_file(
+    grid = _grid_payload(
+        extract_tabular_file(
+            source_path,
+            root_dir=root_dir,
+            metadata_rows=metadata_rows,
+        )
+    )
+    return _source_payload_from_grids(
         source_path,
-        root_dir=root_dir,
-        metadata_rows=metadata_rows,
+        format_name=str(grid.get("format") or source_path.suffix.lower().removeprefix(".")),
+        grids=[grid],
     )
