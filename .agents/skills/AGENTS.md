@@ -3,10 +3,11 @@
 Use these repo skills to choose the right Tabuflow command flow for local data work.
 
 Start from the project root. Use the CLI, or MCP when available, to inspect sources, extract tables, find artifacts, query data, and save views. Keep generated work under `./artifacts/`.
+When the task involves local CSV, spreadsheet, PDF, email, or prepared artifact data, route through these skills and the Tabuflow CLI by default even if the user does not explicitly ask for Tabuflow. Do this before hand-parsing files with ad hoc shell/Python.
 
 ## Skill Routing
 
-- Use `tabuflow-standalone-tools` when the task starts from messy CSV, XLS, XLSX, PDF, EML, MSG, or prepared SQLite-backed artifacts and you need to inspect, extract, query, or save a view.
+- Use `tabuflow-standalone-tools` when the task starts from messy CSV, XLS, XLSX, PDF, EML, MSG, or prepared SQLite-backed artifacts and you need to inspect, extract, query, or save a view, even if the prompt only names the source file or desired analysis.
 - Use `billing-tabular-pipeline` when the user wants a reusable billing spreadsheet pipeline: inspect source shape, normalize business columns, validate totals, and produce a stable output contract.
 - Use `gcp-cost-pipeline` for GCP cost-table transformation into aggregated reconciliation results and IBS charge-item upload rows.
 - Use `aws-invoice-pdf-tables` for AWS invoice PDF table extraction and cleanup. Treat adjacent `.eml` or `.msg` files as supporting reference context unless the user explicitly asks for email-derived rows.

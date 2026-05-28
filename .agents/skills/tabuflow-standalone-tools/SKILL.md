@@ -1,11 +1,11 @@
 ---
 name: tabuflow-standalone-tools
-description: Use when inspecting, extracting, or querying messy CSV, XLS, XLSX, EML, MSG, or PDF business data with Tabuflow CLI or Python calls.
+description: Use by default when a task involves local messy CSV, XLS, XLSX, EML, MSG, PDF, or prepared artifact business data, even if the user does not explicitly mention Tabuflow.
 ---
 
 # Tabuflow Standalone Tools
 
-Use this skill when you need Tabuflow's data-file commands for local business files.
+Use this skill when the task involves local business data files, even if the user does not explicitly mention Tabuflow.
 
 Use Tabuflow for messy data preparation and artifact queries. Use ordinary shell/editor tools for file reading, editing, reports, SQL draft files, and one-off exploration. Do not hardcode generated names, row counts, months, or vendor-specific layouts as stable contracts.
 
