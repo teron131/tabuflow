@@ -41,6 +41,7 @@ SQLITE_SOURCES_COLUMNS = (
     "source_sheet_name",
     "source_table_name",
     "fingerprint",
+    "source_metadata_json",
 )
 SQLITE_SOURCES_UNIQUE_COLUMNS = (
     "source_path",
@@ -142,6 +143,7 @@ def _create_sqlite_sources_table(connection: sqlite3.Connection) -> None:
             source_sheet_name TEXT NOT NULL,
             source_table_name TEXT NOT NULL,
             fingerprint TEXT NOT NULL,
+            source_metadata_json TEXT NOT NULL DEFAULT '{{}}',
             UNIQUE(source_path, source_sheet_name, source_table_name, fingerprint)
         )
         """
@@ -430,6 +432,8 @@ def load_tables_into_sqlite(
 
             for table in recovered["tables"]:
                 source_table_name = _required_metadata_text(table.get("name"), "tables[].name")
+                source_metadata = dict(table.get("source_metadata") or {})
+                source_metadata_json = json.dumps(source_metadata, sort_keys=True, separators=(",", ":"))
                 columns = list(table["columns"])
                 rows = list(table["rows"])
                 stored_table = _load_or_reuse_content_table(
@@ -447,8 +451,8 @@ def load_tables_into_sqlite(
                 connection.execute(
                     f"""
                     INSERT OR REPLACE INTO {SQLITE_SOURCES_TABLE}
-                    (source_path, source_format, source_sheet_name, source_table_name, fingerprint)
-                    VALUES (?, ?, ?, ?, ?)
+                    (source_path, source_format, source_sheet_name, source_table_name, fingerprint, source_metadata_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     [
                         source.path,
@@ -456,6 +460,7 @@ def load_tables_into_sqlite(
                         source.sheet_name,
                         source_table_name,
                         stored_table.fingerprint,
+                        source_metadata_json,
                     ],
                 )
                 register_source_table_relationships(
@@ -467,21 +472,23 @@ def load_tables_into_sqlite(
                     fingerprint=stored_table.fingerprint,
                     table_name=stored_table.table_name,
                     typed_view_name=typed_view.name,
+                    source_metadata=source_metadata,
                 )
 
-                loaded_tables.append(
-                    {
-                        "source_name": source_table_name,
-                        "fingerprint": stored_table.fingerprint,
-                        "table_name": stored_table.table_name,
-                        "typed_view_name": typed_view.name,
-                        "row_count": len(rows),
-                        "columns": columns,
-                        "db_columns": stored_table.db_columns,
-                        "typed_columns": typed_view.columns,
-                        "load_status": stored_table.load_status,
-                    }
-                )
+                loaded_table = {
+                    "source_name": source_table_name,
+                    "fingerprint": stored_table.fingerprint,
+                    "table_name": stored_table.table_name,
+                    "typed_view_name": typed_view.name,
+                    "row_count": len(rows),
+                    "columns": columns,
+                    "db_columns": stored_table.db_columns,
+                    "typed_columns": typed_view.columns,
+                    "load_status": stored_table.load_status,
+                }
+                if source_metadata:
+                    loaded_table["source_metadata"] = source_metadata
+                loaded_tables.append(loaded_table)
             connection.commit()
         finally:
             connection.close()

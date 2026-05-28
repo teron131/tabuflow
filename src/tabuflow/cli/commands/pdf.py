@@ -10,6 +10,7 @@ from ...pdf import (
     DEFAULT_INSPECT_TEXT_CHARS,
     DEFAULT_MAX_PREPARE_PAGES,
     extract_pdf_file,
+    ingest_pdf_table_artifacts,
     inspect_pdf_file,
     prepare_pdf_file,
 )
@@ -138,6 +139,17 @@ def add_pdf_extract_command(pdf_subparsers: Any) -> None:
     )
 
 
+def add_pdf_ingest_tables_command(pdf_subparsers: Any) -> None:
+    """Add the PDF table artifact ingestion command."""
+    ingest = pdf_subparsers.add_parser("ingest-tables", help="Load reviewed PDF table CSV artifacts into SQLite.")
+    ingest.add_argument("path")
+    ingest.set_defaults(
+        handler=lambda args: ingest_pdf_table_artifacts(
+            resolve_cli_path(args.path),
+        )
+    )
+
+
 def add_pdf_commands(subparsers: Any) -> None:
     """Add PDF inspection, preparation, and extraction-boundary commands."""
     pdf = subparsers.add_parser("pdf", help="Inspect or extract PDF files.")
@@ -146,3 +158,4 @@ def add_pdf_commands(subparsers: Any) -> None:
     add_pdf_inspect_command(pdf_subparsers)
     add_pdf_prepare_command(pdf_subparsers)
     add_pdf_extract_command(pdf_subparsers)
+    add_pdf_ingest_tables_command(pdf_subparsers)

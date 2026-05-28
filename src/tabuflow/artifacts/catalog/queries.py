@@ -46,6 +46,22 @@ _TEXT_TYPE_MARKERS = ("CHAR", "CLOB", "TEXT", "VARCHAR")
 _TEXT_HINT_NAME_MARKERS = ("category", "code", "description", "group", "id", "identifier", "key", "kind", "label", "name", "segment", "status", "type")
 
 
+def _source_match_document_order(source_match: dict[str, Any]) -> int:
+    """Return the first PDF table document order represented by a source match."""
+    orders: list[int] = []
+    for mapping in source_match.get("source_mappings", []):
+        if not isinstance(mapping, dict):
+            continue
+        source_metadata = mapping.get("source_metadata")
+        if not isinstance(source_metadata, dict):
+            continue
+        try:
+            orders.append(int(source_metadata.get("pdf_table_document_order")))
+        except (TypeError, ValueError):
+            continue
+    return min(orders, default=10**9)
+
+
 def _sample_rows(
     connection: sqlite3.Connection,
     *,
@@ -392,7 +408,13 @@ def artifacts_from_source(
 
             source_matches.append(source_match_sql_artifact(artifact, matched_mappings))
 
-        source_matches.sort(key=lambda item: (cast(str, item["kind"]) != "typed_content_view", cast(str, item["name"])))
+        source_matches.sort(
+            key=lambda item: (
+                _source_match_document_order(item),
+                cast(str, item["kind"]) != "typed_content_view",
+                cast(str, item["name"]),
+            )
+        )
         source_match_preview, source_matches_truncated = preview_items(source_matches, max_items=MAX_SOURCE_MATCH_PREVIEW)
         preferred_artifact = source_matches[0] if source_matches else None
         return {

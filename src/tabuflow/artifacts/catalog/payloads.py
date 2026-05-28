@@ -249,6 +249,17 @@ def matched_source_artifact_mappings(
             continue
         stored_source_path = str(mapping.get("source_path") or "")
         match_reason = path_match_reason(stored_source_path, requested_source)
+        source_metadata = mapping.get("source_metadata")
+        if match_reason is None and isinstance(source_metadata, dict):
+            pdf_source_path = str(source_metadata.get("pdf_source_path") or "")
+            pdf_match_reason = path_match_reason(pdf_source_path, requested_source)
+            if pdf_match_reason is not None:
+                match_reason = f"pdf_source_{pdf_match_reason}"
+            if match_reason is None:
+                manifest_path = str(source_metadata.get("tables_manifest_path") or "")
+                manifest_match_reason = path_match_reason(manifest_path, requested_source)
+                if manifest_match_reason is not None:
+                    match_reason = f"pdf_tables_manifest_{manifest_match_reason}"
         if match_reason is not None:
             matched_mappings.append({**mapping, "match_reason": match_reason})
     return matched_mappings

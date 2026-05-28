@@ -466,7 +466,7 @@ def _write_pending_tables(
     used_output_stems: set[str] = set()
     page_tag_counts = Counter(page_tag(table.pages, page_count=table.page_count) for table in pending_tables)
     manifest_tables: list[dict[str, Any]] = []
-    for table in pending_tables:
+    for document_order, table in enumerate(pending_tables, start=1):
         table_page_tag = page_tag(table.pages, page_count=table.page_count)
         output_path = output_path_for_table(
             output_dir=output_dir,
@@ -483,6 +483,7 @@ def _write_pending_tables(
         manifest_tables.append(
             {
                 **table.manifest,
+                "document_order": document_order,
                 "name": output_path.stem.removeprefix(f"{pdf_stem}_"),
                 "page_tag": table_page_tag,
                 "path": str(output_path),

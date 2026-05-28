@@ -116,18 +116,20 @@ def _fetch_catalog_metadata(
     }
     source_rows: dict[str, list[dict[str, Any]]] = {}
     source_query = f"""
-    SELECT {source_fingerprint_column}, source_path, source_format, source_sheet_name, source_table_name
+    SELECT {source_fingerprint_column}, source_path, source_format, source_sheet_name, source_table_name, source_metadata_json
     FROM {SQLITE_SOURCES_TABLE}
     ORDER BY source_path, source_table_name
     """
     for row in connection.execute(source_query).fetchall():
         table_fingerprint = cast(str, row[0])
+        source_metadata = json.loads(cast(str, row[5]))
         source_rows.setdefault(table_fingerprint, []).append(
             {
                 "source_path": cast(str, row[1]),
                 "source_format": cast(str, row[2]),
                 "source_sheet_name": cast(str, row[3]),
                 "source_table_name": cast(str, row[4]),
+                "source_metadata": source_metadata,
                 "fingerprint": table_fingerprint,
             }
         )

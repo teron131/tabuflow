@@ -157,6 +157,7 @@ def register_source_table_relationships(
     fingerprint: str,
     table_name: str,
     typed_view_name: str,
+    source_metadata: dict[str, Any] | None = None,
 ) -> None:
     """Register source-file, fingerprint, raw table, and typed-view relationships."""
     _upsert_artifact_file(
@@ -165,11 +166,20 @@ def register_source_table_relationships(
         kind="source",
         description=f"{source_format} source",
     )
-    source_metadata = {
+    if source_metadata and (pdf_source_path := str(source_metadata.get("pdf_source_path") or "").strip()):
+        _upsert_artifact_file(
+            connection,
+            path=pdf_source_path,
+            kind="pdf_source",
+            description="PDF source for extracted table CSV",
+        )
+    relation_metadata = {
         "source_format": source_format,
         "source_sheet_name": source_sheet_name,
         "source_table_name": source_table_name,
     }
+    if source_metadata:
+        relation_metadata["source_metadata"] = source_metadata
     _upsert_relation(
         connection,
         from_kind="file",
@@ -177,8 +187,18 @@ def register_source_table_relationships(
         relation="produced",
         to_kind="fingerprint",
         to_id=fingerprint,
-        metadata=source_metadata,
+        metadata=relation_metadata,
     )
+    if source_metadata and (pdf_source_path := str(source_metadata.get("pdf_source_path") or "").strip()):
+        _upsert_relation(
+            connection,
+            from_kind="file",
+            from_id=pdf_source_path,
+            relation="produced",
+            to_kind="fingerprint",
+            to_id=fingerprint,
+            metadata=relation_metadata,
+        )
     _upsert_relation(
         connection,
         from_kind="fingerprint",
@@ -446,6 +466,13 @@ def artifact_relationship_metadata(
     ]
 
     related_file_paths = {str(mapping.get("source_path") or "").strip() for mapping in source_mappings if str(mapping.get("source_path") or "").strip()}
+    for mapping in source_mappings:
+        source_metadata = mapping.get("source_metadata")
+        if not isinstance(source_metadata, dict):
+            continue
+        pdf_source_path = str(source_metadata.get("pdf_source_path") or "").strip()
+        if pdf_source_path:
+            related_file_paths.add(pdf_source_path)
     for relation in direct_relations:
         if relation["from_kind"] == "file":
             related_file_paths.add(cast(str, relation["from_id"]))

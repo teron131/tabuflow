@@ -19,6 +19,7 @@ from .common import (
     pdf_source_fingerprint,
 )
 from .extraction import extract_pdf_file
+from .ingestion import ingest_pdf_table_artifacts
 from .inspection import inspect_pdf_file
 from .preparation import prepare_pdf_file
 
@@ -36,6 +37,7 @@ __all__ = [
     "PDF_TABLES_MANIFEST_NAME",
     "PdfArtifactWorkspace",
     "extract_pdf_file",
+    "ingest_pdf_table_artifacts",
     "inspect_pdf_file",
     "pdf_artifact_workspace",
     "pdf_source_fingerprint",
