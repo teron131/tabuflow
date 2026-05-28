@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 import csv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 from pathlib import Path
@@ -20,7 +20,7 @@ from .detected_tables import pymupdf_table_outputs
 from .pages import page_numbers
 from .row_streams import ExtractedRows
 from .text_values import field_value_rows, line_value_rows
-from .transpose import RepeatedLabelColumns, repeated_label_column_transform
+from .transpose import RepeatedLabelTranspose, transpose_repeated_label_rows
 
 FILENAME_FINGERPRINT_CHARS = 4
 GENERIC_COLUMN_PATTERN = re.compile(r"^column_[0-9]+$")
@@ -39,6 +39,45 @@ class PendingPdfTable:
     rows: list[dict[str, str]]
     columns: list[str]
     manifest: dict[str, Any]
+
+
+@dataclass
+class PdfTableOutputNamer:
+    """Assign stable CSV paths for PDF table outputs in document order."""
+
+    output_dir: Path
+    pdf_stem: str
+    page_range_counts: Counter[str]
+    used_stems: set[str] = field(default_factory=set)
+    page_range_indexes: Counter[str] = field(default_factory=Counter)
+
+    @classmethod
+    def from_tables(
+        cls,
+        pending_tables: list[PendingPdfTable],
+        *,
+        output_dir: Path,
+        pdf_stem: str,
+    ) -> PdfTableOutputNamer:
+        """Build a namer that knows which page ranges need a table suffix."""
+        return cls(
+            output_dir=output_dir,
+            pdf_stem=pdf_stem,
+            page_range_counts=Counter(page_range_tag(table.pages, page_count=table.page_count) for table in pending_tables),
+        )
+
+    def path_for(self, table: PendingPdfTable) -> Path:
+        """Return the next stable CSV path for a pending table."""
+        table_page_range = page_range_tag(table.pages, page_count=table.page_count)
+        self.page_range_indexes[table_page_range] += 1
+        base_stem = f"{self.pdf_stem}_{table_page_range}"
+        stem = base_stem
+        if self.page_range_counts[table_page_range] > 1 or stem in self.used_stems:
+            stem = f"{base_stem}_t{self.page_range_indexes[table_page_range]}"
+        if stem in self.used_stems:
+            stem = f"{stem}_{filename_fingerprint(table.rows, table.columns)}"
+        self.used_stems.add(stem)
+        return self.output_dir / f"{stem}.csv"
 
 
 @dataclass(frozen=True)
@@ -157,7 +196,7 @@ def split_groups_from_parts(
     return split_groups
 
 
-def page_tag(
+def page_range_tag(
     pages: list[int],
     *,
     page_count: int,
@@ -178,30 +217,6 @@ def filename_fingerprint(
     """Return a short stable fingerprint for filename collisions."""
     payload = json.dumps({"columns": columns, "rows": rows}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:FILENAME_FINGERPRINT_CHARS]
-
-
-def output_path_for_table(
-    *,
-    output_dir: Path,
-    pdf_stem: str,
-    pages: list[int],
-    page_count: int,
-    page_table_index: int,
-    rows: list[dict[str, str]],
-    columns: list[str],
-    used_stems: set[str],
-    page_tag_counts: Counter[str],
-) -> Path:
-    """Return a stable CSV path based on page range and document order."""
-    table_page_tag = page_tag(pages, page_count=page_count)
-    base_stem = f"{pdf_stem}_{table_page_tag}"
-    stem = base_stem
-    if page_tag_counts[table_page_tag] > 1 or stem in used_stems:
-        stem = f"{base_stem}_t{page_table_index}"
-    if stem in used_stems:
-        stem = f"{stem}_{filename_fingerprint(rows, columns)}"
-    used_stems.add(stem)
-    return output_dir / f"{stem}.csv"
 
 
 def empty_extraction_diagnostics(pdf_path: Path) -> dict[str, Any]:
@@ -363,11 +378,11 @@ def _repeated_label_transform(
     columns: list[str],
     table_config: dict[str, Any],
     row_metadata: list[dict[str, Any]] | None = None,
-) -> RepeatedLabelColumns | None:
+) -> RepeatedLabelTranspose | None:
     """Return an automatic repeated-label reshape when the line-value signal is strong."""
     if table_config["mode"] != "line_value":
         return None
-    return repeated_label_column_transform(
+    return transpose_repeated_label_rows(
         rows,
         columns,
         label_column=str(table_config.get("label_column", "label")),
@@ -496,31 +511,22 @@ def _write_pending_tables(
     pdf_stem: str,
 ) -> list[dict[str, Any]]:
     """Write pending table CSVs and return their manifest entries."""
-    used_output_stems: set[str] = set()
-    page_tag_counts = Counter(page_tag(table.pages, page_count=table.page_count) for table in pending_tables)
-    page_tag_indexes: Counter[str] = Counter()
+    namer = PdfTableOutputNamer.from_tables(
+        pending_tables,
+        output_dir=output_dir,
+        pdf_stem=pdf_stem,
+    )
     manifest_tables: list[dict[str, Any]] = []
     for document_order, table in enumerate(pending_tables, start=1):
-        table_page_tag = page_tag(table.pages, page_count=table.page_count)
-        page_tag_indexes[table_page_tag] += 1
-        output_path = output_path_for_table(
-            output_dir=output_dir,
-            pdf_stem=pdf_stem,
-            pages=table.pages,
-            page_count=table.page_count,
-            page_table_index=page_tag_indexes[table_page_tag],
-            rows=table.rows,
-            columns=table.columns,
-            used_stems=used_output_stems,
-            page_tag_counts=page_tag_counts,
-        )
+        table_page_range = page_range_tag(table.pages, page_count=table.page_count)
+        output_path = namer.path_for(table)
         write_csv(output_path, table.rows, table.columns)
         manifest_tables.append(
             {
                 **table.manifest,
                 "document_order": document_order,
                 "name": output_path.stem.removeprefix(f"{pdf_stem}_"),
-                "page_tag": table_page_tag,
+                "page_tag": table_page_range,
                 "path": str(output_path),
             }
         )
@@ -545,7 +551,10 @@ def extract_pdf_file(
         stale_output.unlink()
 
     table_configs = list(extraction.get("tables", []))
-    pending_tables = _collect_pending_tables(pdf_path=pdf_path, table_configs=table_configs)
+    pending_tables = _collect_pending_tables(
+        pdf_path=pdf_path,
+        table_configs=table_configs,
+    )
     manifest_tables = _write_pending_tables(
         pending_tables=pending_tables,
         output_dir=output_dir,
@@ -553,8 +562,14 @@ def extract_pdf_file(
     )
 
     manifest_path = workspace.tables_manifest_path
-    diagnostics = extraction_diagnostics(pdf_path=pdf_path, tables=manifest_tables)
-    extraction_status = pdf_extraction_status(manifest_tables, diagnostics)
+    diagnostics = extraction_diagnostics(
+        pdf_path=pdf_path,
+        tables=manifest_tables,
+    )
+    extraction_status = pdf_extraction_status(
+        manifest_tables,
+        diagnostics,
+    )
     manifest = {
         "status": "empty" if extraction_status == "empty" else "ok",
         "extraction_status": extraction_status,

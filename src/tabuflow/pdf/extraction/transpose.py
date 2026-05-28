@@ -17,7 +17,7 @@ RowPattern = tuple[str, re.Pattern[str]]
 
 
 @dataclass(frozen=True)
-class RepeatedLabelColumns:
+class RepeatedLabelTranspose:
     """Represent a repeated-label row stream promoted to columnar rows."""
 
     rows: list[dict[str, str]]
@@ -25,7 +25,217 @@ class RepeatedLabelColumns:
     evidence: dict[str, Any]
 
 
-def repeated_label_column_transform(
+@dataclass(frozen=True)
+class RepeatedLabelTransposer:
+    """Promote repeated label/value rows into columnar parent rows."""
+
+    rows: list[dict[str, str]]
+    columns: list[str]
+    label_column: str
+    value_column: str
+    table_end_patterns: list[RowPattern]
+    row_metadata: list[dict[str, Any]]
+    mode: str = "auto"
+    entity_column: str = "item"
+    total_column: str = "total"
+
+    def transpose(self) -> RepeatedLabelTranspose | None:
+        """Return columnar rows when repeated-label evidence is strong enough."""
+        mode = self.mode if self.mode in TRANSPOSE_MODES else "auto"
+        if mode == "never" or len(self.rows) < 3:
+            return None
+
+        key_labels, reason = self._key_labels()
+        if mode == "auto" and len(key_labels) < MIN_AUTO_KEY_LABELS:
+            return None
+        if mode == "always" and not key_labels:
+            key_labels = self._repeated_labels()
+        if not key_labels:
+            return None
+
+        key_columns = _key_columns(
+            key_labels,
+            reserved={
+                *self.context_columns,
+                self.entity_column,
+                self.total_column,
+            },
+        )
+        transposed_rows = self._transposed_rows(key_columns)
+        has_parent_row = any(row.get(self.entity_column) and any(row.get(column) for column in key_columns.values()) for row in transposed_rows)
+        if mode == "auto" and not has_parent_row:
+            return None
+
+        output_columns = [*self.context_columns, self.entity_column, self.total_column, *key_columns.values()]
+        evidence = {
+            "status": "applied",
+            "mode": mode,
+            "reason": reason,
+            "label_column": self.label_column,
+            "value_column": self.value_column,
+            "entity_column": self.entity_column,
+            "total_column": self.total_column,
+            "key_labels": key_labels,
+            "row_count_before": len(self.rows),
+            "row_count_after": len(transposed_rows),
+        }
+        return RepeatedLabelTranspose(
+            rows=transposed_rows,
+            columns=output_columns,
+            evidence=evidence,
+        )
+
+    @property
+    def context_columns(self) -> list[str]:
+        """Return content columns carried unchanged through the transpose."""
+        content_columns = {self.label_column, self.value_column, "page"}
+        return [column for column in self.columns if column not in content_columns and not column.startswith("__")]
+
+    def _key_labels(self) -> tuple[list[str], str]:
+        key_labels = self._table_end_child_labels()
+        if len(key_labels) >= MIN_AUTO_KEY_LABELS:
+            return key_labels, "table_end_child_label_sequence"
+        return self._indent_child_labels(), "layout_child_indent"
+
+    def _table_end_child_labels(self) -> list[str]:
+        key_labels: list[str] = []
+        segment_labels: list[str] = []
+        child_labels: list[str] = []
+        has_parent = False
+        for row in self.rows:
+            label = str(row.get(self.label_column, "")).strip()
+            if self._matches_table_end(row):
+                if has_parent:
+                    _extend_unique(key_labels, child_labels)
+                else:
+                    _extend_unique(key_labels, segment_labels[1:])
+                segment_labels = []
+                child_labels = []
+                has_parent = False
+                continue
+            if not label:
+                continue
+            segment_labels.append(label)
+            if self._is_context_parent(row, label=label):
+                if has_parent:
+                    _extend_unique(key_labels, child_labels)
+                child_labels = []
+                has_parent = True
+                continue
+            if has_parent:
+                child_labels.append(label)
+        return key_labels
+
+    def _is_context_parent(
+        self,
+        row: dict[str, str],
+        *,
+        label: str,
+    ) -> bool:
+        return any(label == str(row.get(column, "")).strip() for column in self.context_columns)
+
+    def _indent_child_labels(self) -> list[str]:
+        if not self.row_metadata:
+            return []
+        key_labels: list[str] = []
+        child_labels: list[str] = []
+        parent_x0: float | None = None
+        parent_count = 0
+        for row_index, row in enumerate(self.rows):
+            label = str(row.get(self.label_column, "")).strip()
+            label_x0 = _label_x0(self.row_metadata, row_index)
+            if not label or label_x0 is None:
+                continue
+            if _starts_outdented_footer(label_x0, parent_x0):
+                if child_labels:
+                    _extend_unique(key_labels, child_labels)
+                child_labels = []
+                parent_x0 = None
+                continue
+            if parent_x0 is None or label_x0 <= parent_x0 + INDENT_PARENT_TOLERANCE:
+                if child_labels:
+                    _extend_unique(key_labels, child_labels)
+                child_labels = []
+                parent_x0 = label_x0
+                parent_count += 1
+                continue
+            if label_x0 >= parent_x0 + MIN_CHILD_INDENT_DELTA:
+                child_labels.append(label)
+        if child_labels:
+            _extend_unique(key_labels, child_labels)
+        if parent_count < MIN_INDENT_PARENT_GROUPS:
+            return []
+        return key_labels
+
+    def _repeated_labels(self) -> list[str]:
+        counts = Counter(str(row.get(self.label_column, "")).strip() for row in self.rows)
+        return [label for label, count in counts.items() if label and count > 1]
+
+    def _transposed_rows(self, key_columns: dict[str, str]) -> list[dict[str, str]]:
+        transposed_rows: list[dict[str, str]] = []
+        current: dict[str, str] | None = None
+        current_parent_x0: float | None = None
+        for row_index, row in enumerate(self.rows):
+            label = str(row.get(self.label_column, "")).strip()
+            value = str(row.get(self.value_column, "")).strip()
+            label_x0 = _label_x0(self.row_metadata, row_index)
+            if self._matches_table_end(row):
+                _append_current(transposed_rows, current)
+                transposed_rows.append(self._table_end_row(row, label, value))
+                current = None
+                current_parent_x0 = None
+                continue
+            if _starts_outdented_footer(label_x0, current_parent_x0):
+                _append_current(transposed_rows, current)
+                transposed_rows.append(self._table_end_row(row, label, value))
+                current = None
+                current_parent_x0 = None
+                continue
+            if _starts_aligned_parent(label_x0, current_parent_x0):
+                _append_current(transposed_rows, current)
+                current = self._parent_row(row, label, value)
+                current_parent_x0 = label_x0
+                continue
+            if label in key_columns:
+                if current is None:
+                    current = self._parent_row(row, "", "")
+                current[_unique_key(current, key_columns[label])] = value
+                continue
+            _append_current(transposed_rows, current)
+            current = self._parent_row(row, label, value)
+            current_parent_x0 = label_x0
+
+        _append_current(transposed_rows, current)
+        return transposed_rows
+
+    def _matches_table_end(self, row: dict[str, str]) -> bool:
+        return any(pattern.match(str(row.get(column, ""))) for column, pattern in self.table_end_patterns)
+
+    def _parent_row(
+        self,
+        row: dict[str, str],
+        entity: str,
+        total: str,
+    ) -> dict[str, str]:
+        return {
+            **{column: str(row.get(column, "")) for column in self.context_columns},
+            self.entity_column: entity,
+            self.total_column: total,
+        }
+
+    def _table_end_row(
+        self,
+        row: dict[str, str],
+        entity: str,
+        total: str,
+    ) -> dict[str, str]:
+        footer_row = self._parent_row(row, entity, total)
+        if entity.lower().startswith("total ") and "account" in self.context_columns:
+            footer_row["account"] = ""
+        return footer_row
+
+
+def transpose_repeated_label_rows(
     rows: list[dict[str, str]],
     columns: list[str],
     *,
@@ -36,142 +246,19 @@ def repeated_label_column_transform(
     mode: str = "auto",
     entity_column: str = "item",
     total_column: str = "total",
-) -> RepeatedLabelColumns | None:
+) -> RepeatedLabelTranspose | None:
     """Promote deterministic repeated label/value rows into one row per parent item."""
-    mode = mode if mode in TRANSPOSE_MODES else "auto"
-    if mode == "never" or len(rows) < 3:
-        return None
-
-    context_columns = [column for column in columns if column not in {label_column, value_column, "page"} and not column.startswith("__")]
-    key_labels = _table_end_child_labels(
-        rows,
-        label_column=label_column,
-        table_end_patterns=table_end_patterns,
-        context_columns=context_columns,
-    )
-    reason = "table_end_child_label_sequence"
-    if len(key_labels) < MIN_AUTO_KEY_LABELS:
-        key_labels = _indent_child_labels(
-            rows,
-            label_column=label_column,
-            row_metadata=row_metadata,
-        )
-        reason = "layout_child_indent"
-    if mode == "auto" and len(key_labels) < MIN_AUTO_KEY_LABELS:
-        return None
-    if mode == "always" and not key_labels:
-        key_labels = _repeated_labels(rows, label_column=label_column)
-    if not key_labels:
-        return None
-
-    key_columns = _key_columns(key_labels, reserved={*context_columns, entity_column, total_column})
-    transformed_rows = _transformed_rows(
-        rows,
-        context_columns=context_columns,
+    return RepeatedLabelTransposer(
+        rows=rows,
+        columns=columns,
         label_column=label_column,
         value_column=value_column,
         table_end_patterns=table_end_patterns,
-        row_metadata=row_metadata,
-        key_columns=key_columns,
+        row_metadata=row_metadata or [],
+        mode=mode,
         entity_column=entity_column,
         total_column=total_column,
-    )
-    has_parent_row = any(row.get(entity_column) and any(row.get(column) for column in key_columns.values()) for row in transformed_rows)
-    if mode == "auto" and not has_parent_row:
-        return None
-
-    output_columns = [*context_columns, entity_column, total_column, *key_columns.values()]
-    evidence = {
-        "status": "applied",
-        "mode": mode,
-        "reason": reason,
-        "label_column": label_column,
-        "value_column": value_column,
-        "entity_column": entity_column,
-        "total_column": total_column,
-        "key_labels": key_labels,
-        "row_count_before": len(rows),
-        "row_count_after": len(transformed_rows),
-    }
-    return RepeatedLabelColumns(rows=transformed_rows, columns=output_columns, evidence=evidence)
-
-
-def _table_end_child_labels(
-    rows: list[dict[str, str]],
-    *,
-    label_column: str,
-    table_end_patterns: list[RowPattern],
-    context_columns: list[str],
-) -> list[str]:
-    key_labels: list[str] = []
-    segment_labels: list[str] = []
-    child_labels: list[str] = []
-    has_parent = False
-    for row in rows:
-        label = str(row.get(label_column, "")).strip()
-        if _matches_table_end(row, table_end_patterns):
-            if has_parent:
-                _extend_unique(key_labels, child_labels)
-            else:
-                _extend_unique(key_labels, segment_labels[1:])
-            segment_labels = []
-            child_labels = []
-            has_parent = False
-            continue
-        if not label:
-            continue
-        segment_labels.append(label)
-        if _is_context_parent(row, label=label, context_columns=context_columns):
-            if has_parent:
-                _extend_unique(key_labels, child_labels)
-            child_labels = []
-            has_parent = True
-            continue
-        if has_parent:
-            child_labels.append(label)
-    return key_labels
-
-
-def _is_context_parent(
-    row: dict[str, str],
-    *,
-    label: str,
-    context_columns: list[str],
-) -> bool:
-    return any(label == str(row.get(column, "")).strip() for column in context_columns)
-
-
-def _indent_child_labels(
-    rows: list[dict[str, str]],
-    *,
-    label_column: str,
-    row_metadata: list[dict[str, Any]] | None,
-) -> list[str]:
-    if not row_metadata:
-        return []
-    key_labels: list[str] = []
-    child_labels: list[str] = []
-    parent_x0: float | None = None
-    parent_count = 0
-    for row_index, row in enumerate(rows):
-        label = str(row.get(label_column, "")).strip()
-        label_x0 = _label_x0(row_metadata, row_index)
-        if not label or label_x0 is None:
-            continue
-        if parent_x0 is None or label_x0 <= parent_x0 + INDENT_PARENT_TOLERANCE:
-            if child_labels:
-                _extend_unique(key_labels, child_labels)
-            child_labels = []
-            parent_x0 = label_x0
-            parent_count += 1
-            continue
-        if label_x0 >= parent_x0 + MIN_CHILD_INDENT_DELTA:
-            child_labels.append(label)
-    if child_labels:
-        _extend_unique(key_labels, child_labels)
-    if parent_count < MIN_INDENT_PARENT_GROUPS:
-        return []
-    return key_labels
+    ).transpose()
 
 
 def _label_x0(
@@ -187,21 +274,15 @@ def _label_x0(
         return None
 
 
-def _extend_unique(target: list[str], values: list[str]) -> None:
+def _extend_unique(
+    target: list[str],
+    values: list[str],
+) -> None:
     seen = set(target)
     for value in values:
         if value and value not in seen:
             target.append(value)
             seen.add(value)
-
-
-def _repeated_labels(
-    rows: list[dict[str, str]],
-    *,
-    label_column: str,
-) -> list[str]:
-    counts = Counter(str(row.get(label_column, "")).strip() for row in rows)
-    return [label for label, count in counts.items() if label and count > 1]
 
 
 def _key_columns(
@@ -223,59 +304,7 @@ def _key_columns(
     return key_columns
 
 
-def _transformed_rows(
-    rows: list[dict[str, str]],
-    *,
-    context_columns: list[str],
-    label_column: str,
-    value_column: str,
-    table_end_patterns: list[RowPattern],
-    row_metadata: list[dict[str, Any]] | None,
-    key_columns: dict[str, str],
-    entity_column: str,
-    total_column: str,
-) -> list[dict[str, str]]:
-    transformed_rows: list[dict[str, str]] = []
-    current: dict[str, str] | None = None
-    current_parent_x0: float | None = None
-    for row_index, row in enumerate(rows):
-        label = str(row.get(label_column, "")).strip()
-        value = str(row.get(value_column, "")).strip()
-        label_x0 = _label_x0(row_metadata or [], row_index)
-        if _matches_table_end(row, table_end_patterns):
-            _append_current(transformed_rows, current)
-            transformed_rows.append(
-                _table_end_row(
-                    row,
-                    context_columns,
-                    entity_column,
-                    total_column,
-                    label,
-                    value,
-                )
-            )
-            current = None
-            current_parent_x0 = None
-            continue
-        if _starts_indented_parent(label_x0, current_parent_x0):
-            _append_current(transformed_rows, current)
-            current = _parent_row(row, context_columns, entity_column, total_column, label, value)
-            current_parent_x0 = label_x0
-            continue
-        if label in key_columns:
-            if current is None:
-                current = _parent_row(row, context_columns, entity_column, total_column, "", "")
-            current[_unique_key(current, key_columns[label])] = value
-            continue
-        _append_current(transformed_rows, current)
-        current = _parent_row(row, context_columns, entity_column, total_column, label, value)
-        current_parent_x0 = label_x0
-
-    _append_current(transformed_rows, current)
-    return transformed_rows
-
-
-def _starts_indented_parent(
+def _starts_aligned_parent(
     label_x0: float | None,
     current_parent_x0: float | None,
 ) -> bool:
@@ -284,46 +313,22 @@ def _starts_indented_parent(
     return label_x0 <= current_parent_x0 + INDENT_PARENT_TOLERANCE
 
 
-def _matches_table_end(row: dict[str, str], patterns: list[RowPattern]) -> bool:
-    return any(pattern.match(str(row.get(column, ""))) for column, pattern in patterns)
-
-
-def _parent_row(
-    row: dict[str, str],
-    context_columns: list[str],
-    entity_column: str,
-    total_column: str,
-    entity: str,
-    total: str,
-) -> dict[str, str]:
-    return {
-        **{column: str(row.get(column, "")) for column in context_columns},
-        entity_column: entity,
-        total_column: total,
-    }
-
-
-def _table_end_row(
-    row: dict[str, str],
-    context_columns: list[str],
-    entity_column: str,
-    total_column: str,
-    entity: str,
-    total: str,
-) -> dict[str, str]:
-    footer_row = _parent_row(row, context_columns, entity_column, total_column, entity, total)
-    if entity.lower().startswith("total ") and "account" in context_columns:
-        footer_row["account"] = ""
-    return footer_row
+def _starts_outdented_footer(
+    label_x0: float | None,
+    current_parent_x0: float | None,
+) -> bool:
+    if label_x0 is None or current_parent_x0 is None:
+        return False
+    return label_x0 < current_parent_x0 - INDENT_PARENT_TOLERANCE
 
 
 def _append_current(
-    transformed_rows: list[dict[str, str]],
+    output_rows: list[dict[str, str]],
     current: dict[str, str] | None,
 ) -> None:
     if current is None:
         return
-    transformed_rows.append(current)
+    output_rows.append(current)
 
 
 def _unique_key(row: dict[str, str], column: str) -> str:
