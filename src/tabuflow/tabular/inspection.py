@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from .hints import structure_hints
+from .formulas import formulas_in_window, workbook_formula_cells
 from .ingestion import (
     MAX_SAMPLE_ROWS,
     TabularReader,
@@ -82,7 +83,7 @@ def inspect_tabular_file(
 
     preview_row_count, preview_column_count = tabular_dimensions(selected_rows)
 
-    return {
+    payload = {
         "path": str(path),
         **summary_payload,
         "preview_row_count": preview_row_count,
@@ -100,3 +101,13 @@ def inspect_tabular_file(
         "regions": regions,
         "rows": selected_rows,
     }
+    formula_cells = formulas_in_window(
+        workbook_formula_cells(path, sheet=sheet),
+        row_start=safe_start,
+        row_end=payload["end_row"],
+        column_start=safe_start_col,
+        column_end=payload["end_col"],
+    )
+    payload["formula_count"] = len(formula_cells)
+    payload["formulas"] = formula_cells
+    return payload

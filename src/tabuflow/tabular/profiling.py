@@ -103,3 +103,21 @@ def profile_tabular_workbook_sheets(
         "sheet_count": len(sheet_names),
         "sheets": sheet_profiles,
     }
+
+
+def profile_tabular_source(
+    path: str | Path,
+    *,
+    max_sample_rows: int = MAX_SAMPLE_ROWS,
+) -> dict[str, Any]:
+    """Profile workbooks as all sheets, otherwise profile the single tabular source."""
+    path = Path(path)
+    if workbook_sheet_names(path):
+        return profile_tabular_workbook_sheets(
+            path,
+            max_sample_rows=max_sample_rows,
+        )
+    return profile_tabular_file(
+        path,
+        max_sample_rows=max_sample_rows,
+    )

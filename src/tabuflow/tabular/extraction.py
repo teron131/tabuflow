@@ -8,7 +8,8 @@ from typing import Any
 
 from ..pdf.common import PDF_TABLES_MANIFEST_NAME
 from ..workspace_db import resolve_root_dir
-from .ingestion import MAX_FULL_EXTRACT_BYTES, MAX_METADATA_ROWS, load_rows, tabular_summary
+from .formulas import formulas_with_table_refs, workbook_formula_cells
+from .ingestion import MAX_FULL_EXTRACT_BYTES, MAX_METADATA_ROWS, load_rows, tabular_summary, workbook_sheet_names
 from .segmentation import segment_tabular_blocks
 from .storage import load_tables_into_sqlite
 
@@ -198,7 +199,7 @@ def extract_tabular_file(
             recovered,
             root_dir=root_dir,
         )
-        return {
+        payload = {
             "path": recovered["path"],
             "format": recovered["format"],
             "sheet_name": recovered.get("sheet_name"),
@@ -209,6 +210,14 @@ def extract_tabular_file(
             "excluded_row_hints": [],
             "tables": loaded["tables"],
         }
+        formulas = formulas_with_table_refs(
+            workbook_formula_cells(path, sheet=recovered.get("sheet_name")),
+            recovered_tables=tables,
+            loaded_tables=loaded["tables"],
+        )
+        payload["formula_count"] = len(formulas)
+        payload["formulas"] = formulas
+        return payload
 
     metadata, tables = segment_tabular_blocks(
         rows,
@@ -222,7 +231,7 @@ def extract_tabular_file(
         "tables": tables,
     }
     if not recovered["tables"]:
-        return {
+        payload = {
             "path": recovered["path"],
             "format": recovered["format"],
             "sheet_name": recovered.get("sheet_name"),
@@ -234,13 +243,19 @@ def extract_tabular_file(
             "tables": [],
             "message": "Tabular extraction completed but did not recover importable tables.",
         }
+        formulas = workbook_formula_cells(path, sheet=recovered.get("sheet_name"))
+        for formula in formulas:
+            formula["table_refs"] = []
+        payload["formula_count"] = len(formulas)
+        payload["formulas"] = formulas
+        return payload
 
     loaded = load_tables_into_sqlite(
         recovered,
         root_dir=root_dir,
     )
 
-    return {
+    payload = {
         "path": recovered["path"],
         "format": recovered["format"],
         "sheet_name": recovered.get("sheet_name"),
@@ -251,3 +266,72 @@ def extract_tabular_file(
         "excluded_row_hints": _footer_like_row_hints(recovered["tables"], recovered["metadata"]),
         "tables": loaded["tables"],
     }
+    formulas = formulas_with_table_refs(
+        workbook_formula_cells(path, sheet=recovered.get("sheet_name")),
+        recovered_tables=recovered["tables"],
+        loaded_tables=loaded["tables"],
+    )
+    payload["formula_count"] = len(formulas)
+    payload["formulas"] = formulas
+    return payload
+
+
+def extract_tabular_workbook_sheets(
+    path: str | Path,
+    *,
+    root_dir: str | Path | None = None,
+    metadata_rows: int = MAX_METADATA_ROWS,
+) -> dict[str, Any]:
+    """Extract every worksheet in a workbook into the shared SQLite cache."""
+    source_path = Path(path)
+    sheet_names = workbook_sheet_names(source_path)
+    if not sheet_names:
+        raise ValueError(f"All-sheet extraction requires an XLS or XLSX workbook: {source_path}")
+
+    resolved_source_path = source_path.resolve()
+    sheets = [
+        extract_tabular_file(
+            resolved_source_path,
+            root_dir=root_dir,
+            metadata_rows=metadata_rows,
+            sheet=sheet_name,
+        )
+        for sheet_name in sheet_names
+    ]
+    recovered_table_count = sum(int(sheet_payload["recovered_table_count"]) for sheet_payload in sheets)
+    payload = {
+        "path": str(source_path),
+        "format": source_path.suffix.lower().removeprefix("."),
+        "status": "loaded" if recovered_table_count else "empty",
+        "artifact_backend": "sqlite",
+        "database_path": next((str(sheet_payload.get("database_path") or "") for sheet_payload in sheets if sheet_payload.get("database_path")), ""),
+        "sheet_names": sheet_names,
+        "sheet_count": len(sheet_names),
+        "recovered_table_count": recovered_table_count,
+        "sheets": sheets,
+    }
+    payload["formula_count"] = sum(int(sheet_payload.get("formula_count", 0)) for sheet_payload in sheets)
+    return payload
+
+
+def extract_tabular_source(
+    path: str | Path,
+    *,
+    root_dir: str | Path | None = None,
+    metadata_rows: int = MAX_METADATA_ROWS,
+) -> dict[str, Any]:
+    """Extract workbooks as all sheets, otherwise extract the single tabular source."""
+    source_path = Path(path)
+    if not source_path.is_absolute() and root_dir is not None:
+        source_path = resolve_root_dir(root_dir=root_dir) / source_path
+    if workbook_sheet_names(source_path):
+        return extract_tabular_workbook_sheets(
+            source_path,
+            root_dir=root_dir,
+            metadata_rows=metadata_rows,
+        )
+    return extract_tabular_file(
+        source_path,
+        root_dir=root_dir,
+        metadata_rows=metadata_rows,
+    )

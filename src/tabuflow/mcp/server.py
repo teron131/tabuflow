@@ -18,7 +18,13 @@ from tabuflow.cli.paths import read_sql_argument, resolve_cli_path, resolve_sql_
 from tabuflow.cli.pdf_spec import pdf_extract_spec_from_args
 from tabuflow.email import inspect_email_file
 from tabuflow.pdf import DEFAULT_DPI, DEFAULT_INSPECT_PAGE_LIMIT, DEFAULT_INSPECT_TEXT_CHARS, DEFAULT_MAX_PREPARE_PAGES, extract_pdf_file, inspect_pdf_file, prepare_pdf_file
-from tabuflow.tabular import MAX_METADATA_ROWS, MAX_SAMPLE_ROWS, extract_tabular_file, inspect_tabular_file, profile_tabular_file, profile_tabular_workbook_sheets
+from tabuflow.tabular import (
+    MAX_METADATA_ROWS,
+    MAX_SAMPLE_ROWS,
+    extract_tabular_source,
+    inspect_tabular_file,
+    profile_tabular_source,
+)
 from tabuflow.workspace_db import artifact_workspace
 
 SERVER_NAME = "Tabuflow MCP"
@@ -71,22 +77,12 @@ def create_mcp_server() -> FastMCP:
     def tabular_profile(
         path: str,
         max_sample_rows: int = MAX_SAMPLE_ROWS,
-        sheet: str | None = None,
-        all_sheets: bool = False,
     ) -> dict[str, Any]:
         source_path = resolve_cli_path(path)
-        if all_sheets:
-            return with_artifact_workspace(
-                profile_tabular_workbook_sheets(
-                    source_path,
-                    max_sample_rows=max_sample_rows,
-                )
-            )
         return with_artifact_workspace(
-            profile_tabular_file(
+            profile_tabular_source(
                 source_path,
                 max_sample_rows=max_sample_rows,
-                sheet=sheet,
             )
         )
 
@@ -97,13 +93,12 @@ def create_mcp_server() -> FastMCP:
     def tabular_extract(
         path: str,
         metadata_rows: int = MAX_METADATA_ROWS,
-        sheet: str | None = None,
     ) -> dict[str, Any]:
+        source_path = resolve_cli_path(path)
         return with_artifact_workspace(
-            extract_tabular_file(
-                path,
+            extract_tabular_source(
+                source_path,
                 metadata_rows=metadata_rows,
-                sheet=sheet,
             )
         )
 

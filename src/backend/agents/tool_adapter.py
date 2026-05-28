@@ -20,9 +20,9 @@ from tabuflow.pdf import (
 from tabuflow.tabular import (
     MAX_METADATA_ROWS,
     MAX_SAMPLE_ROWS,
-    extract_tabular_file,
+    extract_tabular_source,
     inspect_tabular_file,
-    profile_tabular_file,
+    profile_tabular_source,
 )
 from tabuflow.workspace_db import resolve_root_dir
 
@@ -239,39 +239,33 @@ def make_tabular_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
     def profile_tabular(
         path: str,
         max_sample_rows: int = MAX_SAMPLE_ROWS,
-        sheet: str | None = None,
     ) -> dict[str, Any]:
         """Profile a CSV or XLSX file with read-only structural hints.
 
         Args:
             path: Path to the CSV or XLSX file to profile.
             max_sample_rows: Maximum number of top rows to include in the profile sample.
-            sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
-        return profile_tabular_file(
+        return profile_tabular_source(
             _workspace_source_path(path, root_dir=resolved_root_dir),
             max_sample_rows=max_sample_rows,
-            sheet=sheet,
         )
 
     @tool(parse_docstring=True)
     def extract_tabular(
         path: str,
         metadata_rows: int = MAX_METADATA_ROWS,
-        sheet: str | None = None,
     ) -> dict[str, Any]:
         """Extract tables from a CSV or XLSX file into the shared SQLite cache.
 
         Args:
             path: Path to the CSV or XLSX file to extract.
             metadata_rows: Maximum number of metadata rows to inspect while preparing extraction.
-            sheet: Optional worksheet name for XLSX files. When omitted, the first sheet is used.
         """
-        return extract_tabular_file(
+        return extract_tabular_source(
             _workspace_source_path(path, root_dir=resolved_root_dir),
             root_dir=resolved_root_dir,
             metadata_rows=metadata_rows,
-            sheet=sheet,
         )
 
     return [inspect_tabular, profile_tabular, extract_tabular]

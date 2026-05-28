@@ -15,7 +15,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 
 from tabuflow.artifacts import describe_sql_artifact, list_sql_artifacts, run_query
-from tabuflow.tabular import extract_tabular_file, inspect_tabular_file
+from tabuflow.tabular import extract_tabular_source, inspect_tabular_file
 from tabuflow.tabular.storage import quote_identifier
 
 from ..config import (
@@ -584,7 +584,7 @@ def upload_file(file: UploadFile = File(...)) -> dict[str, Any]:
     suffix = saved_path.suffix.lower()
     try:
         if suffix in TABULAR_UPLOAD_EXTENSIONS:
-            upload_result = extract_tabular_file(saved_path, root_dir=REPO_ROOT)
+            upload_result = extract_tabular_source(saved_path, root_dir=REPO_ROOT)
         elif suffix in IMAGE_UPLOAD_EXTENSIONS:
             upload_result = _image_upload_summary(saved_path, content_type=file.content_type)
         else:
