@@ -22,6 +22,7 @@ from .extraction import extract_pdf_file
 from .ingestion import ingest_pdf_table_artifacts
 from .inspection import inspect_pdf_file
 from .preparation import prepare_pdf_file
+from .schemas import PdfExtractionManifest, PdfExtractionResult, PdfInspectionResult
 
 __all__ = [
     "DEFAULT_DPI",
@@ -36,6 +37,9 @@ __all__ = [
     "PDF_TABLES_DIR_NAME",
     "PDF_TABLES_MANIFEST_NAME",
     "PdfArtifactWorkspace",
+    "PdfExtractionManifest",
+    "PdfExtractionResult",
+    "PdfInspectionResult",
     "extract_pdf_file",
     "ingest_pdf_table_artifacts",
     "inspect_pdf_file",

@@ -16,6 +16,7 @@ from ..common import (
     DEFAULT_INSPECT_TEXT_CHARS,
     pdf_artifact_workspace,
 )
+from ..schemas import dump_pdf_inspection_result
 from .overview import visual_sample_batches, write_overview_batches
 from .profile import profile_pdf_document, visual_text_rows
 from .tables import table_detections, table_region_hints
@@ -163,4 +164,4 @@ def inspect_pdf_file(
                 "pages": pages,
             }
         )
-    return output
+    return dump_pdf_inspection_result(output)

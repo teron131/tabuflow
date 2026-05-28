@@ -12,6 +12,8 @@ from typing import Any
 
 import extract_msg
 
+from .schemas import dump_email_inspection_result
+
 BODY_PREVIEW_CHARS = 2_000
 WHITESPACE = re.compile(r"\s+")
 
@@ -161,4 +163,4 @@ def inspect_email_file(
     payload["status"] = "ok"
     payload["reference_only"] = True
     payload["summary"] = f"Inspected {payload['format']} reference email `{payload['subject']}`."
-    return payload
+    return dump_email_inspection_result(payload)

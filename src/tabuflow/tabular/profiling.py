@@ -16,6 +16,7 @@ from .ingestion import (
     workbook_sheet_names,
 )
 from .segmentation import compute_region_boxes, header_candidates, profile_region_boxes
+from .schemas import dump_tabular_profile_result, dump_tabular_profile_source
 
 WORKBOOK_SHEET_PROFILE_FIELDS = {
     "row_count",
@@ -31,35 +32,6 @@ WORKBOOK_SHEET_PROFILE_FIELDS = {
 }
 
 
-def _grid_name(payload: dict[str, Any]) -> str:
-    """Return the normalized grid name for one profiled sheet-like payload."""
-    return str(payload.get("sheet_name") or "")
-
-
-def _grid_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Return one profile grid payload with stable grid naming."""
-    return {
-        "grid_name": _grid_name(payload),
-        **payload,
-    }
-
-
-def _source_payload_from_grids(
-    path: Path,
-    *,
-    format_name: str,
-    grids: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Return a normalized source-level profile payload."""
-    return {
-        "path": str(path),
-        "format": format_name,
-        "grid_count": len(grids),
-        "grid_names": [_grid_name(grid) for grid in grids],
-        "grids": grids,
-    }
-
-
 def profile_tabular_file(
     path: str | Path,
     *,
@@ -72,15 +44,17 @@ def profile_tabular_file(
         summary = TabularReader.from_path(path, sheet=sheet).streaming_profile(max_sample_rows=max_sample_rows)
         header_candidate_rows: list[dict[str, Any]] = []
         regions: list[dict[str, Any]] = []
-        return {
-            "path": str(path),
-            **summary,
-            "structure_hints": structure_hints(
-                header_candidate_rows=header_candidate_rows,
-                regions=regions,
-                sheet_names=summary.get("sheet_names", []),
-            ),
-        }
+        return dump_tabular_profile_result(
+            {
+                "path": str(path),
+                **summary,
+                "structure_hints": structure_hints(
+                    header_candidate_rows=header_candidate_rows,
+                    regions=regions,
+                    sheet_names=summary.get("sheet_names", []),
+                ),
+            }
+        )
 
     rows, format_info = load_rows(path, sheet=sheet)
     region_boxes = compute_region_boxes(rows)
@@ -88,22 +62,24 @@ def profile_tabular_file(
     non_empty_counts = [non_empty_count for row in rows if (non_empty_count := sum(bool(cell.strip()) for cell in row)) > 0]
 
     regions = profile_region_boxes(region_boxes)
-    return {
-        "path": str(path),
-        **tabular_summary(rows, format_info),
-        "non_empty_row_count": len(non_empty_counts),
-        "blank_row_count": len(rows) - len(non_empty_counts),
-        "max_non_empty_cells_in_row": max(non_empty_counts, default=0),
-        "median_non_empty_cells_per_non_blank_row": statistics.median(non_empty_counts) if non_empty_counts else 0,
-        "sample_rows": rows[:max_sample_rows],
-        "structure_hints": structure_hints(
-            header_candidate_rows=detected_header_candidates,
-            regions=regions,
-            sheet_names=format_info.get("sheet_names", []),
-        ),
-        "header_candidates": detected_header_candidates,
-        "regions": regions,
-    }
+    return dump_tabular_profile_result(
+        {
+            "path": str(path),
+            **tabular_summary(rows, format_info),
+            "non_empty_row_count": len(non_empty_counts),
+            "blank_row_count": len(rows) - len(non_empty_counts),
+            "max_non_empty_cells_in_row": max(non_empty_counts, default=0),
+            "median_non_empty_cells_per_non_blank_row": statistics.median(non_empty_counts) if non_empty_counts else 0,
+            "sample_rows": rows[:max_sample_rows],
+            "structure_hints": structure_hints(
+                header_candidate_rows=detected_header_candidates,
+                regions=regions,
+                sheet_names=format_info.get("sheet_names", []),
+            ),
+            "header_candidates": detected_header_candidates,
+            "regions": regions,
+        }
+    )
 
 
 def profile_tabular_workbook_sheets(
@@ -120,14 +96,12 @@ def profile_tabular_workbook_sheets(
     for sheet_name in sheet_names:
         profile = profile_tabular_file(path, max_sample_rows=max_sample_rows, sheet=sheet_name)
         sheet_profiles.append(
-            _grid_payload(
-                {
-                    "sheet_name": sheet_name,
-                    **{key: value for key, value in profile.items() if key in WORKBOOK_SHEET_PROFILE_FIELDS},
-                }
-            )
+            {
+                "sheet_name": sheet_name,
+                **{key: value for key, value in profile.items() if key in WORKBOOK_SHEET_PROFILE_FIELDS},
+            }
         )
-    return _source_payload_from_grids(
+    return dump_tabular_profile_source(
         path,
         format_name=path.suffix.lower().removeprefix("."),
         grids=sheet_profiles,
@@ -146,13 +120,11 @@ def profile_tabular_source(
             path,
             max_sample_rows=max_sample_rows,
         )
-    grid = _grid_payload(
-        profile_tabular_file(
-            path,
-            max_sample_rows=max_sample_rows,
-        )
+    grid = profile_tabular_file(
+        path,
+        max_sample_rows=max_sample_rows,
     )
-    return _source_payload_from_grids(
+    return dump_tabular_profile_source(
         path,
         format_name=str(grid.get("format") or path.suffix.lower().removeprefix(".")),
         grids=[grid],

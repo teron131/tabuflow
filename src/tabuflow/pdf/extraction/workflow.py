@@ -15,6 +15,7 @@ import pymupdf
 
 from ...artifacts.naming import normalize_source_stem
 from ..common import pdf_artifact_workspace
+from ..schemas import dump_pdf_extraction_manifest, dump_pdf_extraction_result
 from .coordinate_tables import coordinate_rows
 from .detected_tables import pymupdf_table_outputs
 from .pages import page_numbers
@@ -581,8 +582,11 @@ def extract_pdf_file(
         "tables": manifest_tables,
         "diagnostics": diagnostics,
     }
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    return {
-        **manifest,
-        "manifest_path": str(manifest_path),
-    }
+    manifest_payload = dump_pdf_extraction_manifest(manifest)
+    manifest_path.write_text(json.dumps(manifest_payload, indent=2) + "\n", encoding="utf-8")
+    return dump_pdf_extraction_result(
+        {
+            **manifest_payload,
+            "manifest_path": str(manifest_path),
+        }
+    )

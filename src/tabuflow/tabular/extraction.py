@@ -11,6 +11,7 @@ from ..workspace_db import resolve_root_dir
 from .formulas import formulas_with_table_refs, workbook_formula_cells
 from .ingestion import MAX_FULL_EXTRACT_BYTES, MAX_METADATA_ROWS, load_rows, tabular_summary, workbook_sheet_names
 from .segmentation import segment_tabular_blocks
+from .schemas import dump_tabular_extraction_result, dump_tabular_extraction_source
 from .storage import load_tables_into_sqlite
 
 FOOTER_LIKE_LABELS = {"total", "grand total", "rounding error"}
@@ -171,42 +172,6 @@ def _footer_like_row_hints(
     return hints
 
 
-def _grid_name(payload: dict[str, Any]) -> str:
-    """Return the normalized grid name for one extracted sheet-like payload."""
-    return str(payload.get("sheet_name") or "")
-
-
-def _grid_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Return one grid payload with stable grid naming."""
-    return {
-        "grid_name": _grid_name(payload),
-        **payload,
-    }
-
-
-def _source_payload_from_grids(
-    path: Path,
-    *,
-    format_name: str,
-    grids: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Return a normalized source-level extraction payload."""
-    recovered_table_count = sum(int(grid.get("recovered_table_count", 0)) for grid in grids)
-    formula_count = sum(int(grid.get("formula_count", 0)) for grid in grids)
-    return {
-        "path": str(path),
-        "format": format_name,
-        "status": "loaded" if recovered_table_count else "empty",
-        "artifact_backend": "sqlite",
-        "database_path": next((str(grid.get("database_path") or "") for grid in grids if grid.get("database_path")), ""),
-        "grid_count": len(grids),
-        "grid_names": [_grid_name(grid) for grid in grids],
-        "recovered_table_count": recovered_table_count,
-        "formula_count": formula_count,
-        "grids": grids,
-    }
-
-
 def extract_tabular_file(
     path: str | Path,
     *,
@@ -253,7 +218,7 @@ def extract_tabular_file(
         )
         payload["formula_count"] = len(formulas)
         payload["formulas"] = formulas
-        return payload
+        return dump_tabular_extraction_result(payload)
 
     metadata, tables = segment_tabular_blocks(
         rows,
@@ -284,7 +249,7 @@ def extract_tabular_file(
             formula["table_refs"] = []
         payload["formula_count"] = len(formulas)
         payload["formulas"] = formulas
-        return payload
+        return dump_tabular_extraction_result(payload)
 
     loaded = load_tables_into_sqlite(
         recovered,
@@ -309,7 +274,7 @@ def extract_tabular_file(
     )
     payload["formula_count"] = len(formulas)
     payload["formulas"] = formulas
-    return payload
+    return dump_tabular_extraction_result(payload)
 
 
 def extract_tabular_workbook_sheets(
@@ -326,17 +291,15 @@ def extract_tabular_workbook_sheets(
 
     resolved_source_path = source_path.resolve()
     grids = [
-        _grid_payload(
-            extract_tabular_file(
-                resolved_source_path,
-                root_dir=root_dir,
-                metadata_rows=metadata_rows,
-                sheet=sheet_name,
-            )
+        extract_tabular_file(
+            resolved_source_path,
+            root_dir=root_dir,
+            metadata_rows=metadata_rows,
+            sheet=sheet_name,
         )
         for sheet_name in sheet_names
     ]
-    return _source_payload_from_grids(
+    return dump_tabular_extraction_source(
         source_path,
         format_name=source_path.suffix.lower().removeprefix("."),
         grids=grids,
@@ -359,14 +322,12 @@ def extract_tabular_source(
             root_dir=root_dir,
             metadata_rows=metadata_rows,
         )
-    grid = _grid_payload(
-        extract_tabular_file(
-            source_path,
-            root_dir=root_dir,
-            metadata_rows=metadata_rows,
-        )
+    grid = extract_tabular_file(
+        source_path,
+        root_dir=root_dir,
+        metadata_rows=metadata_rows,
     )
-    return _source_payload_from_grids(
+    return dump_tabular_extraction_source(
         source_path,
         format_name=str(grid.get("format") or source_path.suffix.lower().removeprefix(".")),
         grids=[grid],

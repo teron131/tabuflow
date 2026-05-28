@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import closing
 from pathlib import Path
 import re
@@ -19,6 +20,12 @@ from ..database import (
     zip_exact,
 )
 from ..relationships import artifact_relationship_metadata
+from ..schemas import (
+    dump_source_artifact_lookup_result,
+    dump_sql_artifact_description_result,
+    dump_sql_artifact_list_result,
+    dump_sql_artifact_suggestion_result,
+)
 from .metadata import (
     CatalogMetadataError,
     database_catalog,
@@ -44,6 +51,26 @@ DEFAULT_CLI_ARTIFACT_LIST_LIMIT = 20
 SQL_ARTIFACT_LIST_DETAILS = {"compact", "full"}
 _TEXT_TYPE_MARKERS = ("CHAR", "CLOB", "TEXT", "VARCHAR")
 _TEXT_HINT_NAME_MARKERS = ("category", "code", "description", "group", "id", "identifier", "key", "kind", "label", "name", "segment", "status", "type")
+CatalogResultDumper = Callable[[dict[str, Any]], dict[str, Any]]
+
+
+def _catalog_error_result(
+    dump_result: CatalogResultDumper,
+    *,
+    database_path: str | Path | None,
+    error_type: str,
+    message: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    """Return a schema-validated catalog error payload."""
+    return dump_result(
+        error_result(
+            database_path=database_path,
+            error_type=error_type,
+            message=message,
+            **extra,
+        )
+    )
 
 
 def _source_match_document_order(source_match: dict[str, Any]) -> int:
@@ -167,30 +194,35 @@ def list_sql_artifacts(
         if truncated:
             summary = f"Listed {listed_count} of {total_count} queryable artifact(s)."
 
-        return {
-            "database_path": str(resolved_path),
-            "status": "ok",
-            "sql_artifact_count": listed_count,
-            "sql_artifact_total_count": total_count,
-            "sql_artifacts_truncated": truncated,
-            "detail": detail,
-            "sql_artifacts": artifact_listings,
-            "summary": summary,
-        }
+        return dump_sql_artifact_list_result(
+            {
+                "database_path": str(resolved_path),
+                "status": "ok",
+                "sql_artifact_count": listed_count,
+                "sql_artifact_total_count": total_count,
+                "sql_artifacts_truncated": truncated,
+                "detail": detail,
+                "sql_artifacts": artifact_listings,
+                "summary": summary,
+            }
+        )
     except ValueError as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_sql_artifact_list_result,
             database_path=requested_path,
             error_type="missing_database",
             message=str(exc),
         )
     except CatalogMetadataError as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_sql_artifact_list_result,
             database_path=requested_path,
             error_type="catalog_metadata_error",
             message=str(exc),
         )
     except (sqlite3.Error, sqlite3.Warning) as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_sql_artifact_list_result,
             database_path=requested_path,
             error_type="sql_execution_error",
             message=str(exc),
@@ -215,7 +247,8 @@ def describe_sql_artifact(
         catalog = database_catalog(resolved_path)
         artifact_info = catalog.sql_artifacts_by_name.get(sql_artifact_name)
         if artifact_info is None:
-            return error_result(
+            return _catalog_error_result(
+                dump_sql_artifact_description_result,
                 database_path=resolved_path,
                 error_type="missing_sql_artifact",
                 message=f"SQLite artifact does not exist: {sql_artifact_name}",
@@ -250,50 +283,55 @@ def describe_sql_artifact(
                 source_mappings=source_mappings,
             )
 
-            return {
-                "database_path": str(resolved_path),
-                "status": "ok",
-                "name": name,
-                "type": sqlite_type,
-                "kind": kind,
-                "row_count": row_count,
-                "column_count": column_count,
-                "size_label": sql_artifact_size_label(row_count=row_count, column_count=column_count),
-                "columns": columns,
-                "sample_rows": sample_row_items,
-                "text_value_hints": text_value_hint_map,
-                "create_sql": artifact_info.create_sql,
-                "fingerprint": artifact_info.fingerprint,
-                "content_schema": artifact_info.content_schema,
-                "source_mappings": source_mappings,
-                "source_path_count": len(source_paths),
-                "source_path_preview": source_paths[:MAX_SOURCE_PATH_PREVIEW],
-                **relationship_metadata,
-                "summary": sql_artifact_summary(
-                    name=name,
-                    sqlite_type=sqlite_type,
-                    kind=kind,
-                    row_count=row_count,
-                    column_names=column_names,
-                    source_paths=source_paths,
-                ),
-            }
+            return dump_sql_artifact_description_result(
+                {
+                    "database_path": str(resolved_path),
+                    "status": "ok",
+                    "name": name,
+                    "type": sqlite_type,
+                    "kind": kind,
+                    "row_count": row_count,
+                    "column_count": column_count,
+                    "size_label": sql_artifact_size_label(row_count=row_count, column_count=column_count),
+                    "columns": columns,
+                    "sample_rows": sample_row_items,
+                    "text_value_hints": text_value_hint_map,
+                    "create_sql": artifact_info.create_sql,
+                    "fingerprint": artifact_info.fingerprint,
+                    "content_schema": artifact_info.content_schema,
+                    "source_mappings": source_mappings,
+                    "source_path_count": len(source_paths),
+                    "source_path_preview": source_paths[:MAX_SOURCE_PATH_PREVIEW],
+                    **relationship_metadata,
+                    "summary": sql_artifact_summary(
+                        name=name,
+                        sqlite_type=sqlite_type,
+                        kind=kind,
+                        row_count=row_count,
+                        column_names=column_names,
+                        source_paths=source_paths,
+                    ),
+                }
+            )
     except ValueError as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_sql_artifact_description_result,
             database_path=requested_path,
             error_type="missing_database",
             message=str(exc),
             sql_artifact_name=sql_artifact_name,
         )
     except CatalogMetadataError as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_sql_artifact_description_result,
             database_path=requested_path,
             error_type="catalog_metadata_error",
             message=str(exc),
             sql_artifact_name=sql_artifact_name,
         )
     except (sqlite3.Error, sqlite3.Warning) as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_sql_artifact_description_result,
             database_path=requested_path,
             error_type="sql_execution_error",
             message=str(exc),
@@ -315,7 +353,8 @@ def suggest_sql_artifacts(
     try:
         tokens = tokenize_query(question)
         if not tokens:
-            return error_result(
+            return _catalog_error_result(
+                dump_sql_artifact_suggestion_result,
                 database_path=requested_path,
                 error_type="empty_question",
                 message="Question must include at least one meaningful search token.",
@@ -335,17 +374,20 @@ def suggest_sql_artifacts(
 
         suggestions.sort(key=lambda item: (-cast(int, item["score"]), cast(str, item["name"])))
         top_suggestions = suggestions[:safe_max_results]
-        return {
-            "database_path": str(resolved_path),
-            "status": "ok",
-            "question": question,
-            "tokens": tokens,
-            "suggestion_count": len(top_suggestions),
-            "suggestions": top_suggestions,
-            "summary": f"Suggested {len(top_suggestions)} artifact(s) for {len(tokens)} search token(s).",
-        }
+        return dump_sql_artifact_suggestion_result(
+            {
+                "database_path": str(resolved_path),
+                "status": "ok",
+                "question": question,
+                "tokens": tokens,
+                "suggestion_count": len(top_suggestions),
+                "suggestions": top_suggestions,
+                "summary": f"Suggested {len(top_suggestions)} artifact(s) for {len(tokens)} search token(s).",
+            }
+        )
     except ValueError as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_sql_artifact_suggestion_result,
             database_path=requested_path,
             error_type="missing_database",
             message=str(exc),
@@ -353,7 +395,8 @@ def suggest_sql_artifacts(
             max_results=safe_max_results,
         )
     except CatalogMetadataError as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_sql_artifact_suggestion_result,
             database_path=requested_path,
             error_type="catalog_metadata_error",
             message=str(exc),
@@ -361,7 +404,8 @@ def suggest_sql_artifacts(
             max_results=safe_max_results,
         )
     except (sqlite3.Error, sqlite3.Warning) as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_sql_artifact_suggestion_result,
             database_path=requested_path,
             error_type="sql_execution_error",
             message=str(exc),
@@ -384,7 +428,8 @@ def artifacts_from_source(
     requested_source_format = "" if source_format is None else source_format.strip()
     try:
         if not requested_source:
-            return error_result(
+            return _catalog_error_result(
+                dump_source_artifact_lookup_result,
                 database_path=requested_path,
                 error_type="empty_source_path",
                 message="Source path must not be empty.",
@@ -417,19 +462,22 @@ def artifacts_from_source(
         )
         source_match_preview, source_matches_truncated = preview_items(source_matches, max_items=MAX_SOURCE_MATCH_PREVIEW)
         preferred_artifact = source_matches[0] if source_matches else None
-        return {
-            "database_path": str(resolved_path),
-            "status": "ok",
-            "source_path": source_path,
-            "source_format": source_format,
-            "artifact_count": len(source_matches),
-            "preferred_artifact": preferred_artifact,
-            "artifacts": source_match_preview,
-            "artifacts_truncated": source_matches_truncated,
-            "summary": f"Found {len(source_matches)} artifact(s) for source `{source_path}`.",
-        }
+        return dump_source_artifact_lookup_result(
+            {
+                "database_path": str(resolved_path),
+                "status": "ok",
+                "source_path": source_path,
+                "source_format": source_format,
+                "artifact_count": len(source_matches),
+                "preferred_artifact": preferred_artifact,
+                "artifacts": source_match_preview,
+                "artifacts_truncated": source_matches_truncated,
+                "summary": f"Found {len(source_matches)} artifact(s) for source `{source_path}`.",
+            }
+        )
     except ValueError as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_source_artifact_lookup_result,
             database_path=requested_path,
             error_type="missing_database",
             message=str(exc),
@@ -437,7 +485,8 @@ def artifacts_from_source(
             source_format=source_format,
         )
     except CatalogMetadataError as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_source_artifact_lookup_result,
             database_path=requested_path,
             error_type="catalog_metadata_error",
             message=str(exc),
@@ -445,7 +494,8 @@ def artifacts_from_source(
             source_format=source_format,
         )
     except (sqlite3.Error, sqlite3.Warning) as exc:
-        return error_result(
+        return _catalog_error_result(
+            dump_source_artifact_lookup_result,
             database_path=requested_path,
             error_type="sql_execution_error",
             message=str(exc),

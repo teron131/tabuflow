@@ -17,6 +17,7 @@ from .ingestion import (
 )
 from .profiling import profile_tabular_file
 from .segmentation import compute_region_boxes, header_candidates, profile_region_boxes
+from .schemas import dump_tabular_inspection_result
 
 
 def inspect_tabular_file(
@@ -111,4 +112,4 @@ def inspect_tabular_file(
     )
     payload["formula_count"] = len(formula_cells)
     payload["formulas"] = formula_cells
-    return payload
+    return dump_tabular_inspection_result(payload)
