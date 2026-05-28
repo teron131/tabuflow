@@ -22,6 +22,9 @@ from .text_values import field_value_rows, line_value_rows
 
 FILENAME_FINGERPRINT_CHARS = 4
 GENERIC_COLUMN_PATTERN = re.compile(r"^column_[0-9]+$")
+RowPattern = tuple[str, re.Pattern[str]]
+SplitValues = tuple[str, ...]
+SplitPartKey = tuple[SplitValues, int]
 
 
 @dataclass(frozen=True)
@@ -36,6 +39,16 @@ class PendingPdfTable:
     manifest: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class SplitRowGroup:
+    """Represent one ordered split-table row group."""
+
+    split_value: str
+    split_values: dict[str, str]
+    rows: list[dict[str, str]]
+    table_end_reasons: list[str]
+
+
 def write_csv(
     path: Path,
     rows: list[dict[str, str]],
@@ -48,20 +61,82 @@ def write_csv(
         writer.writerows(rows)
 
 
-def split_rows(
+def split_columns_from_config(split_by: str | list[str]) -> list[str]:
+    """Return configured split columns from a string or list."""
+    if isinstance(split_by, list):
+        return [str(column).strip() for column in split_by if str(column).strip()]
+    return [column.strip() for column in split_by.split(",") if column.strip()]
+
+
+def compile_table_end_patterns(patterns: list[dict[str, str]]) -> list[RowPattern]:
+    """Return row-field regex patterns that close the current split table."""
+    return [(str(item["name"]), re.compile(str(item["pattern"]))) for item in patterns]
+
+
+def table_end_reason(
+    row: dict[str, str],
+    patterns: list[RowPattern],
+) -> str | None:
+    """Return the first matching reason when a row closes the current table."""
+    for column, pattern in patterns:
+        if pattern.match(str(row.get(column, ""))):
+            return f"{column}={pattern.pattern}"
+    return None
+
+
+def split_rows_by_boundaries(
     rows: list[dict[str, str]],
-    split_by: str,
+    split_by: str | list[str],
     *,
     drop_empty: bool = False,
-) -> list[tuple[str, list[dict[str, str]]]]:
-    """Return rows grouped by a configured output column while preserving order."""
-    groups: dict[str, list[dict[str, str]]] = {}
+    table_ends: list[dict[str, str]] | None = None,
+) -> list[SplitRowGroup]:
+    """Return split row groups, starting a new group after configured end rows."""
+    split_columns = split_columns_from_config(split_by)
+    table_end_patterns = compile_table_end_patterns(table_ends or [])
+    groups: dict[SplitPartKey, list[dict[str, str]]] = {}
+    table_end_reasons: dict[SplitPartKey, list[str]] = {}
+    current_part_by_values: Counter[SplitValues] = Counter()
     for row in rows:
-        value = str(row.get(split_by, ""))
-        if drop_empty and not value:
+        values = tuple(str(row.get(column, "")) for column in split_columns)
+        if drop_empty and not any(values):
             continue
-        groups.setdefault(value, []).append(row)
-    return list(groups.items())
+        group_key = (values, current_part_by_values[values])
+        groups.setdefault(group_key, []).append(row)
+        if reason := table_end_reason(row, table_end_patterns):
+            table_end_reasons.setdefault(group_key, []).append(reason)
+            current_part_by_values[values] += 1
+    return split_groups_from_parts(
+        groups=groups,
+        table_end_reasons=table_end_reasons,
+        split_columns=split_columns,
+    )
+
+
+def split_groups_from_parts(
+    *,
+    groups: dict[SplitPartKey, list[dict[str, str]]],
+    table_end_reasons: dict[SplitPartKey, list[str]],
+    split_columns: list[str],
+) -> list[SplitRowGroup]:
+    """Return stable split group payloads from keyed row parts."""
+    value_counts = Counter(values for values, _part in groups)
+    split_groups: list[SplitRowGroup] = []
+    for (values, part_index), grouped_rows in groups.items():
+        split_value = " / ".join(value for value in values if value) or "unsectioned"
+        split_values = dict(zip(split_columns, values, strict=True))
+        if value_counts[values] > 1:
+            split_value = f"{split_value} / part {part_index + 1}"
+            split_values["table_part"] = str(part_index + 1)
+        split_groups.append(
+            SplitRowGroup(
+                split_value=split_value,
+                split_values=split_values,
+                rows=grouped_rows,
+                table_end_reasons=table_end_reasons.get((values, part_index), []),
+            )
+        )
+    return split_groups
 
 
 def page_tag(
@@ -135,6 +210,22 @@ def output_path_for_table(
         stem = f"{stem}_{filename_fingerprint(rows, columns)}"
     used_stems.add(stem)
     return output_dir / f"{stem}.csv"
+
+
+def should_use_descriptor(
+    *,
+    table: PendingPdfTable,
+    page_tag_counts: Counter[str],
+    table_page_tag: str,
+) -> bool:
+    """Return whether the output filename should include the table descriptor."""
+    if page_tag_counts[table_page_tag] > 1:
+        return True
+    split_values = table.manifest.get("split_values")
+    if not isinstance(split_values, dict):
+        rejected_detection_count = int(table.manifest.get("source_page_rejected_detection_count") or 0)
+        return rejected_detection_count > 0 and len(set(table.pages)) == 1
+    return sum(1 for value in split_values.values() if value) > 1
 
 
 def empty_extraction_diagnostics(pdf_path: Path) -> dict[str, Any]:
@@ -248,11 +339,43 @@ def _detected_pending_tables(
                     "source_pages": table_output.get("source_pages", [table_output["source_page"]]),
                     "source_tables": table_output.get("source_tables", [table_output["source_table"]]),
                     "source_bboxes": table_output.get("source_bboxes", [table_output.get("source_bbox")]),
+                    "source_page_rejected_detection_count": table_output.get("source_page_rejected_detection_count"),
+                    "merge_evidence": table_output.get("merge_evidence", []),
                     "detector_diagnostics": table_output.get("detector_diagnostics"),
                 },
             )
         )
     return pending_tables
+
+
+def _configured_split_pending_table(
+    *,
+    split_group: SplitRowGroup,
+    table_config: dict[str, Any],
+    table_name: str,
+    columns: list[str],
+    fallback_pages: list[int],
+    pdf_page_count: int,
+) -> PendingPdfTable:
+    """Return one pending table for a configured split row group."""
+    split_slug = normalize_source_stem(split_group.split_value) if split_group.split_value else "unsectioned"
+    split_table_name = f"{table_name}_{split_slug}" if split_slug else table_name
+    return PendingPdfTable(
+        pages=row_pages(split_group.rows, fallback_pages),
+        page_count=pdf_page_count,
+        descriptor=output_descriptor(split_value=split_group.split_value, table_name=split_table_name, columns=columns),
+        rows=split_group.rows,
+        columns=columns,
+        manifest={
+            "mode": table_config["mode"],
+            "row_count": len(split_group.rows),
+            "columns": columns,
+            "split_by": str(table_config["split_by"]),
+            "split_value": split_group.split_value,
+            "split_values": split_group.split_values,
+            "table_end_reasons": split_group.table_end_reasons,
+        },
+    )
 
 
 def _configured_pending_tables(
@@ -267,28 +390,23 @@ def _configured_pending_tables(
     columns = _configured_columns(table_config, rows)
     table_name = str(table_config.get("name") or "table")
     if split_by := table_config.get("split_by"):
-        pending_tables: list[PendingPdfTable] = []
-        split_groups = split_rows(rows, str(split_by), drop_empty=bool(table_config.get("drop_empty_split")))
-        for split_value, grouped_rows in split_groups:
-            split_slug = normalize_source_stem(split_value) if split_value else "unsectioned"
-            split_table_name = f"{table_name}_{split_slug}" if split_slug else table_name
-            pending_tables.append(
-                PendingPdfTable(
-                    pages=row_pages(grouped_rows, fallback_pages),
-                    page_count=pdf_page_count,
-                    descriptor=output_descriptor(split_value=split_value, table_name=split_table_name, columns=columns),
-                    rows=grouped_rows,
-                    columns=columns,
-                    manifest={
-                        "mode": table_config["mode"],
-                        "row_count": len(grouped_rows),
-                        "columns": columns,
-                        "split_by": str(split_by),
-                        "split_value": split_value,
-                    },
-                )
+        split_groups = split_rows_by_boundaries(
+            rows,
+            str(split_by),
+            drop_empty=bool(table_config.get("drop_empty_split")),
+            table_ends=table_config.get("table_ends", []),
+        )
+        return [
+            _configured_split_pending_table(
+                split_group=split_group,
+                table_config=table_config,
+                table_name=table_name,
+                columns=columns,
+                fallback_pages=fallback_pages,
+                pdf_page_count=pdf_page_count,
             )
-        return pending_tables
+            for split_group in split_groups
+        ]
 
     return [
         PendingPdfTable(
@@ -359,7 +477,7 @@ def _write_pending_tables(
             rows=table.rows,
             columns=table.columns,
             used_stems=used_output_stems,
-            use_descriptor=page_tag_counts[table_page_tag] > 1,
+            use_descriptor=should_use_descriptor(table=table, page_tag_counts=page_tag_counts, table_page_tag=table_page_tag),
         )
         write_csv(output_path, table.rows, table.columns)
         manifest_tables.append(

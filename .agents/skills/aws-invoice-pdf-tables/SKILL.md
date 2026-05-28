@@ -48,7 +48,8 @@ tabuflow pdf extract <invoice.pdf> tables line-value \
   --section '^(Summary|Detail for Consolidated Bill|Activity By Account|Summary for Linked Account|Detail for Linked Account)$' \
   --context 'account=^(?P<value>.+ \([0-9]{12}\))$' \
   --clear-context 'account=^(Summary|Detail for Consolidated Bill|Activity By Account)$' \
-  --split-sections \
+  --split-by section,account \
+  --table-end 'label=^(Account [0-9]{12} total allocated for this invoice|Total allocated for this invoice|Total for this invoice)$' \
   --drop-empty-split \
   --include-page
 ```
@@ -64,10 +65,12 @@ Expected common section outputs:
 - `amount_lines_summary`
 - `amount_lines_detail_for_consolidated_bill`
 - `amount_lines_activity_by_account`
-- `amount_lines_summary_for_linked_account`
-- `amount_lines_detail_for_linked_account`
+- account-specific `amount_lines_summary_for_linked_account_<account>`
+- account-specific `amount_lines_detail_for_linked_account_<account>`
 
 These are direct PDF text-layer tables, not visually verified OCR tables. Treat missing sections, obviously tiny row counts, or missing text as the handoff point to visual inspection/OCR, not as permission to invent rows.
+For invoices with repeated accounts, services, or same-column billing blocks, treat section-level outputs as raw row streams. Do not accept a section-sized CSV as one final table only because every row has the same columns.
+Use `--table-end FIELD=REGEX` for total/allocation rows that visually close a table; this makes the tool start a new split-table part if the same split key appears again later.
 
 ## Stacked Billing Columns
 
@@ -88,7 +91,7 @@ When the user needs an accounting-ready result, reshape this row stream after ex
 - Keep signs exactly as extracted; do not flip discounts or credits unless the source sign and target output contract require it.
 - Preserve zero-value tax rows and explicit total rows.
 - Keep the raw extracted CSVs as evidence; write the semantic reshape as SQL or a small script artifact, then validate it against the source totals.
-- If the PDF has a literal grid, `tables detected` may help inspect it, but AWS invoice totals are usually more reliable through `tables line-value` plus an explicit reshape.
+- If the PDF has a literal grid, `tables detected` may help inspect it. For long AWS invoices, a scripted PyMuPDF detected-table run can be useful boundary evidence when it reports page-break merge evidence, but low-confidence diagnostics or visibly split text means the importable billing rows should still come from `tables line-value` plus an explicit reshape.
 
 Common semantic columns may include `charges`, `discount`, `credits`, `tax`, `vat`, and `total`, but do not hardcode them as universal. Derive columns from the actual labels in the invoice and keep unknown labels as rows until the grouping is clear.
 
@@ -153,6 +156,8 @@ Use OCR/visual table fragments as the source of truth for table titles, table bo
 Rules:
 - Return final DB-ready tables that preserve meaningful visual table boundaries.
 - Use visual table titles as output table names.
+- Do not merge tables just because they share the same schema or columns; merge only when visual evidence shows one table continues.
+- Do merge page-split fragments when source bboxes, page-break position, repeated headers, or row continuity show one visual table continuing onto the next page.
 - Do not create one output table per page, service, or OCR chunk unless the visual PDF really has that table.
 - Preserve every meaningful source row.
 - Do not summarize, aggregate, pivot, or collapse repeated service/tax/discount rows.

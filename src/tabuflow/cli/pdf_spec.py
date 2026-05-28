@@ -97,6 +97,7 @@ def merge_pdf_rules(
         "stop_prefixes",
         "contexts",
         "clear_contexts",
+        "table_ends",
         "columns",
         "required_columns",
         "output_columns",
@@ -170,6 +171,8 @@ def add_shared_pdf_table_options(
         table["contexts"].extend(parse_named_pattern(value, label="--context") for value in args.context)
     if args.clear_context:
         table["clear_contexts"] = [parse_named_pattern(value, label="--clear-context") for value in args.clear_context]
+    if table_end := getattr(args, "table_end", []):
+        table["table_ends"] = [parse_named_pattern(value, label="--table-end") for value in table_end]
     if args.split_by or args.split_sections:
         table["split_by"] = args.split_by or "section"
     if args.drop_empty_split:

@@ -91,7 +91,13 @@ def add_pdf_extract_command(pdf_subparsers: Any) -> None:
         default=[],
         help="tables line-value/field-value: FIELD=REGEX. Matching lines clear a carried context column.",
     )
-    extract.add_argument("--split-by", default=None, help="tables line-value/field-value/coordinate: write one CSV per distinct FIELD value.")
+    extract.add_argument(
+        "--table-end",
+        action="append",
+        default=[],
+        help="tables split outputs: FIELD=REGEX. Matching extracted rows close the current split table.",
+    )
+    extract.add_argument("--split-by", default=None, help="tables line-value/field-value/coordinate: write one CSV per distinct FIELD value, or comma-separated fields.")
     extract.add_argument("--split-sections", action="store_true", help="tables line-value/field-value: shortcut for --split-by section.")
     extract.add_argument("--drop-empty-split", action="store_true", help="tables split outputs: omit rows where the split field is empty.")
     extract.add_argument("--output-columns", default=None, help="Comma-separated output columns.")
