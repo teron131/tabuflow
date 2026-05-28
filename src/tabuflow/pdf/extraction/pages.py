@@ -28,18 +28,42 @@ def page_lines(
     config: dict[str, Any],
 ) -> list[str]:
     """Return cleaned non-empty page text lines."""
-    lines: list[str] = []
+    return [record["text"] for record in page_line_records(page, page_number, config)]
+
+
+def page_line_records(
+    page: pymupdf.Page,
+    page_number: int,
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return cleaned page text lines with their visual line position."""
+    records: list[dict[str, Any]] = []
     skip_lines = set(config.get("skip_lines", []))
     skip_prefixes = list(config.get("skip_prefixes", []))
-    for line in [part.strip() for part in page.get_text("text").splitlines() if part.strip()]:
+    line_groups: dict[tuple[int, int], list[tuple[float, float, str]]] = {}
+    for word in page.get_text("words"):
+        x0, y0, _x1, _y1, text, block_number, line_number, *_rest = word
+        line_groups.setdefault((int(block_number), int(line_number)), []).append((float(x0), float(y0), str(text)))
+    for words in sorted(line_groups.values(), key=lambda group: (min(word[1] for word in group), min(word[0] for word in group))):
+        ordered_words = sorted(words, key=lambda word: word[0])
+        line = " ".join(word[2] for word in ordered_words).strip()
+        if not line:
+            continue
         if line == str(page_number):
             continue
         if any(line.startswith(prefix) for prefix in config.get("stop_prefixes", [])):
             break
         if line in skip_lines or any(line.startswith(prefix) for prefix in skip_prefixes):
             continue
-        lines.append(line)
-    return lines
+        records.append(
+            {
+                "page": page_number,
+                "text": line,
+                "x0": min(word[0] for word in ordered_words),
+                "y0": min(word[1] for word in ordered_words),
+            }
+        )
+    return records
 
 
 def document_lines(
@@ -50,11 +74,5 @@ def document_lines(
     records: list[dict[str, Any]] = []
     with pymupdf.open(str(pdf_path)) as document:
         for page_number in page_numbers(document, config):
-            for line in page_lines(document[page_number - 1], page_number, config):
-                records.append(
-                    {
-                        "page": page_number,
-                        "text": line,
-                    }
-                )
+            records.extend(page_line_records(document[page_number - 1], page_number, config))
     return records

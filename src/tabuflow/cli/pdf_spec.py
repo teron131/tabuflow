@@ -108,7 +108,9 @@ def merge_pdf_rules(
         "value_preset",
         "split_by",
         "drop_empty_split",
-        "include_page",
+        "transpose_repeated_labels",
+        "transpose_entity_column",
+        "transpose_total_column",
         "label_column",
         "value_column",
         "field_column",
@@ -154,8 +156,6 @@ def add_shared_pdf_table_options(
         table["page_start"] = args.page_start
     if args.page_end is not None:
         table["page_end"] = args.page_end
-    if args.include_page:
-        table["include_page"] = True
     for key in ("skip_lines", "skip_prefixes", "stop_prefixes"):
         values = getattr(args, key)
         if values:
@@ -177,6 +177,8 @@ def add_shared_pdf_table_options(
         table["split_by"] = args.split_by or "section"
     if args.drop_empty_split:
         table["drop_empty_split"] = True
+    if args.transpose_repeated_labels:
+        table["transpose_repeated_labels"] = args.transpose_repeated_labels
     if output_columns := parse_comma_list(args.output_columns):
         table["output_columns"] = output_columns
 
@@ -226,6 +228,7 @@ def add_line_value_table_options(
     )
     if value_preset:
         table["value_preset"] = value_preset
+    table.setdefault("transpose_repeated_labels", "auto")
 
 
 def add_field_value_table_options(

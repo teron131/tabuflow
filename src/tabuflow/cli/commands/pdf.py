@@ -74,7 +74,6 @@ def add_pdf_extract_command(pdf_subparsers: Any) -> None:
     extract.add_argument("--pages", default=None, help="Comma-separated 1-based pages, for example 1,3,5.")
     extract.add_argument("--page-start", type=int, default=None)
     extract.add_argument("--page-end", type=int, default=None)
-    extract.add_argument("--include-page", action="store_true")
     extract.add_argument("--rules", default=None, help="YAML rules file for reusable PDF extraction options.")
     extract.add_argument("--skip-line", dest="skip_lines", action="append", default=[])
     extract.add_argument("--skip-prefix", dest="skip_prefixes", action="append", default=[])
@@ -101,6 +100,12 @@ def add_pdf_extract_command(pdf_subparsers: Any) -> None:
     extract.add_argument("--split-by", default=None, help="tables line-value/field-value/coordinate: write one CSV per distinct FIELD value, or comma-separated fields.")
     extract.add_argument("--split-sections", action="store_true", help="tables line-value/field-value: shortcut for --split-by section.")
     extract.add_argument("--drop-empty-split", action="store_true", help="tables split outputs: omit rows where the split field is empty.")
+    extract.add_argument(
+        "--transpose-repeated-labels",
+        choices=["auto", "always", "never"],
+        default=None,
+        help="tables line-value: promote repeated label/value keys into columns when the row stream is deterministic; default auto.",
+    )
     extract.add_argument("--output-columns", default=None, help="Comma-separated output columns.")
     extract.add_argument("--min-rows", type=int, default=1, help="tables detected: minimum detected rows.")
     extract.add_argument("--min-filled-cells", type=int, default=None, help="tables detected: minimum non-empty cells in a forced-column data row.")

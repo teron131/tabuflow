@@ -18,10 +18,13 @@ from ..common import pdf_artifact_workspace
 from .coordinate_tables import coordinate_rows
 from .detected_tables import pymupdf_table_outputs
 from .pages import page_numbers
+from .row_streams import ExtractedRows
 from .text_values import field_value_rows, line_value_rows
+from .transpose import RepeatedLabelColumns, repeated_label_column_transform
 
 FILENAME_FINGERPRINT_CHARS = 4
 GENERIC_COLUMN_PATTERN = re.compile(r"^column_[0-9]+$")
+PROVENANCE_OUTPUT_COLUMNS = {"page"}
 RowPattern = tuple[str, re.Pattern[str]]
 SplitValues = tuple[str, ...]
 SplitPartKey = tuple[SplitValues, int]
@@ -33,7 +36,6 @@ class PendingPdfTable:
 
     pages: list[int]
     page_count: int
-    descriptor: str
     rows: list[dict[str, str]]
     columns: list[str]
     manifest: dict[str, Any]
@@ -46,6 +48,8 @@ class SplitRowGroup:
     split_value: str
     split_values: dict[str, str]
     rows: list[dict[str, str]]
+    pages: list[int]
+    row_metadata: list[dict[str, Any]]
     table_end_reasons: list[str]
 
 
@@ -88,6 +92,8 @@ def split_rows_by_boundaries(
     rows: list[dict[str, str]],
     split_by: str | list[str],
     *,
+    source_pages: list[int] | None = None,
+    row_metadata: list[dict[str, Any]] | None = None,
     drop_empty: bool = False,
     table_ends: list[dict[str, str]] | None = None,
 ) -> list[SplitRowGroup]:
@@ -95,19 +101,27 @@ def split_rows_by_boundaries(
     split_columns = split_columns_from_config(split_by)
     table_end_patterns = compile_table_end_patterns(table_ends or [])
     groups: dict[SplitPartKey, list[dict[str, str]]] = {}
+    group_pages: dict[SplitPartKey, list[int]] = {}
+    group_metadata: dict[SplitPartKey, list[dict[str, Any]]] = {}
     table_end_reasons: dict[SplitPartKey, list[str]] = {}
     current_part_by_values: Counter[SplitValues] = Counter()
-    for row in rows:
+    for row_index, row in enumerate(rows):
         values = tuple(str(row.get(column, "")) for column in split_columns)
         if drop_empty and not any(values):
             continue
         group_key = (values, current_part_by_values[values])
         groups.setdefault(group_key, []).append(row)
+        if source_pages and row_index < len(source_pages):
+            group_pages.setdefault(group_key, []).append(source_pages[row_index])
+        if row_metadata and row_index < len(row_metadata):
+            group_metadata.setdefault(group_key, []).append(row_metadata[row_index])
         if reason := table_end_reason(row, table_end_patterns):
             table_end_reasons.setdefault(group_key, []).append(reason)
             current_part_by_values[values] += 1
     return split_groups_from_parts(
         groups=groups,
+        group_pages=group_pages,
+        group_metadata=group_metadata,
         table_end_reasons=table_end_reasons,
         split_columns=split_columns,
     )
@@ -116,6 +130,8 @@ def split_rows_by_boundaries(
 def split_groups_from_parts(
     *,
     groups: dict[SplitPartKey, list[dict[str, str]]],
+    group_pages: dict[SplitPartKey, list[int]],
+    group_metadata: dict[SplitPartKey, list[dict[str, Any]]],
     table_end_reasons: dict[SplitPartKey, list[str]],
     split_columns: list[str],
 ) -> list[SplitRowGroup]:
@@ -133,6 +149,8 @@ def split_groups_from_parts(
                 split_value=split_value,
                 split_values=split_values,
                 rows=grouped_rows,
+                pages=sorted(set(group_pages.get((values, part_index), []))),
+                row_metadata=group_metadata.get((values, part_index), []),
                 table_end_reasons=table_end_reasons.get((values, part_index), []),
             )
         )
@@ -144,40 +162,13 @@ def page_tag(
     *,
     page_count: int,
 ) -> str:
-    """Return a compact page-range tag such as p01 or p01p88."""
+    """Return an explicit page-range tag as pSTARTpEND."""
     if not pages:
-        return "p00"
+        return "p00p00"
     width = len(str(page_count))
     start_page = min(pages)
     end_page = max(pages)
-    start = f"p{start_page:0{width}d}"
-    return start if start_page == end_page else f"{start}p{end_page:0{width}d}"
-
-
-def row_pages(
-    rows: list[dict[str, str]],
-    fallback_pages: list[int],
-) -> list[int]:
-    """Return source pages from row metadata, falling back to the configured pages."""
-    pages = sorted({int(row["page"]) for row in rows if str(row.get("page", "")).isdigit()})
-    return pages or fallback_pages
-
-
-def output_descriptor(
-    *,
-    split_value: str = "",
-    table_name: str = "",
-    columns: list[str],
-) -> str:
-    """Return a fallback descriptor for page-range filename collisions."""
-    candidates = [split_value, " ".join(column for column in columns if not column.startswith("column_")), table_name]
-    for candidate in candidates:
-        if not candidate.strip():
-            continue
-        descriptor = normalize_source_stem(candidate)[:40].strip("_")
-        if descriptor:
-            return descriptor
-    return "table"
+    return f"p{start_page:0{width}d}p{end_page:0{width}d}"
 
 
 def filename_fingerprint(
@@ -195,37 +186,22 @@ def output_path_for_table(
     pdf_stem: str,
     pages: list[int],
     page_count: int,
-    descriptor: str,
+    page_table_index: int,
     rows: list[dict[str, str]],
     columns: list[str],
     used_stems: set[str],
-    use_descriptor: bool,
+    page_tag_counts: Counter[str],
 ) -> Path:
-    """Return a stable CSV path, using descriptor and hash only on collisions."""
-    base_stem = f"{pdf_stem}_{page_tag(pages, page_count=page_count)}"
+    """Return a stable CSV path based on page range and document order."""
+    table_page_tag = page_tag(pages, page_count=page_count)
+    base_stem = f"{pdf_stem}_{table_page_tag}"
     stem = base_stem
-    if use_descriptor or stem in used_stems:
-        stem = f"{base_stem}_{descriptor}"
+    if page_tag_counts[table_page_tag] > 1 or stem in used_stems:
+        stem = f"{base_stem}_t{page_table_index}"
     if stem in used_stems:
         stem = f"{stem}_{filename_fingerprint(rows, columns)}"
     used_stems.add(stem)
     return output_dir / f"{stem}.csv"
-
-
-def should_use_descriptor(
-    *,
-    table: PendingPdfTable,
-    page_tag_counts: Counter[str],
-    table_page_tag: str,
-) -> bool:
-    """Return whether the output filename should include the table descriptor."""
-    if page_tag_counts[table_page_tag] > 1:
-        return True
-    split_values = table.manifest.get("split_values")
-    if not isinstance(split_values, dict):
-        rejected_detection_count = int(table.manifest.get("source_page_rejected_detection_count") or 0)
-        return rejected_detection_count > 0 and len(set(table.pages)) == 1
-    return sum(1 for value in split_values.values() if value) > 1
 
 
 def empty_extraction_diagnostics(pdf_path: Path) -> dict[str, Any]:
@@ -282,7 +258,7 @@ def pdf_extraction_status(tables: list[dict[str, Any]], diagnostics: dict[str, A
 def _configured_rows(
     pdf_path: Path,
     table_config: dict[str, Any],
-) -> list[dict[str, str]]:
+) -> ExtractedRows:
     """Extract rows for one configured non-detector PDF table mode."""
     mode = str(table_config["mode"])
     if mode == "line_value":
@@ -309,7 +285,7 @@ def _configured_columns(
             columns = [str(column) for column in configured_columns]
     if not columns and rows:
         columns = list(rows[0])
-    return columns
+    return [column for column in columns if column not in PROVENANCE_OUTPUT_COLUMNS and not column.startswith("__")]
 
 
 def _detected_pending_tables(
@@ -319,7 +295,6 @@ def _detected_pending_tables(
     pdf_page_count: int,
 ) -> list[PendingPdfTable]:
     """Collect pending outputs for PyMuPDF detected tables."""
-    base_name = str(table_config.get("name", "detected_table"))
     pending_tables: list[PendingPdfTable] = []
     for table_output in pymupdf_table_outputs(pdf_path, table_config):
         table_pages = [int(page) for page in table_output.get("source_pages", [table_output["source_page"]])]
@@ -327,7 +302,6 @@ def _detected_pending_tables(
             PendingPdfTable(
                 pages=table_pages,
                 page_count=pdf_page_count,
-                descriptor=output_descriptor(table_name=base_name, columns=table_output["columns"]),
                 rows=table_output["rows"],
                 columns=table_output["columns"],
                 manifest={
@@ -352,29 +326,57 @@ def _configured_split_pending_table(
     *,
     split_group: SplitRowGroup,
     table_config: dict[str, Any],
-    table_name: str,
     columns: list[str],
     fallback_pages: list[int],
     pdf_page_count: int,
 ) -> PendingPdfTable:
     """Return one pending table for a configured split row group."""
-    split_slug = normalize_source_stem(split_group.split_value) if split_group.split_value else "unsectioned"
-    split_table_name = f"{table_name}_{split_slug}" if split_slug else table_name
-    return PendingPdfTable(
-        pages=row_pages(split_group.rows, fallback_pages),
-        page_count=pdf_page_count,
-        descriptor=output_descriptor(split_value=split_group.split_value, table_name=split_table_name, columns=columns),
+    transformed = _repeated_label_transform(
         rows=split_group.rows,
         columns=columns,
+        table_config=table_config,
+        row_metadata=split_group.row_metadata,
+    )
+    output_rows = transformed.rows if transformed else split_group.rows
+    output_columns = transformed.columns if transformed else columns
+    return PendingPdfTable(
+        pages=split_group.pages or fallback_pages,
+        page_count=pdf_page_count,
+        rows=output_rows,
+        columns=output_columns,
         manifest={
             "mode": table_config["mode"],
-            "row_count": len(split_group.rows),
-            "columns": columns,
-            "split_by": str(table_config["split_by"]),
+            "row_count": len(output_rows),
+            "columns": output_columns,
+            "split_by": table_config["split_by"],
             "split_value": split_group.split_value,
             "split_values": split_group.split_values,
             "table_end_reasons": split_group.table_end_reasons,
+            **({"repeated_label_columns": transformed.evidence} if transformed else {}),
         },
+    )
+
+
+def _repeated_label_transform(
+    *,
+    rows: list[dict[str, str]],
+    columns: list[str],
+    table_config: dict[str, Any],
+    row_metadata: list[dict[str, Any]] | None = None,
+) -> RepeatedLabelColumns | None:
+    """Return an automatic repeated-label reshape when the line-value signal is strong."""
+    if table_config["mode"] != "line_value":
+        return None
+    return repeated_label_column_transform(
+        rows,
+        columns,
+        label_column=str(table_config.get("label_column", "label")),
+        value_column=str(table_config.get("value_column", "value")),
+        table_end_patterns=compile_table_end_patterns(table_config.get("table_ends", [])),
+        row_metadata=row_metadata,
+        mode=str(table_config.get("transpose_repeated_labels") or "auto"),
+        entity_column=str(table_config.get("transpose_entity_column") or "item"),
+        total_column=str(table_config.get("transpose_total_column") or "total"),
     )
 
 
@@ -386,13 +388,15 @@ def _configured_pending_tables(
     pdf_page_count: int,
 ) -> list[PendingPdfTable]:
     """Collect pending outputs for configured text and coordinate table modes."""
-    rows = _configured_rows(pdf_path, table_config)
+    extracted_rows = _configured_rows(pdf_path, table_config)
+    rows = extracted_rows.rows
     columns = _configured_columns(table_config, rows)
-    table_name = str(table_config.get("name") or "table")
     if split_by := table_config.get("split_by"):
         split_groups = split_rows_by_boundaries(
             rows,
-            str(split_by),
+            split_by,
+            source_pages=extracted_rows.source_pages,
+            row_metadata=extracted_rows.row_metadata,
             drop_empty=bool(table_config.get("drop_empty_split")),
             table_ends=table_config.get("table_ends", []),
         )
@@ -400,7 +404,6 @@ def _configured_pending_tables(
             _configured_split_pending_table(
                 split_group=split_group,
                 table_config=table_config,
-                table_name=table_name,
                 columns=columns,
                 fallback_pages=fallback_pages,
                 pdf_page_count=pdf_page_count,
@@ -409,19 +412,49 @@ def _configured_pending_tables(
         ]
 
     return [
-        PendingPdfTable(
-            pages=row_pages(rows, fallback_pages),
-            page_count=pdf_page_count,
-            descriptor=output_descriptor(table_name=table_name, columns=columns),
+        _configured_unsplit_pending_table(
             rows=rows,
             columns=columns,
-            manifest={
-                "mode": table_config["mode"],
-                "row_count": len(rows),
-                "columns": columns,
-            },
+            table_config=table_config,
+            fallback_pages=fallback_pages,
+            source_pages=extracted_rows.source_pages,
+            pdf_page_count=pdf_page_count,
+            row_metadata=extracted_rows.row_metadata,
         )
     ]
+
+
+def _configured_unsplit_pending_table(
+    *,
+    rows: list[dict[str, str]],
+    columns: list[str],
+    table_config: dict[str, Any],
+    fallback_pages: list[int],
+    source_pages: list[int],
+    pdf_page_count: int,
+    row_metadata: list[dict[str, Any]] | None = None,
+) -> PendingPdfTable:
+    """Return one pending table for configured rows without split groups."""
+    transformed = _repeated_label_transform(
+        rows=rows,
+        columns=columns,
+        table_config=table_config,
+        row_metadata=row_metadata,
+    )
+    output_rows = transformed.rows if transformed else rows
+    output_columns = transformed.columns if transformed else columns
+    return PendingPdfTable(
+        pages=sorted(set(source_pages)) or fallback_pages,
+        page_count=pdf_page_count,
+        rows=output_rows,
+        columns=output_columns,
+        manifest={
+            "mode": table_config["mode"],
+            "row_count": len(output_rows),
+            "columns": output_columns,
+            **({"repeated_label_columns": transformed.evidence} if transformed else {}),
+        },
+    )
 
 
 def _collect_pending_tables(
@@ -465,19 +498,21 @@ def _write_pending_tables(
     """Write pending table CSVs and return their manifest entries."""
     used_output_stems: set[str] = set()
     page_tag_counts = Counter(page_tag(table.pages, page_count=table.page_count) for table in pending_tables)
+    page_tag_indexes: Counter[str] = Counter()
     manifest_tables: list[dict[str, Any]] = []
     for document_order, table in enumerate(pending_tables, start=1):
         table_page_tag = page_tag(table.pages, page_count=table.page_count)
+        page_tag_indexes[table_page_tag] += 1
         output_path = output_path_for_table(
             output_dir=output_dir,
             pdf_stem=pdf_stem,
             pages=table.pages,
             page_count=table.page_count,
-            descriptor=table.descriptor,
+            page_table_index=page_tag_indexes[table_page_tag],
             rows=table.rows,
             columns=table.columns,
             used_stems=used_output_stems,
-            use_descriptor=should_use_descriptor(table=table, page_tag_counts=page_tag_counts, table_page_tag=table_page_tag),
+            page_tag_counts=page_tag_counts,
         )
         write_csv(output_path, table.rows, table.columns)
         manifest_tables.append(

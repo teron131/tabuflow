@@ -7,9 +7,13 @@ import re
 from typing import Any
 
 from .pages import document_lines
+from .row_streams import ExtractedRows
 
 
-def compiled_contexts(config: dict[str, Any], key: str) -> list[tuple[str, re.Pattern[str]]]:
+def compiled_contexts(
+    config: dict[str, Any],
+    key: str,
+) -> list[tuple[str, re.Pattern[str]]]:
     """Return configured line-context patterns."""
     return [(str(item["name"]), re.compile(str(item["pattern"]))) for item in config.get(key, [])]
 
@@ -41,7 +45,7 @@ def update_line_context(
 def line_value_rows(
     pdf_path: Path,
     config: dict[str, Any],
-) -> list[dict[str, str]]:
+) -> ExtractedRows:
     """Extract adjacent label/value text-line pairs."""
     value_pattern = re.compile(str(config["value_pattern"]))
     label_column = str(config.get("label_column", "label"))
@@ -51,6 +55,8 @@ def line_value_rows(
     context = {name: "" for name, _pattern in contexts}
     records = document_lines(pdf_path, config)
     rows: list[dict[str, str]] = []
+    source_pages: list[int] = []
+    row_metadata: list[dict[str, Any]] = []
     line_index = 0
     while line_index < len(records) - 1:
         label_record = records[line_index]
@@ -66,19 +72,30 @@ def line_value_rows(
                     value_column: value,
                 }
             )
-            if config.get("include_page"):
-                row["page"] = str(label_record["page"])
             rows.append(row)
+            source_pages.append(int(label_record["page"]))
+            row_metadata.append(
+                {
+                    "label_x0": float(label_record.get("x0", 0)),
+                    "label_y0": float(label_record.get("y0", 0)),
+                    "value_x0": float(value_record.get("x0", 0)),
+                    "value_y0": float(value_record.get("y0", 0)),
+                }
+            )
             line_index += 2
             continue
         line_index += 1
-    return rows
+    return ExtractedRows(
+        rows=rows,
+        source_pages=source_pages,
+        row_metadata=row_metadata,
+    )
 
 
 def field_value_rows(
     pdf_path: Path,
     config: dict[str, Any],
-) -> list[dict[str, str]]:
+) -> ExtractedRows:
     """Extract configured field names and following value lines."""
     field_column = str(config.get("field_column", "field"))
     value_column = str(config.get("value_column", "value"))
@@ -90,6 +107,8 @@ def field_value_rows(
     context = {name: "" for name, _pattern in contexts}
     records = document_lines(pdf_path, config)
     rows: list[dict[str, str]] = []
+    source_pages: list[int] = []
+    row_metadata: list[dict[str, Any]] = []
     for index, record in enumerate(records[:-1]):
         line = str(record["text"])
         update_line_context(line, context, contexts, clear_contexts)
@@ -109,7 +128,16 @@ def field_value_rows(
                 value_column: " ".join(values),
             }
         )
-        if config.get("include_page"):
-            row["page"] = str(record["page"])
         rows.append(row)
-    return rows
+        source_pages.append(int(record["page"]))
+        row_metadata.append(
+            {
+                "label_x0": float(record.get("x0", 0)),
+                "label_y0": float(record.get("y0", 0)),
+            }
+        )
+    return ExtractedRows(
+        rows=rows,
+        source_pages=source_pages,
+        row_metadata=row_metadata,
+    )

@@ -116,7 +116,7 @@ tabuflow pdf extract path/to/file.pdf tables detected --page-start 1 --min-rows 
 tabuflow pdf extract path/to/file.pdf tables detected --strategy text --require-header --page-start 2 --page-end 3 --min-rows 2
 tabuflow pdf extract path/to/file.pdf tables detected --vertical-strategy text --horizontal-strategy lines --page-start 3 --page-end 13 --output-columns model,organization,score --min-filled-cells 2 --merge-tables auto
 tabuflow pdf extract path/to/file.pdf tables line-value --value-pattern '^\d+\s*$' --label-column device --value-column score --output-columns device,score
-tabuflow pdf extract path/to/file.pdf tables line-value --value-preset money --section '^(Section A|Section B)$' --context 'group=^Group: (?P<value>.+)$' --split-sections --drop-empty-split --include-page
+tabuflow pdf extract path/to/file.pdf tables line-value --value-preset money --section '^(Section A|Section B)$' --context 'group=^Group: (?P<value>.+)$' --split-sections --drop-empty-split
 tabuflow pdf extract path/to/file.pdf tables coordinate --pages 2 --y-min 180 --y-max 760 --column model:50:190 --column score:190:260 --required-columns model,score
 ```
 

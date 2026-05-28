@@ -11,15 +11,19 @@ contexts:
 clear_contexts:
   - name: account
     pattern: ^(Summary|Detail for Consolidated Bill|Activity By Account)$
-split_by: section
+split_by:
+  - section
+  - account
 drop_empty_split: true
-include_page: true
+transpose_repeated_labels: auto
+table_ends:
+  - name: label
+    pattern: ^(Account [0-9]{12} total allocated for this invoice|Total allocated for this invoice|Total for this invoice)$
 output_columns:
   - section
   - account
   - label
   - amount
-  - page
 skip_lines:
   - Account number
   - LINKED ACCOUNT ALLOCATION

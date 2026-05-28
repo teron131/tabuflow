@@ -34,7 +34,6 @@ Use Tabuflow's generic PyMuPDF line/value extractor for text-based AWS invoice P
 - `account`
 - `label`
 - `amount`
-- `page`
 
 Run shape from the repo root:
 
@@ -50,8 +49,8 @@ tabuflow pdf extract <invoice.pdf> tables line-value \
   --clear-context 'account=^(Summary|Detail for Consolidated Bill|Activity By Account)$' \
   --split-by section,account \
   --table-end 'label=^(Account [0-9]{12} total allocated for this invoice|Total allocated for this invoice|Total for this invoice)$' \
-  --drop-empty-split \
-  --include-page
+  --transpose-repeated-labels auto \
+  --drop-empty-split
 ```
 
 If a specific AWS invoice family needs reusable cleanup rules, use the optional sidecar:
@@ -74,7 +73,7 @@ Use `--table-end FIELD=REGEX` for total/allocation rows that visually close a ta
 
 ## Stacked Billing Columns
 
-Treat the `line-value` output as the canonical intermediate table, not always as the final table. It is good when the PDF visually stacks amounts like this:
+Treat the `line-value` output as the canonical extraction path. By default, the tool can promote deterministic repeated amount labels into columns; keep the raw visual hierarchy in mind when reviewing that output. The stacked source shape looks like this:
 
 - service or account heading,
 - Charges,
@@ -84,7 +83,7 @@ Treat the `line-value` output as the canonical intermediate table, not always as
 - Total,
 - repeated again for the next service/account.
 
-When the user needs an accounting-ready result, reshape this row stream after extraction:
+When the user needs an accounting-ready result and the automatic repeated-label transform does not apply, reshape this row stream after extraction:
 
 - Use `section`, `account`, page order, and nearest parent labels to define the entity for each group.
 - Promote repeated billing labels into columns only after checking they repeat in the same pattern within a section or parent group.

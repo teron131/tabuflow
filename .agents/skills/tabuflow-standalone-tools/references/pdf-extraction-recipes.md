@@ -72,8 +72,7 @@ tabuflow pdf extract path/to/file.pdf tables line-value \
   --label-column label \
   --value-column amount \
   --section '^(Summary|Detail|Activity By Account)$' \
-  --context 'account=^(?P<value>.+ \\([0-9]{12}\\))$' \
-  --include-page
+  --context 'account=^(?P<value>.+ \\([0-9]{12}\\))$'
 ```
 
 Split sections when the carried section should become separate CSV outputs:
@@ -84,8 +83,7 @@ tabuflow pdf extract path/to/file.pdf tables line-value \
   --label-column label \
   --value-column amount \
   --split-sections \
-  --drop-empty-split \
-  --include-page
+  --drop-empty-split
 ```
 
 ## Field/Value Blocks

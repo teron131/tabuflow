@@ -8,6 +8,7 @@ from typing import Any
 import pymupdf
 
 from .pages import page_numbers
+from .row_streams import ExtractedRows
 from .table_records import clean_cell
 
 
@@ -39,7 +40,7 @@ def column_value(
 def coordinate_rows(
     pdf_path: Path,
     config: dict[str, Any],
-) -> list[dict[str, str]]:
+) -> ExtractedRows:
     """Extract visual rows from configured x-column bands."""
     columns = list(config["columns"])
     y_tolerance = float(config.get("y_tolerance", 4))
@@ -63,6 +64,7 @@ def coordinate_rows(
             )
 
     rows: list[dict[str, str]] = []
+    source_pages: list[int] = []
 
     with pymupdf.open(str(pdf_path)) as document:
         for page_number in page_numbers(document, config):
@@ -71,15 +73,14 @@ def coordinate_rows(
                 if not y_min <= y <= y_max:
                     continue
                 row = {str(column["name"]): column_value(parts, column) for column in columns}
-                if config.get("include_page"):
-                    row["page"] = str(page_number)
                 if row_matches_skip_filters(row, config):
                     continue
                 if required_columns and not all(row.get(column_name) for column_name in required_columns):
                     continue
                 if any(row.get(str(column["name"])) for column in columns):
                     rows.append(row)
-    return rows
+                    source_pages.append(page_number)
+    return ExtractedRows(rows=rows, source_pages=source_pages)
 
 
 def coordinate_anchor_rows(
@@ -93,10 +94,11 @@ def coordinate_anchor_rows(
     required_columns: list[str],
     anchor_columns: list[str],
     continuation_column: str,
-) -> list[dict[str, str]]:
+) -> ExtractedRows:
     """Extract rows whose stable columns anchor nearby wrapped text."""
     anchor_y_slop = float(config.get("anchor_y_slop", y_tolerance * 2))
     rows: list[dict[str, str]] = []
+    source_pages: list[int] = []
 
     with pymupdf.open(str(pdf_path)) as document:
         for page_number in page_numbers(document, config):
@@ -121,14 +123,13 @@ def coordinate_anchor_rows(
                 wrapped_values = [line["row"][continuation_column] for line in page_lines if band_start <= line["y"] < band_end and line["row"].get(continuation_column)]
                 row = dict(anchor["row"])
                 row[continuation_column] = clean_cell(" ".join(wrapped_values))
-                if config.get("include_page"):
-                    row["page"] = str(page_number)
                 if row_matches_skip_filters(row, config):
                     continue
                 if required_columns and not all(row.get(column) for column in required_columns):
                     continue
                 rows.append(row)
-    return rows
+                source_pages.append(page_number)
+    return ExtractedRows(rows=rows, source_pages=source_pages)
 
 
 def row_matches_skip_filters(

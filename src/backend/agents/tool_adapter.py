@@ -81,11 +81,11 @@ def _pdf_table_config(
     pages: list[int] | None,
     page_start: int,
     page_end: int | None,
-    include_page: bool,
     skip_lines: list[str] | None,
     skip_prefixes: list[str] | None,
     stop_prefixes: list[str] | None,
     output_columns: list[str] | None,
+    transpose_repeated_labels: str,
     min_rows: int,
     min_filled_cells: int | None,
     strategy: str | None,
@@ -123,8 +123,6 @@ def _pdf_table_config(
         table_config["pages"] = pages
     if page_end is not None:
         table_config["page_end"] = page_end
-    if include_page:
-        table_config["include_page"] = True
     _add_pdf_list_options(
         table_config,
         skip_lines=skip_lines,
@@ -165,6 +163,8 @@ def _pdf_table_config(
                 "value_column": value_column or "value",
             }
         )
+        if transpose_repeated_labels:
+            table_config["transpose_repeated_labels"] = transpose_repeated_labels
         if value_preset:
             table_config["value_preset"] = value_preset
         return table_config
@@ -338,7 +338,6 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
         pages: list[int] | None = None,
         page_start: int = 1,
         page_end: int | None = None,
-        include_page: bool = False,
         skip_lines: list[str] | None = None,
         skip_prefixes: list[str] | None = None,
         stop_prefixes: list[str] | None = None,
@@ -358,6 +357,7 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
         require_header: bool = False,
         merge_tables: str = "auto",
         output_columns: list[str] | None = None,
+        transpose_repeated_labels: str = "auto",
         value_pattern: str | None = None,
         value_preset: str | None = None,
         label_column: str | None = None,
@@ -382,7 +382,6 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             pages: Optional explicit 1-based page numbers.
             page_start: First 1-based page to inspect.
             page_end: Last 1-based page to inspect.
-            include_page: Whether to include the source page as an output column.
             skip_lines: Exact cleaned text lines to skip.
             skip_prefixes: Cleaned text prefixes to skip.
             stop_prefixes: Cleaned text prefixes that stop page-line scanning.
@@ -402,6 +401,7 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             require_header: Whether to skip detected tables without useful header metadata.
             merge_tables: Detected-table merge policy: auto, always, or never.
             output_columns: Optional fixed schema for continuing tables whose detected headers drift.
+            transpose_repeated_labels: For line-value extraction, auto/always/never promote repeated amount labels into columns.
             value_pattern: Regex matching value lines for line-value extraction.
             value_preset: Built-in line-value regex preset, such as money or number.
             label_column: Output column for line-value labels.
@@ -423,11 +423,11 @@ def make_pdf_tools(*, root_dir: str | Path | None = None) -> list[BaseTool]:
             pages=pages,
             page_start=page_start,
             page_end=page_end,
-            include_page=include_page,
             skip_lines=skip_lines,
             skip_prefixes=skip_prefixes,
             stop_prefixes=stop_prefixes,
             output_columns=output_columns,
+            transpose_repeated_labels=transpose_repeated_labels,
             min_rows=min_rows,
             min_filled_cells=min_filled_cells,
             strategy=strategy,

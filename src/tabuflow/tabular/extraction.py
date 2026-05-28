@@ -113,6 +113,37 @@ def _pdf_table_source_metadata(
     return metadata
 
 
+def _csv_header_columns(header: list[str]) -> list[str]:
+    """Return stable source columns from an already-reviewed CSV header row."""
+    return [cell.strip() or f"column_{index}" for index, cell in enumerate(header, start=1)]
+
+
+def _pdf_table_csv_tables(
+    rows: list[list[str]],
+    *,
+    source_metadata: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Build one PDF table CSV block without re-detecting the header row."""
+    if not rows:
+        return []
+    columns = _csv_header_columns(rows[0])
+    data_rows = [(row + [""] * len(columns))[: len(columns)] for row in rows[1:]]
+    return [
+        {
+            "name": "table_1",
+            "row_start": 1,
+            "row_end": len(rows),
+            "row_count": len(data_rows),
+            "header_row": 1,
+            "column_start": 1,
+            "column_end": len(columns),
+            "columns": columns,
+            "rows": data_rows,
+            "source_metadata": source_metadata,
+        }
+    ]
+
+
 def _footer_like_row_hints(
     tables: list[dict[str, Any]],
     metadata: list[dict[str, Any]],
@@ -154,15 +185,36 @@ def extract_tabular_file(
         raise ValueError(f"CSV extraction currently requires a full in-memory layout pass and is capped at {MAX_FULL_EXTRACT_BYTES} bytes for safety: {path}")
 
     rows, format_info = load_rows(path, sheet=sheet)
+    source_metadata = _pdf_table_source_metadata(path, root_dir=root_dir)
+    if source_metadata:
+        tables = _pdf_table_csv_tables(rows, source_metadata=source_metadata)
+        recovered = {
+            "path": str(path),
+            **tabular_summary(rows, format_info),
+            "metadata": [],
+            "tables": tables,
+        }
+        loaded = load_tables_into_sqlite(
+            recovered,
+            root_dir=root_dir,
+        )
+        return {
+            "path": recovered["path"],
+            "format": recovered["format"],
+            "sheet_name": recovered.get("sheet_name"),
+            "status": "loaded" if tables else "empty",
+            "artifact_backend": "sqlite",
+            "database_path": loaded["database_path"],
+            "recovered_table_count": len(tables),
+            "excluded_row_hints": [],
+            "tables": loaded["tables"],
+        }
+
     metadata, tables = segment_tabular_blocks(
         rows,
         table_sample_rows=None,
         metadata_sample_rows=metadata_rows,
     )
-    source_metadata = _pdf_table_source_metadata(path, root_dir=root_dir)
-    if source_metadata:
-        for table in tables:
-            table["source_metadata"] = source_metadata
     recovered = {
         "path": str(path),
         **tabular_summary(rows, format_info),
