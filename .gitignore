@@ -3,11 +3,11 @@ uv.lock
 artifacts/*
 data/*
 *.sqlite
-
 *test*
 backup/
 examples/
 .playwright-cli/
+PLAN.md
 
 
 # Byte-compiled / optimized / DLL files
