@@ -5,6 +5,8 @@ Use these repo skills to choose the right Tabuflow command flow for local data w
 Start from the project root. Use the CLI, or MCP when available, to inspect sources, extract tables, find artifacts, query data, and save views. Keep generated work under `./artifacts/`.
 When the task involves local CSV, spreadsheet, PDF, email, or prepared artifact data, route through these skills and the Tabuflow CLI by default even if the user does not explicitly ask for Tabuflow. Do this before hand-parsing files with ad hoc shell/Python.
 
+Tool instructions belong in this file, not inside individual domain `SKILL.md` files. Domain skills should describe business context, inputs, targets, workflow, validation, and boundaries; this file owns command shapes and tool selection.
+
 ## Skill Routing
 
 - Use `tabuflow-standalone-tools` when the task starts from messy CSV, XLS, XLSX, PDF, EML, MSG, or prepared SQLite-backed artifacts and you need to inspect, extract, query, or save a view, even if the prompt only names the source file or desired analysis.
@@ -42,6 +44,34 @@ tabuflow tabular extract path/to/file.xlsx --sheet "Sheet1"
 ```
 
 Inspect before extracting. Do not assume row 1 is the header. Watch for metadata rows, repeated headers, blank spacer rows, footer totals, merged-ish spreadsheet layout, and several sparse tables in one sheet.
+
+For billing and GCP cost-table workflows, use the same tabular/artifact sequence. Keep the same source path through inspect, profile, extract, and artifact lookup:
+
+```bash
+tabuflow tabular inspect path/to/source.csv
+tabuflow tabular profile path/to/source.csv
+tabuflow tabular extract path/to/source.csv
+tabuflow artifacts from-source path/to/source.csv
+```
+
+Then rediscover and query the produced artifact:
+
+```bash
+tabuflow artifacts describe artifact_name
+tabuflow artifacts query "select * from artifact_name limit 20"
+tabuflow artifacts query @query.sql
+```
+
+For workbook sources, add sheet options consistently to each tabular command:
+
+```bash
+tabuflow tabular inspect path/to/source.xlsx --sheet "Sheet1" --start-row 1 --limit 10
+tabuflow tabular profile path/to/source.xlsx --sheet "Sheet1"
+tabuflow tabular extract path/to/source.xlsx --sheet "Sheet1"
+tabuflow artifacts from-source path/to/source.xlsx
+```
+
+Use `inspect` and `profile` output to choose the source path, sheet, header area, and extraction options before extracting. Domain skills define business file roles; this command flow only describes how to inspect, extract, rediscover, describe, and query the resulting artifacts. Put non-trivial SQL in `artifacts/sql/`, and final review/upload outputs in `artifacts/outputs/`.
 
 Use PDF tools in two passes:
 

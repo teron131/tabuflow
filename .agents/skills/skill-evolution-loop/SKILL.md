@@ -9,6 +9,17 @@ Use this skill to create or refine another skill from real work evidence. The go
 
 Keep section hierarchy shallow, but keep the guidance detailed. Prefer a few broad sections with concrete inputs, targets, workflow, validation, and boundaries inside them. Do not simplify by deleting the actual contract.
 
+Standard domain skill shape:
+
+- `Use`: what belongs to the skill and when it should trigger.
+- `Inputs`: visible input roles, optional references, maintained defaults, and how to identify files by content rather than filenames.
+- `Targets`: supported output families and what each target means.
+- `Workflow`: business/data steps, not command transcripts.
+- `Validate`: source-backed checks and what gaps must be reported.
+- `Boundaries`: what not to assume, hardcode, invent, or edit.
+
+Do not put tool command instructions in domain skills. Put CLI/MCP/tool routing and command shapes in `.agents/skills/AGENTS.md`; domain skills may reference the repo-standard artifact/tool flow but should not duplicate commands.
+
 ## Inputs
 
 Useful evidence includes:
@@ -28,7 +39,7 @@ Create or update:
 - `SKILL.md`: when to use the skill, required inputs, expected outputs, process, validation bar, and common failure modes.
 - `references/`: only for durable contracts, formulas, schemas, template shapes, field mappings, or domain rules too detailed for `SKILL.md`.
 - `scripts/`: only when deterministic execution is genuinely part of the skill, the operation is fragile, or the same code keeps being rewritten badly.
-- `AGENTS.md`: only for routing, posture, and broad process reminders.
+- `AGENTS.md`: routing, posture, broad process reminders, and shared tool/command guidance.
 
 Do not turn a successful scratch implementation into a bundled script by default. A skill should preserve the result contract first; implementation freedom is useful when many approaches can produce the same validated output.
 
@@ -79,7 +90,8 @@ Do not claim the skill works because you solved the task yourself. The evidence 
 ## Common Mistakes
 
 - Encoding one month's examples as permanent rules.
-- Putting command transcripts in `AGENTS.md`.
+- Putting one-run command transcripts in `AGENTS.md` instead of reusable command guidance.
+- Putting CLI command blocks in domain skills instead of central tool guidance.
 - Hiding core requirements inside a script instead of the skill contract.
 - Keeping obsolete SQL or app-tool references after changing strategy.
 - Adding companion inputs because a reference workbook exists.

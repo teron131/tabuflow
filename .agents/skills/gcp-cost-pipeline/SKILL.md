@@ -11,18 +11,6 @@ Use this skill for GCP-only monthly billing workflows. The durable source bounda
 
 The workflow may produce a raw/aggregated GCP cost summary, an IBS charge-item upload output, or a selected-month management summary. A raw-only test should still produce the best directly supported summary from the raw export and should report unavailable accountant-facing details plainly.
 
-## Tools
-
-Use Tabuflow first for messy local billing files:
-
-- `tabuflow tabular inspect <file>` to identify headers, metadata rows, sheets, and table shape.
-- `tabuflow tabular extract <file>` to create queryable artifacts.
-- `tabuflow artifacts from-source <file>` to find the extracted artifact for a source.
-- `tabuflow artifacts describe <artifact>` before writing non-trivial SQL.
-- `tabuflow artifacts query ...` or `tabuflow artifacts query @query.sql` for bounded validation queries.
-
-Use ordinary shell/editor tools for reading files, writing SQL or scratch scripts under `artifacts/sql/`, and creating final CSV/XLSX outputs under `artifacts/outputs/`.
-
 ## Inputs
 
 Required input:
@@ -82,8 +70,8 @@ Do not write generated workbooks into source/example directories or overwrite so
 
 1. Locate visible input files by role. First find the raw GCP export by its billing columns. Then, only if visible and relevant, identify customer cost reports, historical summary workbooks, or upload templates by content and sheet/header shape.
 2. Inspect the raw cost table shape. Confirm expected GCP export columns, recover visible invoice/report metadata when present, and do not infer business fields from workbook pivot labels.
-3. Load or normalize the cost table into an inspectable tabular layer. Prefer `tabuflow tabular extract ...` or the equivalent tool when Tabuflow is available.
-4. Rediscover artifacts with `artifacts from-source`, `list`, `describe`, and bounded `query` calls. Do not copy generated table names from memory.
+3. Load or normalize the cost table into an inspectable tabular layer using the repo-standard artifact flow from `.agents/skills/AGENTS.md`: inspect or profile as needed, extract, rediscover by source, describe the selected artifact, and run bounded validation queries.
+4. Rediscover produced artifacts every run. Do not copy generated table names from memory.
 5. Normalize exact raw headers into semantic fields such as `account_id`, `account_name`, `credit_type`, `cost_type`, `usage_start`, `usage_end`, `unrounded_cost_usd`, and `cost_usd`.
 6. Derive account-level business rows. Group by billing account and compute usage before reseller margin, credits/adjustments, reseller margin, net GCP cost, item count, and any maintained/configured customer charge or HKD values.
 7. Use optional visible files only for the target they actually support. Customer reports support service/credit presentation. Reference summaries support historical shape/rates/deltas. IBS templates support upload-column fidelity.

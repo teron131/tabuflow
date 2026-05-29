@@ -13,17 +13,6 @@ This is an outcome-first skill. It defines the correctness bar for billing table
 
 For Tabuflow-backed runs, keep generated work under the current working directory's `artifacts/` directory: extracted tabular data in `artifacts/tabular.sqlite`, reusable SQL or scratch transformation files in `artifacts/sql/`, and final validated CSV/XLSX outputs in `artifacts/outputs/`. Treat source/example directories as read-only inputs unless the user explicitly asks to edit them.
 
-## Tools
-
-Use Tabuflow for messy source discovery and artifact-backed validation:
-
-- `tabuflow tabular inspect <file>` for a bounded view of headers, metadata, sheets, and rows.
-- `tabuflow tabular profile <file>` when header rows, multiple regions, or sheet structure are unclear.
-- `tabuflow tabular extract <file>` once the likely table shape is understood.
-- `tabuflow artifacts list`, `from-source`, `describe`, and `query` to find, inspect, and validate extracted data.
-
-Use ordinary shell/editor tools for writing SQL, small transformation scripts, markdown notes, or final reports. Keep reusable SQL/scripts in `artifacts/sql/` and final outputs in `artifacts/outputs/`.
-
 ## Inputs
 
 Start from the files the user, task, or test case provides. Do not assume companion workbooks, templates, mappings, hidden expected outputs, or prior generated files exist unless they are visible or maintained by the implementation.
@@ -53,7 +42,7 @@ Separate source labels from semantic output names. Literal source headers belong
 2. Identify the real table structure: header rows, metadata rows, repeated headers, footers, totals, blank regions, and any multiple-table layout.
 3. Normalize at the ingestion boundary. Convert raw columns into stable semantic fields before grouping, filtering, joining, or deriving formulas.
 4. Build from an inspectable tabular layer. Use SQL, dataframe logic, or another tabular method when it makes the transformation easier to inspect and validate.
-5. When Tabuflow is available, extract the source into the artifact store before writing business-output scripts, then rediscover the table with artifact listing, source lookup, description, and bounded query tools.
+5. When Tabuflow is available, use the repo-standard artifact flow from `.agents/skills/AGENTS.md`: inspect or profile as needed, extract the source into the artifact store, rediscover by source, describe the selected artifact, and run bounded validation queries before writing business-output scripts.
 6. Keep non-trivial SQL or scratch transformations in `artifacts/sql/`, and write final review/upload outputs under `artifacts/outputs/`.
 
 ## Validate
