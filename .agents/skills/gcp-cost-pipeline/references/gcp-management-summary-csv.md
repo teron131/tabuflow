@@ -6,8 +6,8 @@ Use this reference when the user asks to create a GCP monthly management summary
 
 Use only the artifacts the user provides or that already belong to the workspace:
 
-- Raw monthly GCP export: `cost_table.xlsx` or CSV copy with the stable GCP billing columns.
-- Optional historical summary workbook: a workbook shaped like `GCP Rev and Cost Excel.xlsx`.
+- Raw monthly GCP export: a GCP cost table or CSV copy with the stable GCP billing columns.
+- Optional historical summary workbook: a workbook shaped like a GCP Rev and Cost monthly summary.
 - Optional monthly customer cost reports: one workbook per billing account, with columns like `Service`, `Usage cost`, `Negotiated savings`, `Savings programs`, `Other savings`, and `Subtotal`.
 
 The raw GCP export remains the durable source for normalized account totals and `RESELLER_MARGIN`. The customer cost reports explain the accountant-facing service-charge and savings buckets. The historical summary workbook is optional reference evidence, not a required runtime input.
@@ -68,7 +68,7 @@ Rows, in order:
 
 Include totals for additive numeric rows. For rate and margin rows, use an explicit weighted/recomputed total only when the basis is clear; otherwise leave the total blank or repeat a shared rate only when it truly applies to every account.
 
-Historical `GCP Rev and Cost Excel.xlsx` style workbooks may store multiple months in one wide sheet. Use those sheets to identify the selected month block, rates, forecast rows, and reference deltas, but do not reproduce the entire multi-month block by default. The management-summary deliverable should be one selected month in the compact `Metric` plus account columns shape.
+Historical Rev and Cost style workbooks may store multiple months in one wide sheet. Use those sheets to identify the selected month block, rates, forecast rows, and reference deltas, but do not reproduce the entire multi-month block by default. The management-summary deliverable should be one selected month in the compact `Metric` plus account columns shape.
 
 If the historical workbook is not available, keep the same row labels and account columns. Leave `Reference summary revenue HKD delta` and `Reference summary cost HKD delta` blank or set them to `not available`, and explain the missing reference in `Source notes`.
 

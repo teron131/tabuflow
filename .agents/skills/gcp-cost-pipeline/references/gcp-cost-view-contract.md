@@ -2,9 +2,9 @@
 
 Use this reference when a task needs the GCP cost-table field mapping, formulas, or output shape.
 
-The source input is one monthly GCP cost table, conceptually `cost_table.xlsx`. CSV copies of the same export can be used for local validation.
+The source input is one monthly GCP cost table. Identify it by the stable GCP billing columns, not by filename. CSV copies of the same export can be used for local validation.
 
-Workflow files belong under the current working directory's `artifacts/` directory. Use `artifacts/tabular.sqlite` for extracted tabular data, `artifacts/sql/` for reusable SQL or scratch transformation files, and `artifacts/outputs/` for final GCP workbooks or CSVs. Source/reference fixtures under `examples/gcp/` are read-only inputs for the run.
+Workflow files belong under the current working directory's `artifacts/` directory. Use `artifacts/tabular.sqlite` for extracted tabular data, `artifacts/sql/` for reusable SQL or scratch transformation files, and `artifacts/outputs/` for final GCP workbooks or CSVs. Visible source/reference fixtures are read-only inputs for the run.
 
 ## Raw Column Mapping
 
@@ -65,7 +65,7 @@ Normalize `credit_type` with trim and uppercase before comparing. Exclude footer
 ## Aggregated Result Output
 
 The aggregated output should expose semantic rows for review and reconciliation.
-Write the file under `artifacts/outputs/`, normally as `aggregated_cost_table.xlsx` unless the user requests another filename.
+Write the file under `artifacts/outputs/` with a recognizable cost-summary name unless the user requests a specific filename.
 
 Expected levels:
 
@@ -93,7 +93,7 @@ Reference workbooks can be used for shape and reconciliation intent, not for raw
 ## IBS Charge-Item Output
 
 The IBS output should produce rows shaped like the `Bill Item` sheet in the IBS upload template. This file is fixed enough that the skill should specify the formatting closely rather than leave it to inference.
-Write the file under `artifacts/outputs/`, normally as `IBS_ChargeItemUpload_GCP.xlsx` unless the user requests another filename.
+Write the file under `artifacts/outputs/` with a recognizable IBS upload name unless the user requests a specific filename.
 
 Expected fields visible in the reference:
 

@@ -7,6 +7,8 @@ description: Use when creating or improving a domain skill from real source arti
 
 Use this skill to create or refine another skill from real work evidence. The goal is not to document one successful run; it is to make a future comparable tool run reach the right result with less user steering.
 
+Keep section hierarchy shallow, but keep the guidance detailed. Prefer a few broad sections with concrete inputs, targets, workflow, validation, and boundaries inside them. Do not simplify by deleting the actual contract.
+
 ## Inputs
 
 Useful evidence includes:
