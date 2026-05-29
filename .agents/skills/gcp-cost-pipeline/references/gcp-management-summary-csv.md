@@ -1,6 +1,6 @@
 # GCP Management Summary CSV Contract
 
-Use this reference when the user asks to recreate a historical GCP monthly summary workbook or produce a CSV in the same visible format.
+Use this reference when the user asks to create a GCP monthly management summary, recreate a historical GCP Rev and Cost workbook, or produce a CSV in the same accountant-facing style.
 
 ## Inputs
 
@@ -10,7 +10,7 @@ Use only the artifacts the user provides or that already belong to the workspace
 - Optional historical summary workbook: a workbook shaped like `GCP Rev and Cost Excel.xlsx`.
 - Optional monthly customer cost reports: one workbook per billing account, with columns like `Service`, `Usage cost`, `Negotiated savings`, `Savings programs`, `Other savings`, and `Subtotal`.
 
-The raw GCP export remains the durable source for normalized account totals and `RESELLER_MARGIN`. The customer cost reports explain the accountant-facing service-charge and savings buckets. Do not require the reference summary workbook or customer cost reports for the default aggregate/IBS workflow.
+The raw GCP export remains the durable source for normalized account totals and `RESELLER_MARGIN`. The customer cost reports explain the accountant-facing service-charge and savings buckets. The historical summary workbook is optional reference evidence, not a required runtime input.
 
 ## Month Block Detection
 
@@ -26,11 +26,18 @@ For a reference summary workbook:
 
 When row 1 uses merged cells, read the month from the leftmost populated cell and carry it across the following customer columns until the next month label appears.
 
-## Output Shape
+## Default Output Shape
 
 Write the CSV or workbook under `artifacts/outputs/`.
 
-Recommended rows:
+Default to a compact selected-month cross-tab, even when no historical reference workbook is available:
+
+- Column A header: `Metric`.
+- Columns B onward: one billing account per account column.
+- Final column: `Total`.
+- Account column header: `<customer> - <tenant/domain> - <sequence> (<billing_account_id>)` when that mapping is known. Otherwise use `<customer/account name> (<billing_account_id>)`.
+
+Rows, in order:
 
 - `Usage Month`
 - `Customer`
@@ -52,9 +59,18 @@ Recommended rows:
 - `GCP Cost HKD`
 - `HKT Billed Amount HKD`
 - `Margin % (HKD)`
-- optional forecast/status block from the reference workbook
+- `Raw row/item count`
+- `Validation: cost-report subtotal delta`
+- `Validation: raw export net-cost delta`
+- `Reference summary revenue HKD delta`
+- `Reference summary cost HKD delta`
+- `Source notes`
 
-Include a total column when the row is additive. Leave margin total cells blank unless the user asks for a weighted margin and the basis is explicit.
+Include totals for additive numeric rows. For rate and margin rows, use an explicit weighted/recomputed total only when the basis is clear; otherwise leave the total blank or repeat a shared rate only when it truly applies to every account.
+
+Historical `GCP Rev and Cost Excel.xlsx` style workbooks may store multiple months in one wide sheet. Use those sheets to identify the selected month block, rates, forecast rows, and reference deltas, but do not reproduce the entire multi-month block by default. The management-summary deliverable should be one selected month in the compact `Metric` plus account columns shape.
+
+If the historical workbook is not available, keep the same row labels and account columns. Leave `Reference summary revenue HKD delta` and `Reference summary cost HKD delta` blank or set them to `not available`, and explain the missing reference in `Source notes`.
 
 ## Formulas
 
@@ -62,6 +78,7 @@ For each selected month/account column:
 
 - `service_charge_usd`: total `Usage cost` from the matching customer cost report when available.
 - `credits_usd`: `Negotiated savings + Savings programs + Other savings` from the matching customer cost report when available.
+- If no customer cost report is available, use the raw export to produce whatever service/credit split is supported by its normalized fields, and state any unavailable presentation split in `Source notes`.
 - `billed_amount_usd`: `service_charge_usd + credits_usd`. If a reference summary workbook provides exact cells, preserve those values and report any cent-level delta from the report subtotal.
 - `program_discount_usd`: sum raw export rows for the same billing account where normalized `credit_type == RESELLER_MARGIN`, using `Unrounded Cost ($)` and excluding footer rows such as `Total` and `Rounding error`.
 - `gcp_cost_usd`: `billed_amount_usd + program_discount_usd`.
@@ -81,9 +98,9 @@ Historical reference workbooks may store:
 
 Preserve the explicit rates in the output so the conversion basis is visible.
 
-## Forecast Block
+## Forecast Rows
 
-Only include the forecast block when the reference summary workbook has one or the user asks for a management-summary-style output.
+Only include forecast rows when the reference summary workbook has them or the user asks for them.
 
 For a month block with one `Invoice` account and multiple `Cost Transfer` accounts:
 
@@ -93,7 +110,7 @@ For a month block with one `Invoice` account and multiple `Cost Transfer` accoun
 - `Forecast Net`: forecast cost plus non-invoice billed amount.
 - `Forecast Margin %`: `(forecast_rev + forecast_net) / forecast_rev`.
 
-Name the non-invoice forecast row according to the visible reference wording if the workbook provides one; otherwise use a semantic label.
+Place forecast rows below the main source/validation rows unless the user asks to mirror the historical workbook ordering. Name the non-invoice forecast row according to the visible reference wording if the workbook provides one; otherwise use a semantic label.
 
 ## Validation
 
@@ -104,4 +121,5 @@ Before reporting the CSV as done:
 - Confirm raw `RESELLER_MARGIN` from unrounded cost matches the program-discount row.
 - Confirm `E = C + D`, HKD cost conversion, HKD billed conversion, and margins.
 - Confirm totals add across account columns where the row is additive.
+- Confirm each account column names the usage month, customer, billing account ID, charge type, and source workbook/report.
 - State plainly when the raw export can validate net totals but cannot reproduce the service-vs-credit presentation split by itself.

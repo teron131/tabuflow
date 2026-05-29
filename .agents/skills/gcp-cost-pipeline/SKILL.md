@@ -1,6 +1,6 @@
 ---
 name: gcp-cost-pipeline
-description: Use when transforming monthly GCP billing exports into reconciliation, IBS charge-item upload rows, or historical management-summary CSV/workbook outputs.
+description: Use when transforming monthly GCP billing exports into reconciliation, IBS charge-item upload rows, GCP Rev and Cost outputs, or metric-by-account management summaries.
 ---
 
 # GCP Cost Pipeline
@@ -89,10 +89,15 @@ Output 2: IBS charge-item upload.
 Output 3: management-summary CSV or workbook.
 
 - Purpose: recreate the accountant-facing monthly summary view when the user asks for a "similar format", "monthly summary", "GCP Rev and Cost" output, or a CSV demo of that workbook.
-- Use the historical summary workbook as a reference for the stacked month/customer/account/charge-type header and forecast block when it is available.
+- Default shape: one selected month in a compact cross-tab. Column A is `Metric`, columns B onward are one billing account per column, and the final column is `Total`.
+- Account column headers should be human-readable account labels such as `<customer> - <tenant/domain> - <sequence> (<billing_account_id>)` when that mapping is known; otherwise use `<customer/account name> (<billing_account_id>)`.
+- The first rows identify the month and source: `Usage Month`, `Customer`, `Billing Account ID`, `Charge Type`, and `Source Workbook`.
+- The body rows show USD service charge, credits, savings breakdown, billed amount, reseller/program discount, GCP cost, USD margin, HKD rates, HKD cost/revenue, HKD margin, raw row/item count, validation deltas, and source notes.
+- Use the historical summary workbook as an optional reference for month selection, rates, ordering, forecast rows, and validation deltas. Do not mirror its wide multi-month layout unless the user explicitly asks for that workbook-like shape.
 - Use per-account monthly cost-report workbooks for the service-charge and credits split when those reports are provided. The raw GCP export can validate net totals, but it may not preserve the same service-vs-credit presentation buckets.
 - Output should be a reviewable CSV or workbook under `artifacts/outputs/`, with a recognizable name such as `gcp_<month>_summary_demo.csv` or `gcp_<month>_management_summary.csv`.
-- Keep the output source-backed: name the source workbook/report used for each account, show the billing account IDs, and do not hide the rate assumptions.
+- Keep the output source-backed: name the source workbook/report used for each account, show the billing account IDs, include source notes, and do not hide the rate assumptions.
+- If no historical summary workbook is available, still produce the compact summary from the raw export and available customer reports. Leave reference-delta rows blank or mark them `not available`; do not invent reference values.
 - For the detailed contract and formulas, use `references/gcp-management-summary-csv.md`.
 
 ## Process
@@ -124,13 +129,15 @@ Output 3: management-summary CSV or workbook.
    - Produce a reviewable aggregated file and a template-like IBS upload workbook or CSV under `artifacts/outputs/`. The exact implementation can vary, but the output contract and artifact location cannot.
    - Use recognizable names such as `aggregated_cost_table.xlsx` and `IBS_ChargeItemUpload_GCP.xlsx` inside `artifacts/outputs/`.
 
-6. If a management-summary CSV is requested, map the selected month block before generating it.
-   - Identify the selected month from the summary workbook headers or the user's requested billing month; do not hardcode February or fixed columns.
-   - Map each month column by customer name, billing account ID, and charge type.
+6. If a management-summary CSV is requested, generate the compact metric-by-account summary.
+   - Identify the selected month from the user's requested billing month, the raw export dates, or the summary workbook headers when a reference workbook is available; do not hardcode February or fixed columns.
+   - Produce one account column per billing account and one `Total` column, with row labels in the first `Metric` column.
    - Pull the service-charge and savings split from matching monthly cost-report workbooks when they are available.
    - Pull reseller/program discount from normalized raw cost rows where `credit_type` is `RESELLER_MARGIN`, using unrounded cost.
    - Preserve explicit rates: the invoice column's HKD billed amount uses the month cost rate, cost-transfer columns use the revenue rate, and HKD GCP cost uses the month cost rate.
-   - Include a forecast block only when the reference summary has one or the user asks for it.
+   - Add validation rows for cost-report subtotal deltas, raw export net-cost deltas, and reference-summary HKD deltas when the relevant source exists.
+   - When a source is missing, keep the row shape stable and state the missing source in `Source notes`.
+   - Include forecast rows only when a reference summary has them or the user asks for them.
 
 7. Validate before treating the output as done.
    - Aggregated totals should reconcile to the raw cost table after footer rows such as `Rounding error` and `Total` are excluded.
@@ -163,10 +170,10 @@ Treat the GCP raw headers as stable ingestion labels, then normalize them into s
 Use an inspectable tabular transformation. Do not depend on workbook pivot labels, hidden cell formulas, generated table names, or extra runtime input files.
 ```
 
-For a historical management-summary CSV, extend the frame:
+For a management-summary CSV, extend the frame:
 
 ```text
-Recreate the selected month summary in the reference workbook's visible shape.
+Create a selected-month management summary as a compact metric-by-account table: Metric column, one billing-account column per account, and a Total column.
 
-Use the monthly customer cost reports for service-charge and savings buckets, use the raw GCP export for RESELLER_MARGIN/program discount validation, preserve the explicit HKD rates, and write the CSV under artifacts/outputs/.
+Use monthly customer cost reports for service-charge and savings buckets when available, use the raw GCP export for RESELLER_MARGIN/program discount validation, preserve explicit HKD rates, include source/validation rows, and write the CSV under artifacts/outputs/.
 ```
