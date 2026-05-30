@@ -76,6 +76,22 @@ class ArtifactMapResult(BaseModel):
     diagnostics: list[JsonObject] | None = Field(default=None, description="Non-fatal map issues such as unreadable managed files.")
 
 
+class ArtifactSearchResult(ArtifactCatalogPayload):
+    """Public response returned by mixed artifact search."""
+
+    query: str | None = Field(default=None, description="Search query.")
+    scope: str | None = Field(default=None, description="Searched artifact scope.")
+    regex: bool | None = Field(default=None, description="Whether the query was treated as a regular expression.")
+    case_sensitive: bool | None = Field(default=None, description="Whether matching was case-sensitive.")
+    max_matches: int | None = Field(default=None, ge=1, description="Maximum number of returned matches.")
+    artifact: str | None = Field(default=None, description="Optional SQLite artifact filter.")
+    search_result_count: int | None = Field(default=None, ge=0, description="Number of returned search results.")
+    search_results: list[JsonObject] | None = Field(default=None, description="Normalized search result payloads.")
+    search_results_truncated: bool | None = Field(default=None, description="Whether search results were truncated.")
+    diagnostics: list[JsonObject] | None = Field(default=None, description="Non-fatal search issues.")
+    summary: str | None = Field(default=None, description="Compact search summary.")
+
+
 def dump_sql_artifact_list_result(payload: dict[str, Any]) -> dict[str, Any]:
     """Validate and return a JSON-shaped artifact list payload."""
     return SqlArtifactListResult.model_validate(payload).model_dump(mode="json", exclude_none=True)
@@ -99,3 +115,8 @@ def dump_source_artifact_lookup_result(payload: dict[str, Any]) -> dict[str, Any
 def dump_artifact_map_result(payload: dict[str, Any]) -> dict[str, Any]:
     """Validate and return a JSON-shaped artifact map payload."""
     return ArtifactMapResult.model_validate(payload).model_dump(mode="json", exclude_none=True)
+
+
+def dump_artifact_search_result(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate and return a JSON-shaped artifact search payload."""
+    return ArtifactSearchResult.model_validate(payload).model_dump(mode="json", exclude_none=True)

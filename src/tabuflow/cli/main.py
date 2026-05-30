@@ -7,6 +7,7 @@ import json
 import sys
 from typing import Any
 
+from ..doctor import doctor
 from .commands.artifacts import add_artifacts_commands
 from .commands.email import add_email_commands
 from .commands.pdf import add_pdf_commands
@@ -25,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Inspect tabular/PDF/email sources and query prepared artifacts.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+    doctor_parser = subparsers.add_parser("doctor", help="Check local Tabuflow tool dependencies.")
+    doctor_parser.set_defaults(handler=lambda _: doctor())
     add_tabular_commands(subparsers)
     add_pdf_commands(subparsers)
     add_email_commands(subparsers)

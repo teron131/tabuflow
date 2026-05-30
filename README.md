@@ -10,6 +10,14 @@ Run from the project root:
 uv run tabuflow ...
 ```
 
+Check local command dependencies:
+
+```bash
+uv run tabuflow doctor
+```
+
+`artifacts search` uses `rg`/ripgrep for managed-file search. `doctor` reports install guidance when `rg` is missing; it does not install system packages.
+
 To use `tabuflow` from other workspaces, install it once with `uv tool install /path-to-this-repo-tabuflow`.
 
 Artifacts live under `./artifacts/`:

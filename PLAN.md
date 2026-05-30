@@ -29,7 +29,7 @@ Compatibility and cleanup:
 - Do not add a separate `grep` tool; use `artifacts search --scope rows|files|metadata|all`.
 - Do not add `artifacts profile` yet. Search results should include enough bounded context to avoid a search -> profile-one-by-one loop.
 - Do not implement `artifacts sql ...` yet. Leave that namespace for future cleanup.
-- Do not generalize non-JSON/human-readable output formats in this pass. Keep `map`'s existing pretty CLI trace as a narrow exception, and make new `search`, `add`, and `remove` commands JSON payloads first.
+- Do not generalize non-JSON/human-readable output formats in this pass. Keep `map`'s pretty CLI trace and `search`'s rg-like CLI output as narrow exceptions; leave broader output formatting for later.
 
 ## Mental Model
 
@@ -47,7 +47,7 @@ Clean layers:
 
 - **SQLite layer:** extracted raw tables, typed views, saved views, source lineage, fingerprints, relationship metadata.
 - **Filesystem layer:** SQL files, output files, PDF workspaces, PDF text, manifests, CSV table drafts.
-- **Adapter layer:** uses SQLite for DB-backed artifacts and `rg` for text files.
+- **Adapter layer:** uses SQLite for DB-backed artifacts and line-oriented CLI text search for files. Prefer supported `rg`; use `grep` as a compatible fallback; use bounded Python UTF-8 scanning only as the last degraded fallback.
 - **Normalization layer:** returns one stable result shape with backend-native match details plus bounded artifact context.
 
 ## `artifacts map`
@@ -103,9 +103,15 @@ Public defaults:
 
 Backend behavior:
 
-- Filesystem text uses `rg --json`.
-- Literal file search uses `rg -F --json`.
-- Regex file search uses `rg --json -e`.
+- Public usage is backend-neutral. Callers pass the same `artifacts search <query>` options regardless of whether the file backend is `rg`, `grep`, or Python.
+- Default CLI success output should be compact and rg-like. Keep `--json` for structured tool payloads and keep errors JSON-shaped.
+- Structured results should stay compact: no giant column lists, duplicate source path arrays, match length bookkeeping, or bulky matched-field expansions in normal search output.
+- Filesystem text uses `rg --json` as the supported backend, with backend-specific flags hidden inside the adapter.
+- `rg` normally respects `.gitignore`; artifact search should search managed artifact directories anyway, so the `rg` adapter opts out of ignore rules and relies on Tabuflow's own managed-file skip list.
+- Literal file search is the default portable contract across all file backends.
+- Regex file search is enabled only by `--regex`; `rg` is authoritative when available, and fallback backends should preserve the same Tabuflow option shape while reporting diagnostics when backend regex behavior may differ.
+- If `rg` is missing or fails, file search should try `grep` as the compatible line-search backend, then a bounded Python UTF-8 fallback. The search command should still return `status: ok` with diagnostics when a fallback works.
+- `tabuflow doctor` should still report missing `rg` as an error because `rg` is the required supported dependency.
 - SQLite metadata search uses generated read-only SQL with quoted identifiers and bound parameters.
 - SQLite row search uses bounded SQL predicates across selected text-ish columns.
 - SQLite regex mode registers a local Python `REGEXP` function on the search connection.
@@ -259,16 +265,15 @@ Rough future direction:
 - Create: `src/tabuflow/artifacts/search.py`
 - Modify: `src/tabuflow/artifacts/schemas.py`
 - Modify: `src/tabuflow/artifacts/__init__.py`
-- Test: `test_artifacts_workspace_tools.py`
 
-- [ ] Implement SQLite metadata search.
-- [ ] Implement bounded SQLite row-value search.
-- [ ] Implement filesystem text search through `rg --json`.
-- [ ] Add bounded Python UTF-8 fallback if `rg` is unavailable.
-- [ ] Support `--scope metadata|rows|files|all`.
-- [ ] Support literal default and explicit `--regex`.
-- [ ] Return backend-native match details plus normalized artifact context.
-- [ ] Add tests for one search returning metadata, row-value, and SQL-file matches.
+- [x] Implement SQLite metadata search.
+- [x] Implement bounded SQLite row-value search.
+- [x] Implement filesystem text search through `rg --json`.
+- [x] Treat `rg` as the required managed-file search dependency and expose install guidance through `tabuflow doctor`.
+- [x] Support `--scope metadata|rows|files|all`.
+- [x] Support literal default and explicit `--regex`.
+- [x] Return backend-native match details plus normalized artifact context.
+- [x] Let `--scope all` query every selected backend before global ranking/truncation.
 
 ### Task 3: Add
 
@@ -303,11 +308,12 @@ Rough future direction:
 **Files:**
 - Modify: `src/tabuflow/cli/commands/artifacts.py`
 - Modify: `src/tabuflow/mcp/server.py`
-- Test: `test_artifacts_workspace_tools.py`
 
 - [x] Add CLI command for `map`.
-- [ ] Add CLI commands for `search`, `add`, and `remove`.
-- [ ] Add MCP tools for `artifacts_map`, `artifacts_search`, `artifacts_add`, and `artifacts_remove`.
+- [ ] Add CLI commands for `add` and `remove`.
+- [x] Add CLI command for `search`.
+- [x] Add MCP tool for `artifacts_search`.
+- [ ] Add MCP tools for `artifacts_map`, `artifacts_add`, and `artifacts_remove`.
 - [ ] Keep `query`, `save-view`, and temporary `from-source` working.
 - [ ] Remove or de-emphasize `suggest` from public docs/tool guidance once search replaces it.
 - [x] Let `artifacts map` print pretty output on success while keeping JSON errors.
@@ -323,7 +329,7 @@ Rough future direction:
 - Modify: `src/backend/agents/query_stage/prompts.py`
 
 - [ ] Document map as the overview tool.
-- [ ] Document search as the retriever over SQLite and filesystem artifacts.
+- [x] Document search as the retriever over SQLite and filesystem artifacts.
 - [ ] Document add/remove as scoped management operations.
 - [ ] Document query/save-view as the current SQL execution and persistence tools.
 - [ ] Remove `suggest` from recommended workflows.
@@ -336,15 +342,14 @@ Rough future direction:
 - [x] Run whitespace check: `git diff --check`.
 - [x] Run actual map smoke check: `uv run tabuflow artifacts map`.
 - [x] Run direct map diagnostic probe for an unreadable managed SQL file.
-- [ ] Run `uv run ruff check src/tabuflow/artifacts src/tabuflow/cli src/tabuflow/mcp src/backend/agents --fix`.
-- [ ] Run `uv run ruff format src/tabuflow/artifacts src/tabuflow/cli src/tabuflow/mcp src/backend/agents test_artifacts_workspace_tools.py`.
-- [ ] Run `uv run python -m pytest test_artifacts_workspace_tools.py`.
+- [x] Run targeted `uv run ruff check` for search/doctor/CLI/MCP/schema files.
+- [x] Run targeted `uv run ruff format --check` for search/doctor/CLI/MCP/schema files.
 - [ ] Run manual smoke checks:
 
 ```bash
 uv run tabuflow artifacts map
-uv run tabuflow artifacts search "billing cost"
-uv run tabuflow artifacts search "HKT-IAD" --scope rows --max-matches 5
+uv run tabuflow artifacts search "Cost ($)" --max-matches 5
+uv run tabuflow artifacts search "HKT-IAD" --scope rows --artifact cost_table_typed --max-matches 5
 uv run tabuflow artifacts add examples/gcp/cost_table.csv
 uv run tabuflow artifacts remove cost_table_typed --dry-run
 ```

@@ -13,6 +13,7 @@ from tabuflow.artifacts import (
     list_sql_artifacts,
     run_query,
     save_view,
+    search_artifacts,
 )
 from tabuflow.cli.paths import read_sql_argument, resolve_cli_path, resolve_sql_argument_path
 from tabuflow.cli.pdf_spec import pdf_extract_spec_from_args
@@ -294,6 +295,28 @@ def create_mcp_server() -> FastMCP:
                 name,
                 sample_rows=sample_rows,
                 text_value_hints=text_value_hints,
+            )
+        )
+
+    @mcp.tool(name="artifacts_search", description="Search SQLite artifact metadata, row values, and managed artifact files.")
+    def artifacts_search(
+        query: str,
+        scope: Literal["metadata", "rows", "files", "all"] = "all",
+        artifact: str | None = None,
+        regex: bool = False,
+        max_matches: int = 20,
+        include_internal: bool = False,
+        case_sensitive: bool | None = None,
+    ) -> dict[str, Any]:
+        return with_artifact_workspace(
+            search_artifacts(
+                query,
+                scope=scope,
+                artifact=artifact,
+                regex=regex,
+                max_matches=max_matches,
+                include_internal=include_internal,
+                case_sensitive=case_sensitive,
             )
         )
 
