@@ -16,6 +16,7 @@ from .database import (
     resolve_db_path,
     run_query,
 )
+from .map import format_artifact_map, map_artifacts
 from .naming import ArtifactNamerFn, build_sql_artifact_namer, name_sql_artifact, normalize_source_filename, normalize_source_stem
 from .repair import (
     inspect_sql_artifact_schema,
@@ -33,8 +34,10 @@ __all__ = [
     "build_sql_artifact_namer",
     "classify_sql_artifact",
     "describe_sql_artifact",
+    "format_artifact_map",
     "inspect_sql_artifact_schema",
     "list_sql_artifacts",
+    "map_artifacts",
     "name_sql_artifact",
     "normalize_source_filename",
     "normalize_source_stem",

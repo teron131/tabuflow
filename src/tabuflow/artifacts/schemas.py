@@ -64,6 +64,17 @@ class SourceArtifactLookupResult(ArtifactCatalogPayload):
     summary: str | None = Field(default=None, description="Compact source artifact summary.")
 
 
+class ArtifactMapResult(BaseModel):
+    """Public response returned by artifact workspace mapping."""
+
+    model_config = ConfigDict(extra="allow")
+
+    status: Literal["ok", "error"] | None = Field(default=None, description="Catalog operation status.")
+    database_path: str | None = Field(default=None, description="SQLite database path when known.")
+    artifact_traces: list[JsonObject] | None = Field(default=None, description="Input file to table to SQL file to SQL result trace.")
+    unlinked_files: JsonObject | None = Field(default=None, description="Managed artifact file paths not linked into the trace.")
+
+
 def dump_sql_artifact_list_result(payload: dict[str, Any]) -> dict[str, Any]:
     """Validate and return a JSON-shaped artifact list payload."""
     return SqlArtifactListResult.model_validate(payload).model_dump(mode="json", exclude_none=True)
@@ -82,3 +93,8 @@ def dump_sql_artifact_suggestion_result(payload: dict[str, Any]) -> dict[str, An
 def dump_source_artifact_lookup_result(payload: dict[str, Any]) -> dict[str, Any]:
     """Validate and return a JSON-shaped source artifact lookup payload."""
     return SourceArtifactLookupResult.model_validate(payload).model_dump(mode="json", exclude_none=True)
+
+
+def dump_artifact_map_result(payload: dict[str, Any]) -> dict[str, Any]:
+    """Validate and return a JSON-shaped artifact map payload."""
+    return ArtifactMapResult.model_validate(payload).model_dump(mode="json", exclude_none=True)

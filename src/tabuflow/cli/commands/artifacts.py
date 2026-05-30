@@ -9,7 +9,9 @@ from ...artifacts import (
     SQL_ARTIFACT_LIST_DETAILS,
     artifacts_from_source,
     describe_sql_artifact,
+    format_artifact_map,
     list_sql_artifacts,
+    map_artifacts,
     run_query,
     save_view,
     suggest_sql_artifacts,
@@ -19,6 +21,14 @@ from ..paths import (
     resolve_cli_path,
     resolve_sql_argument_path,
 )
+
+
+def _handle_artifacts_map(args: Any) -> dict[str, Any] | str:
+    """Return pretty map output, leaving error payloads as JSON."""
+    payload = map_artifacts(include_internal=args.include_internal)
+    if payload.get("status") == "error":
+        return payload
+    return format_artifact_map(payload)
 
 
 def add_artifacts_query_command(artifacts_subparsers: Any) -> None:
@@ -64,6 +74,13 @@ def add_artifacts_list_command(artifacts_subparsers: Any) -> None:
             detail=args.detail,
         )
     )
+
+
+def add_artifacts_map_command(artifacts_subparsers: Any) -> None:
+    """Add the mixed artifact workspace map command."""
+    map_command = artifacts_subparsers.add_parser("map", help="Trace input files to tables, SQL files, and result files.")
+    map_command.add_argument("--include-internal", action="store_true")
+    map_command.set_defaults(handler=_handle_artifacts_map)
 
 
 def add_artifacts_from_source_command(artifacts_subparsers: Any) -> None:
@@ -118,6 +135,7 @@ def add_artifacts_commands(subparsers: Any) -> None:
 
     add_artifacts_query_command(artifacts_subparsers)
     add_artifacts_save_view_command(artifacts_subparsers)
+    add_artifacts_map_command(artifacts_subparsers)
     add_artifacts_list_command(artifacts_subparsers)
     add_artifacts_from_source_command(artifacts_subparsers)
     add_artifacts_suggest_command(artifacts_subparsers)

@@ -47,7 +47,10 @@ def main(argv: list[str] | None = None) -> int:
             }
         )
         return 1
-    print_json(payload)
+    if isinstance(payload, str):
+        print(payload)
+    else:
+        print_json(payload)
     return 1 if isinstance(payload, dict) and payload.get("status") == "error" else 0
 
 
