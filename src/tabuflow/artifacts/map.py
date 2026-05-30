@@ -36,6 +36,20 @@ def _compact_path(path_text: str, *, workspace_dir: Path) -> str:
         return str(path)
 
 
+def _map_diagnostic(
+    *,
+    kind: str,
+    path: str,
+    message: str,
+) -> dict[str, str]:
+    """Return one non-fatal map diagnostic."""
+    return {
+        "kind": kind,
+        "path": path,
+        "message": message,
+    }
+
+
 def _artifact_files() -> ArtifactMapFiles:
     """Return managed SQL, output, and PDF workspace paths."""
     workspace = artifact_workspace()
@@ -73,23 +87,37 @@ def _sql_references(
     *,
     catalog: DatabaseCatalog | None,
     include_internal: bool,
-) -> dict[str, list[str]]:
+) -> tuple[
+    dict[str, list[str]],
+    list[dict[str, str]],
+]:
     """Return SQL file paths keyed by referenced table/view name."""
     if catalog is None:
-        return {}
+        return {}, []
 
     workspace = artifact_workspace()
     visible_names = {artifact.name for artifact in catalog.visible_sql_artifacts(include_internal=include_internal)}
     sql_by_table: dict[str, list[str]] = {}
+    diagnostics: list[dict[str, str]] = []
     for sql_path in sql_paths:
-        sql = (workspace.workspace_dir / sql_path).read_text(encoding="utf-8", errors="replace")
+        try:
+            sql = (workspace.workspace_dir / sql_path).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            diagnostics.append(
+                _map_diagnostic(
+                    kind="unreadable_sql_file",
+                    path=sql_path,
+                    message=str(exc),
+                )
+            )
+            continue
         for table_name in referenced_artifact_names(
             sql,
             available_artifact_names=visible_names,
             current_artifact_name="",
         ):
             sql_by_table.setdefault(table_name, []).append(sql_path)
-    return sql_by_table
+    return sql_by_table, diagnostics
 
 
 def _results_by_sql(
@@ -103,19 +131,35 @@ def _results_by_sql(
     return {sql_path: outputs_by_stem.get(Path(sql_path).stem, []) for sql_path in sql_paths}
 
 
-def _pdf_workspaces_by_source(pdf_workspace_paths: list[str]) -> dict[str, list[str]]:
+def _pdf_workspaces_by_source(
+    pdf_workspace_paths: list[str],
+) -> tuple[
+    dict[str, list[str]],
+    list[dict[str, str]],
+]:
     """Return PDF workspace paths keyed by manifest source path."""
     workspace = artifact_workspace()
     workspaces_by_source: dict[str, list[str]] = {}
+    diagnostics: list[dict[str, str]] = []
     for pdf_workspace_path in pdf_workspace_paths:
         manifest_path = workspace.workspace_dir / pdf_workspace_path / "manifest.json"
         if not manifest_path.is_file():
             continue
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            diagnostics.append(
+                _map_diagnostic(
+                    kind="unreadable_pdf_manifest",
+                    path=str(manifest_path.relative_to(workspace.workspace_dir)),
+                    message=str(exc),
+                )
+            )
+            continue
         source_path = str(manifest.get("source_path") or "").strip()
         if source_path:
             workspaces_by_source.setdefault(source_path, []).append(pdf_workspace_path)
-    return workspaces_by_source
+    return workspaces_by_source, diagnostics
 
 
 def _preferred_sql_artifacts(catalog_artifacts: list[SqlArtifactInfo]) -> list[tuple[SqlArtifactInfo, SqlArtifactInfo | None]]:
@@ -266,6 +310,14 @@ def format_artifact_map(payload: dict[str, Any]) -> str:
         lines.append("UNLINKED")
         lines.extend(unlinked_lines)
 
+    diagnostics = payload.get("diagnostics") or []
+    if diagnostics:
+        if lines:
+            lines.append("")
+        lines.append("DIAGNOSTICS")
+        for diagnostic in diagnostics:
+            lines.append(f"  {diagnostic.get('kind', 'warning')} {diagnostic.get('path', '')}: {diagnostic.get('message', '')}")
+
     return "\n".join(lines).rstrip() or "no_artifact_traces"
 
 
@@ -279,13 +331,13 @@ def map_artifacts(
     try:
         catalog = database_catalog(database_path) if database_path.exists() else None
         artifact_files = _artifact_files()
-        sql_by_table = _sql_references(
+        sql_by_table, sql_diagnostics = _sql_references(
             artifact_files.sql_files,
             catalog=catalog,
             include_internal=include_internal,
         )
         results_by_sql = _results_by_sql(artifact_files.sql_files, artifact_files.output_files)
-        pdf_workspaces_by_source = _pdf_workspaces_by_source(artifact_files.pdf_workspaces)
+        pdf_workspaces_by_source, pdf_diagnostics = _pdf_workspaces_by_source(artifact_files.pdf_workspaces)
         trace = _trace_tree(
             catalog,
             database_path=workspace.relative_path(database_path),
@@ -297,12 +349,15 @@ def map_artifacts(
         linked_sql, linked_outputs, linked_pdf_workspaces = _linked_paths(trace)
         return dump_artifact_map_result(
             {
+                "status": "ok",
+                "database_path": workspace.relative_path(database_path),
                 "artifact_traces": trace,
                 "unlinked_files": {
                     "sql_files": [path for path in artifact_files.sql_files if path not in linked_sql],
                     "sql_results": [path for path in artifact_files.output_files if path not in linked_outputs],
                     "pdf_workspaces": [path for path in artifact_files.pdf_workspaces if path not in linked_pdf_workspaces],
                 },
+                "diagnostics": sql_diagnostics + pdf_diagnostics,
             }
         )
     except ValueError as exc:

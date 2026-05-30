@@ -69,10 +69,11 @@ class ArtifactMapResult(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    status: Literal["ok", "error"] | None = Field(default=None, description="Catalog operation status.")
+    status: Literal["ok", "error"] = Field(description="Catalog operation status.")
     database_path: str | None = Field(default=None, description="SQLite database path when known.")
     artifact_traces: list[JsonObject] | None = Field(default=None, description="Input file to table to SQL file to SQL result trace.")
     unlinked_files: JsonObject | None = Field(default=None, description="Managed artifact file paths not linked into the trace.")
+    diagnostics: list[JsonObject] | None = Field(default=None, description="Non-fatal map issues such as unreadable managed files.")
 
 
 def dump_sql_artifact_list_result(payload: dict[str, Any]) -> dict[str, Any]:
